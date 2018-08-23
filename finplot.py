@@ -11,6 +11,8 @@ region.
 '''
 
 from datetime import datetime
+from functools import partial
+from math import log10, floor
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
@@ -20,9 +22,15 @@ from pyqtgraph import QtCore, QtGui
 legend_border_color = '#000000dd'
 legend_fill_color   = '#00000088'
 legend_text_color   = '#dddddd66'
-prev_ax = None
+odd_plot_background = '#f0f0f0'
+band_color = '#aabbdd'
+cross_hair_color = '#555555aa'
+significant_digits = 8
 
-_epoch2local = lambda t: datetime.fromtimestamp(t).isoformat().replace('T',' ')
+prev_ax = None
+pre_win = None
+
+_epoch2local = lambda t: datetime.fromtimestamp(t).isoformat().replace('T',' ').rsplit(':',1)[0]
 
 
 
@@ -111,6 +119,35 @@ class PandasDataSource:
 
 
 
+class FinCrossHair:
+    def __init__(self, ax, color):
+        self.ax = ax
+        self.vline = pg.InfiniteLine(angle=90, movable=False, pen=color)
+        self.hline = pg.InfiniteLine(angle=0, movable=False, pen=color)
+        self.xtext = pg.TextItem(color=color, anchor=(0,1))
+        self.ytext = pg.TextItem(color=color, anchor=(0,0))
+        self.vline.setZValue(5)
+        self.hline.setZValue(5)
+        self.xtext.setZValue(5)
+        self.ytext.setZValue(5)
+        ax.addItem(self.vline, ignoreBounds=True)
+        ax.addItem(self.hline, ignoreBounds=True)
+        ax.addItem(self.xtext, ignoreBounds=True)
+        ax.addItem(self.ytext, ignoreBounds=True)
+
+    def update(self, pos):
+        point = self.ax.vb.mapSceneToView(pos)
+        self.vline.setPos(point.x())
+        self.hline.setPos(point.y())
+        self.xtext.setPos(point)
+        self.ytext.setPos(point)
+        space = '          '
+        self.xtext.setText(space + _epoch2local(point.x()))
+        value = _round_to_significant(point.y(), significant_digits)
+        self.ytext.setText(space + value)
+
+
+
 class FinLegendItem(pg.LegendItem):
     def __init__(self, border_color, fill_color, **kwargs):
         super().__init__(**kwargs)
@@ -132,7 +169,6 @@ class FinViewBox(pg.ViewBox):
         self.win = win
         self.set_datasrc(None)
         self.setMouseEnabled(x=True, y=False)
-        self.auto_scale_y = True
         self.init_steps = init_steps
         self.heavies = []
         self.heavies_blind_cnt = 50
@@ -148,7 +184,7 @@ class FinViewBox(pg.ViewBox):
         x1 = datasrc.get_time(offset_from_end=0, period=+0.5)
         t0,t1,hi,lo,cnt = self.datasrc.hilo(x0, x1)
         if cnt >= 20:
-            self.setRange(QtCore.QRectF(pg.Point(t0, lo), pg.Point(t1, hi)), padding=0)
+            self._setRange(t0, lo, t1, hi)
 
     def add_heavy_item(self, item):
         item.setVisible(False)
@@ -187,6 +223,8 @@ class FinViewBox(pg.ViewBox):
         self._setRange(x0, lo, x1, hi)
 
     def _setRange(self, x0, y0, x1, y1):
+        if np.isnan(y0) or np.isnan(y1):
+            return
         for item in self.heavies:
             item.setVisible(False) # deferred rendering for zoom+pan performance
         self.setRange(QtCore.QRectF(pg.Point(x0, y0), pg.Point(x1, y1)), padding=0)
@@ -227,17 +265,18 @@ class CandlestickItem(FinPlotItem):
     def generatePicture(self):
         self.picture = QtGui.QPicture()
         p = QtGui.QPainter(self.picture)
-        w = self.datasrc.period / 3
+        w = self.datasrc.period * 0.7
+        w2 = w / 2
         p.setPen(pg.mkPen(self.bear_color))
         p.setBrush(pg.mkBrush(self.bear_color))
         for t,open,close,high,low in self.datasrc.bear_rows():
-            p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
-            p.drawRect(QtCore.QRectF(t-w, open, w*2, close-open))
+            p.drawLine(QtCore.QPointF(t+w2, low), QtCore.QPointF(t+w2, high))
+            p.drawRect(QtCore.QRectF(t, open, w, close-open))
         p.setPen(pg.mkPen(self.bull_color))
         p.setBrush(pg.mkBrush(self.bull_color))
         for t,open,close,high,low in self.datasrc.bull_rows():
-            p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
-            p.drawRect(QtCore.QRectF(t-w, open, w*2, close-open))
+            p.drawLine(QtCore.QPointF(t+w2, low), QtCore.QPointF(t+w2, high))
+            p.drawRect(QtCore.QRectF(t, open, w, close-open))
         p.end()
 
 
@@ -253,17 +292,18 @@ class VolumeItem(FinPlotItem):
         p.setPen(pg.mkPen(self.bear_color))
         p.setBrush(pg.mkBrush(self.bear_color))
         for t,open,close,volume in self.datasrc.bear_rows():
-            p.drawRect(QtCore.QRectF(t-w, 0, w, volume))
+            p.drawRect(QtCore.QRectF(t, 0, w, volume))
         p.setPen(pg.mkPen(self.bull_color))
         p.setBrush(pg.mkBrush(self.bull_color))
         for t,open,close,volume in self.datasrc.bull_rows():
-            p.drawRect(QtCore.QRectF(t-w, 0, w, volume))
+            p.drawRect(QtCore.QRectF(t, 0, w, volume))
         p.end()
 
 
 
 def create_plot(title=None, rows=1, init_zoom_periods=300, maximize=True):
-    win = pg.GraphicsWindow(title=title)
+    global prev_win
+    prev_win = win = pg.GraphicsWindow(title=title)
     if maximize:
         win.showMaximized()
     # normally first graph is of higher significance, so enlarge
@@ -272,6 +312,7 @@ def create_plot(title=None, rows=1, init_zoom_periods=300, maximize=True):
     for n in range(rows):
         viewbox = FinViewBox(win, init_steps=init_zoom_periods)
         axs += [add_timestamp_plot(win, viewbox, n)]
+    win.proxy = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=60, slot=partial(_mouse_moved, win))
     return axs
 
 
@@ -283,17 +324,24 @@ def add_timestamp_plot(win, viewbox, n):
     ax = pg.PlotItem(viewBox=viewbox, axisItems={'bottom': EpochAxisItem(orientation='bottom')}, name='plot-%i'%n)
     ax.axes['left']['item'].setZValue(10) # put axis in front instead of behind data
     ax.axes['bottom']['item'].setZValue(10)
+    ax.crosshair = FinCrossHair(ax, color=cross_hair_color)
     prev_ax = ax
     if n%2:
-        viewbox.setBackgroundColor((240,240,240))
+        viewbox.setBackgroundColor(odd_plot_background)
     viewbox.setParent(ax)
     win.addItem(ax)
     return ax
 
 
 def set_y_range(ax, ymin, ymax):
-    ax.vb.auto_scale_y = False
     ax.setLimits(yMin=ymin, yMax=ymax)
+
+
+def add_band(ax, y0, y1, color=band_color):
+    ax.vb.setBackgroundColor(None)
+    lr = pg.LinearRegionItem([y0,y1], orientation=pg.LinearRegionItem.Horizontal, brush=pg.mkBrush(color), movable=False)
+    lr.setZValue(-10)
+    ax.addItem(lr)
 
 
 def update_datasrc(ax, datasrc):
@@ -301,7 +349,7 @@ def update_datasrc(ax, datasrc):
     if viewbox.datasrc is None:
         viewbox.set_datasrc(datasrc) # for mwheel zoom-scaling
         x0 = datasrc.get_time(1e20, period=-0.5)
-        x1 = datasrc.get_time(0, period=+0.5)
+        x1 = datasrc.get_time(0, period=+1.0)
         ax.setLimits(xMin=x0, xMax=x1)
     else:
         viewbox.datasrc.addcols(datasrc.df)
@@ -366,14 +414,25 @@ def plot_datasrc(datasrc, color='#000000', ax=None, style=None, legend=None):
     return item
 
 
+def show():
+    QtGui.QApplication.instance().exec_()
+
+
+def _mouse_moved(win, ev):
+    pos = ev[0]
+    for ax in win.ci.items:
+        ax.crosshair.update(pos)
+
+
 def _pdtime2epoch(t):
     if type(t) is pd.Series and type(t.iloc[0]) is pd.Timestamp:
         return t.astype('int64') // int(1e9)
     return t
 
 
-def show():
-    QtGui.QApplication.instance().exec_()
+def _round_to_significant(x, num_significant):
+    x = round(x, num_significant-1-int(floor(log10(abs(x)))))
+    return ('%f' % x)[:num_significant+1]
 
 
 # default to black-on-white
