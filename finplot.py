@@ -43,7 +43,9 @@ class PandasDataSource:
         self.df = df.copy()
         timecol = self.df.columns[0]
         self.df[timecol] = _pdtime2epoch(df[timecol])
-        self.skip_scale_colcnt = 1 # skip at least time, for candle sticks volume we also skip open and close
+        self.skip_scale_colcnt = 1 # skip at least time for hi/lo, for candle sticks+volume we also skip open and close
+        self.cache_hilo_query = ''
+        self.cache_hilo_answer = None
 
     @property
     def period(self):
@@ -76,9 +78,18 @@ class PandasDataSource:
 
     def hilo(self, x0, x1):
         '''Return five values in time range: t0, t1, highest, lowest, number of rows.'''
+        query = '%.9g,%.9g' % (x0,x1)
+        if query != self.cache_hilo_query:
+            self.cache_hilo_query = query
+            self.cache_hilo_answer = self._hilo(x0, x1)
+        return self.cache_hilo_answer
+
+    def _hilo(self, x0, x1):
         df = self.df
         timecol = df.columns[0]
         df = df.loc[((df[timecol]>=x0)&(df[timecol]<=x1)), :]
+        if not len(df):
+            return 0,0,0,0,0
         t0 = df[timecol].iloc[0]
         t1 = df[timecol].iloc[-1]
         valcols = df.columns[self.skip_scale_colcnt:]
@@ -116,21 +127,33 @@ class FinLegendItem(pg.LegendItem):
 
 
 class FinViewBox(pg.ViewBox):
-    def __init__(self, win, *args, **kwargs):
+    def __init__(self, win, init_steps=300, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.win = win
         self.set_datasrc(None)
         self.setMouseEnabled(x=True, y=False)
         self.auto_scale_y = True
+        self.init_steps = init_steps
+        self.heavies = []
+        self.heavies_blind_cnt = 50
+        self.heavies_timer = QtCore.QTimer()
+        self.heavies_timer.timeout.connect(self.show_heavies)
+        self.heavies_timer.start(50)
 
-    def set_datasrc(self, datasrc, init_steps=300):
+    def set_datasrc(self, datasrc):
         self.datasrc = datasrc
         if not self.datasrc:
             return
-        x0 = datasrc.get_time(offset_from_end=init_steps, period=-0.5)
+        x0 = datasrc.get_time(offset_from_end=self.init_steps, period=-0.5)
         x1 = datasrc.get_time(offset_from_end=0, period=+0.5)
         t0,t1,hi,lo,cnt = self.datasrc.hilo(x0, x1)
-        self.setRange(QtCore.QRectF(pg.Point(t0, lo), pg.Point(t1, hi)), padding=0)
+        if cnt >= 20:
+            self.setRange(QtCore.QRectF(pg.Point(t0, lo), pg.Point(t1, hi)), padding=0)
+
+    def add_heavy_item(self, item):
+        item.setVisible(False)
+        self.heavies.append(item)
+        self.heavies_blind_cnt = 50
 
     def wheelEvent(self, ev, axis=None):
         scale_fact = 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
@@ -143,16 +166,10 @@ class FinViewBox(pg.ViewBox):
         self.scaleRect(vr, scale_fact, center)
         ev.accept()
 
-    def scale(self, scale_fact):
-        self.scaleRect(vr, scale_fact, None)
-
     def linkedViewChanged(self, view, axis):
-        if view is not None:
-            tr = self.targetRect()
-            vr = view.viewRect()
-            if not self.auto_scale_y:
-                vr = QtCore.QRectF(pg.Point(vr.left(), tr.top()), pg.Point(vr.right(), tr.bottom()))
-            self.scaleRect(vr, 1.0)
+        tr = self.targetRect()
+        vr = view.viewRect() if view else tr
+        self.scaleRect(vr, 1.0)
 
     def scaleRect(self, vr, scale_fact, center=None):
         if not self.datasrc:
@@ -167,10 +184,20 @@ class FinViewBox(pg.ViewBox):
             return
         x0 = t0 - self.datasrc.period*0.5
         x1 = t1 + self.datasrc.period*0.5
-        if not self.auto_scale_y:
-            lo = vr.top()
-            hi = vr.bottom()
-        self.setRange(QtCore.QRectF(pg.Point(x0, lo), pg.Point(x1, hi)), padding=0)
+        self._setRange(x0, lo, x1, hi)
+
+    def _setRange(self, x0, y0, x1, y1):
+        for item in self.heavies:
+            item.setVisible(False) # deferred rendering for zoom+pan performance
+        self.setRange(QtCore.QRectF(pg.Point(x0, y0), pg.Point(x1, y1)), padding=0)
+        self.heavies_blind_cnt = 2 # unblind in this many ticks
+
+    def show_heavies(self):
+        self.heavies_blind_cnt -= 1
+        if self.heavies_blind_cnt != 0:
+            return
+        for item in self.heavies:
+            item.setVisible(True)
 
     def suggestPadding(self, axis):
         return 0
@@ -235,7 +262,7 @@ class VolumeItem(FinPlotItem):
 
 
 
-def create_plot(title=None, rows=1, maximize=True):
+def create_plot(title=None, rows=1, init_zoom_periods=300, maximize=True):
     win = pg.GraphicsWindow(title=title)
     if maximize:
         win.showMaximized()
@@ -243,7 +270,7 @@ def create_plot(title=None, rows=1, maximize=True):
     win.ci.layout.setRowStretchFactor(0, 3)
     axs = []
     for n in range(rows):
-        viewbox = FinViewBox(win)
+        viewbox = FinViewBox(win, init_steps=init_zoom_periods)
         axs += [add_timestamp_plot(win, viewbox, n)]
     return axs
 
@@ -257,8 +284,6 @@ def add_timestamp_plot(win, viewbox, n):
     ax.axes['left']['item'].setZValue(10) # put axis in front instead of behind data
     ax.axes['bottom']['item'].setZValue(10)
     prev_ax = ax
-    if n:
-        ax.setXLink('plot-0')
     if n%2:
         viewbox.setBackgroundColor((240,240,240))
     viewbox.setParent(ax)
@@ -268,7 +293,7 @@ def add_timestamp_plot(win, viewbox, n):
 
 def set_y_range(ax, ymin, ymax):
     ax.vb.auto_scale_y = False
-    ax.setYRange(ymin, ymax, padding=0)
+    ax.setLimits(yMin=ymin, yMax=ymax)
 
 
 def update_datasrc(ax, datasrc):
@@ -284,6 +309,15 @@ def update_datasrc(ax, datasrc):
         viewbox.set_datasrc(viewbox.datasrc) # update zoom
 
 
+def update_main_plot(ax):
+    '''The first plot to add some data is the leader. All other's X-axis will follow this one.'''
+    if ax.vb.linkedView(0):
+        return
+    for ax_ in ax.vb.win.ci.items:
+        if ax_.vb.name != ax.vb.name:
+            ax_.setXLink(ax.vb.name)
+
+
 def candlestick_ochl(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None):
     if ax is None:
         ax = create_plot(maximize=False)
@@ -291,6 +325,9 @@ def candlestick_ochl(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=Non
     update_datasrc(ax, datasrc)
     item = CandlestickItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color)
     ax.addItem(item)
+    ax.vb.add_heavy_item(item) # heavy = deferred rendering
+    update_main_plot(ax)
+    return item
 
 
 def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None):
@@ -298,26 +335,35 @@ def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None):
         ax = create_plot(maximize=False)
     datasrc.skip_scale_colcnt = 3 # skip open+close for scaling
     update_datasrc(ax, datasrc)
-    bg = VolumeItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color)
-    ax.addItem(bg)
+    item = VolumeItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color)
+    ax.addItem(item)
+    ax.vb.add_heavy_item(item) # heavy = deferred rendering
+    update_main_plot(ax)
+    return item
 
 
 def plot(x, y, color='#000000', ax=None, style=None, legend=None):
+    datasrc = PandasDataSource(pd.concat([x,y], axis=1))
+    return plot_datasrc(datasrc, color=color, ax=ax, style=style, legend=legend)
+
+
+def plot_datasrc(datasrc, color='#000000', ax=None, style=None, legend=None):
     if ax is None:
         ax = create_plot(maximize=False)
-    datasrc = PandasDataSource(pd.concat([x,y], axis=1))
     update_datasrc(ax, datasrc)
     if legend is not None and ax.legend is None:
         ax.legend = FinLegendItem(border_color=legend_border_color, fill_color=legend_fill_color, size=None, offset=(3,2))
         ax.legend.setParentItem(ax.vb)
     if style is None or style=='-':
-        ax.plot(datasrc.x, datasrc.y, pen=pg.mkPen(color), name=legend)
+        item = ax.plot(datasrc.x, datasrc.y, pen=pg.mkPen(color), name=legend)
     else:
         symbol = {'v':'t', '^':'t1', '>':'t2', '<':'t3'}.get(style, style) # translate some similar styles
-        ax.plot(datasrc.x, datasrc.y, pen=None, symbol=symbol, symbolPen=None, symbolSize=10, symbolBrush=pg.mkBrush(color), name=legend)
+        item = ax.plot(datasrc.x, datasrc.y, pen=None, symbol=symbol, symbolPen=None, symbolSize=10, symbolBrush=pg.mkBrush(color), name=legend)
     if ax.legend is not None:
         for _,label in ax.legend.items:
             label.setText(label.text, color=legend_text_color)
+    update_main_plot(ax)
+    return item
 
 
 def _pdtime2epoch(t):
