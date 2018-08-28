@@ -27,8 +27,7 @@ band_color = '#aabbdd'
 cross_hair_color = '#000000aa'
 significant_digits = 8
 
-prev_ax = None
-pre_win = None
+windows = [] # disallow garbage collecting
 epoch_period2 = 0.5
 
 
@@ -53,6 +52,7 @@ class PandasDataSource:
         self.skip_scale_colcnt = 1 # skip at least time for hi/lo, for candle sticks+volume we also skip open and close
         self.cache_hilo_query = ''
         self.cache_hilo_answer = None
+        self.scale_colcnt = None # scale on all columns by default
         global epoch_period2
         epoch_period2 = self.period / 2
 
@@ -78,6 +78,13 @@ class PandasDataSource:
     def addcols(self, datasrc):
         newcols = datasrc.df[datasrc.df.columns[1:]] # skip timecol
         self.df = pd.concat([self.df, newcols], axis=1)
+        self.skip_scale_colcnt = max(self.skip_scale_colcnt, datasrc.skip_scale_colcnt)
+        if datasrc.scale_colcnt:
+            self.set_last_scale_columns(True)
+
+    def set_last_scale_columns(self, is_last_scale):
+        if is_last_scale:
+            self.scale_colcnt = len(self.df.columns)
 
     def get_time(self, offset_from_end=0, period=0):
         '''Return timestamp of offset *from end*.'''
@@ -105,7 +112,7 @@ class PandasDataSource:
             return 0,0,0,0,0
         t0 = df[timecol].iloc[0]
         t1 = df[timecol].iloc[-1]
-        valcols = df.columns[self.skip_scale_colcnt:]
+        valcols = df.columns[self.skip_scale_colcnt:self.scale_colcnt]
         hi = df[valcols].max().max()
         lo = df[valcols].min().min()
         return t0,t1,hi,lo,len(df)
@@ -308,25 +315,32 @@ class VolumeItem(FinPlotItem):
 
 
 def create_plot(title=None, rows=1, init_zoom_periods=300, maximize=True):
-    global prev_win
-    prev_win = win = pg.GraphicsWindow(title=title)
+    global windows
+    win = pg.GraphicsWindow(title=title)
+    windows.append(win)
     if maximize:
         win.showMaximized()
     # normally first graph is of higher significance, so enlarge
     win.ci.layout.setRowStretchFactor(0, 3)
     axs = []
+    prev_ax = None
     for n in range(rows):
         viewbox = FinViewBox(win, init_steps=init_zoom_periods)
-        axs += [_add_timestamp_plot(win, viewbox, n)]
+        ax = prev_ax = _add_timestamp_plot(win, prev_ax, viewbox, n)
+        axs += [ax]
     win.proxy_mmove = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=60, slot=partial(_mouse_moved, win))
+    if len(axs) == 1:
+        return axs[0]
     return axs
 
 
-def candlestick_ochl(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None):
+def candlestick_ochl(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None, is_last_scale=True):
+    '''The is_last_scale parameter means that no other graphs added afterwards will be included in the
+       zoom/pan Y-scaling. Normally the candlesticks provide the relevant scale for this plot area.'''
     if ax is None:
         ax = create_plot(maximize=False)
     datasrc.skip_scale_colcnt = 3 # skip open+close for scaling
-    _update_datasrc(ax, datasrc)
+    _update_datasrc(ax, datasrc, is_last_scale=is_last_scale)
     item = CandlestickItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color)
     ax.addItem(item)
     ax.vb.add_heavy_item(item) # heavy = deferred rendering
@@ -395,8 +409,7 @@ def show():
 #################### INTERNALS ####################
 
 
-def _add_timestamp_plot(win, viewbox, n):
-    global prev_ax
+def _add_timestamp_plot(win, prev_ax, viewbox, n):
     if prev_ax is not None:
         prev_ax.hideAxis('bottom') # hide the whole previous axis
         win.nextRow()
@@ -404,7 +417,6 @@ def _add_timestamp_plot(win, viewbox, n):
     ax.axes['left']['item'].setZValue(10) # put axis in front instead of behind data
     ax.axes['bottom']['item'].setZValue(10)
     ax.crosshair = FinCrossHair(ax, color=cross_hair_color)
-    prev_ax = ax
     if n%2:
         viewbox.setBackgroundColor(odd_plot_background)
     viewbox.setParent(ax)
@@ -412,7 +424,8 @@ def _add_timestamp_plot(win, viewbox, n):
     return ax
 
 
-def _update_datasrc(ax, datasrc):
+def _update_datasrc(ax, datasrc, is_last_scale=False):
+    datasrc.set_last_scale_columns(is_last_scale)
     viewbox = ax.vb
     if viewbox.datasrc is None:
         viewbox.set_datasrc(datasrc) # for mwheel zoom-scaling
@@ -421,7 +434,6 @@ def _update_datasrc(ax, datasrc):
         ax.setLimits(xMin=x0, xMax=x1)
     else:
         viewbox.datasrc.addcols(datasrc)
-        viewbox.datasrc.skip_scale_colcnt = max(viewbox.datasrc.skip_scale_colcnt, datasrc.skip_scale_colcnt)
         viewbox.set_datasrc(viewbox.datasrc) # update zoom
 
 
