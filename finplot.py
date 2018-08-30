@@ -25,7 +25,10 @@ legend_text_color   = '#dddddd66'
 odd_plot_background = '#f0f0f0'
 band_color = '#aabbdd'
 cross_hair_color = '#000000aa'
+draw_color = '#000000'
+draw_done_color = '#555555'
 significant_digits = 8
+v_zoom_padding = 0.02 # padded on top+bottom of plot
 
 windows = [] # disallow garbage collecting
 epoch_period2 = 0.5
@@ -115,7 +118,8 @@ class PandasDataSource:
         valcols = df.columns[self.skip_scale_colcnt:self.scale_colcnt]
         hi = df[valcols].max().max()
         lo = df[valcols].min().min()
-        return t0,t1,hi,lo,len(df)
+        pad = (hi-lo) * v_zoom_padding
+        return t0,t1,hi+pad,lo-pad,len(df)
 
     def bear_rows(self):
         opencol = self.df.columns[1]
@@ -175,10 +179,58 @@ class FinLegendItem(pg.LegendItem):
 
 
 
+class FinPolyLine(pg.PolyLineROI):
+    def __init__(self, vb, *args, **kwargs):
+        self.vb = vb # init before parent constructor
+        self.texts = []
+        super().__init__(*args, **kwargs)
+
+    def addSegment(self, h1, h2, index=None):
+        super().addSegment(h1, h2, index)
+        text = pg.TextItem(color=draw_color)
+        text.segment = self.segments[-1 if index is None else index]
+        if index is None:
+            self.texts.append(text)
+        else:
+            self.texts.insert(index, text)
+        self.update_text(text)
+        self.vb.addItem(text, ignoreBounds=True)
+
+    def removeSegment(self, seg):
+        super().removeSegment(seg)
+        for text in list(self.texts):
+            if text.segment == seg:
+                self.vb.removeItem(text)
+                self.texts.remove(text)
+
+    def update_text(self, text):
+        h0 = text.segment.handles[0]['item']
+        h1 = text.segment.handles[1]['item']
+        diff = h1.pos() - h0.pos()
+        if diff.y() < 0:
+            text.setAnchor((0.5,0))
+        else:
+            text.setAnchor((0.5,1))
+        text.setPos(h1.pos())
+        text.setText(_draw_line_segment_text(self, text.segment, h0.pos(), h1.pos()))
+
+    def update_texts(self):
+        for text in self.texts:
+            self.update_text(text)
+
+    def movePoint(self, handle, pos, modifiers=QtCore.Qt.KeyboardModifier(), finish=True, coords='parent'):
+        super().movePoint(handle, pos, modifiers, finish, coords)
+        self.update_texts()
+
+
+
 class FinViewBox(pg.ViewBox):
     def __init__(self, win, init_steps=300, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.win = win
+        self.lines = []
+        self.draw_line = None
+        self.drawing = False
         self.set_datasrc(None)
         self.setMouseEnabled(x=True, y=False)
         self.init_steps = init_steps
@@ -214,6 +266,57 @@ class FinViewBox(pg.ViewBox):
         self.scaleRect(vr, scale_fact, center)
         ev.accept()
 
+    def mouseDragEvent(self, ev, axis=None):
+        if ev.button() != QtCore.Qt.LeftButton:
+            return super().mouseDragEvent(ev, axis)
+        p0 = ev.lastPos()
+        p1 = ev.pos()
+        p0 = pg.Point(pg.functions.invertQTransform(self.childGroup.transform()).map(p0))
+        p1 = pg.Point(pg.functions.invertQTransform(self.childGroup.transform()).map(p1))
+        if self.draw_line is None:
+            # add new line
+            self.draw_line = FinPolyLine(self, [p0, p1], closed=False, pen=pg.mkPen(draw_color), movable=False)
+            self.lines.append(self.draw_line)
+            self.addItem(self.draw_line)
+            self.drawing = True
+        elif self.drawing:
+            # draw placed point at end of poly-line
+            self.draw_line.movePoint(-1, p1)
+        else:
+            self.append_draw_segment(p1)
+        if ev.isFinish():
+            self.drawing = False
+        ev.accept()
+
+    def mouseClickEvent(self, ev):
+        if ev.button() != QtCore.Qt.LeftButton or not self.draw_line:
+            return super().mouseClickEvent(ev)
+        # add another segment to the currently drawn line
+        p = ev.pos()
+        p = pg.Point(pg.functions.invertQTransform(self.childGroup.transform()).map(p))
+        self.append_draw_segment(p)
+        self.drawing = False
+        ev.accept()
+
+    def keyPressEvent(self, ev):
+        if ev.text() in ('\r', ' ', '\x1b'): # enter, space, esc
+            self.set_draw_line_color(draw_done_color)
+            self.draw_line = None
+            ev.accept()
+        elif ev.text() in ('\x7f', '\b'): # del, backspace
+            if self.lines:
+                h = self.lines[-1].handles[-1]['item']
+                self.lines[-1].removeHandle(h)
+                if not self.lines[-1].segments:
+                    self.removeItem(self.lines[-1])
+                    self.lines = self.lines[:-1]
+                    self.draw_line = None
+                if self.lines:
+                    self.draw_line = self.lines[-1]
+                    self.set_draw_line_color(draw_color)
+        else:
+            super().keyPressEvent(ev)
+
     def linkedViewChanged(self, view, axis):
         tr = self.targetRect()
         vr = view.viewRect() if view else tr
@@ -241,6 +344,19 @@ class FinViewBox(pg.ViewBox):
             item.setVisible(False) # deferred rendering for zoom+pan performance
         self.setRange(QtCore.QRectF(pg.Point(x0, y0), pg.Point(x1, y1)), padding=0)
         self.heavies_blind_cnt = 2 # unblind in this many ticks
+
+    def append_draw_segment(self, p):
+        h0 = self.draw_line.handles[-1]['item']
+        h1 = self.draw_line.addFreeHandle(p)
+        self.draw_line.addSegment(h0, h1)
+        self.drawing = True
+
+    def set_draw_line_color(self, color):
+        if self.draw_line:
+            pen = pg.mkPen(color)
+            for segment in self.draw_line.segments:
+                segment.currentPen = segment.pen = pen
+                segment.update()
 
     def show_heavies(self):
         self.heavies_blind_cnt -= 1
@@ -401,7 +517,8 @@ def add_time_inspector(ax, inspector):
 
 
 def show():
-    QtGui.QApplication.instance().exec_()
+    if windows:
+        QtGui.QApplication.instance().exec_()
 
 
 
@@ -474,6 +591,22 @@ def _epoch2local(t):
 def _round_to_significant(x, num_significant):
     x = round(x, num_significant-1-int(floor(log10(abs(x)))))
     return ('%f' % x)[:num_significant+1]
+
+
+def _draw_line_segment_text(polyline, segment, pos0, pos1):
+        diff = pos1 - pos0
+        mins = int(abs(diff.x()) / 60)
+        hours = mins//60
+        mins = mins%60
+        ts = '%0.2i:%0.2i' % (hours, mins)
+        percent = '%+.2f' % (100 * pos1.y() / pos0.y() - 100)
+        extra = draw_line_extra_text(polyline, segment, pos0, pos1)
+        return '%s %% %s (%s)' % (percent, extra, ts)
+
+
+def draw_line_extra_text(polyline, segment, pos0, pos1):
+    '''Overwrite to fill in additional information per drawn line segment.'''
+    return ''
 
 
 # default to black-on-white
