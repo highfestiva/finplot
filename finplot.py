@@ -121,17 +121,31 @@ class PandasDataSource:
         pad = (hi-lo) * v_zoom_padding
         return t0,t1,hi+pad,lo-pad,len(df)
 
-    def bear_rows(self):
-        opencol = self.df.columns[1]
-        closecol = self.df.columns[2]
-        rows = self.df.loc[(self.df.loc[:,opencol]>self.df.loc[:,closecol])] # open higher than close = goes down
-        return zip(*[rows[c] for c in rows.columns])
+    def bear_rows(self, colcnt, x0, x1):
+        df = self.df
+        timecol = df.columns[0]
+        opencol = df.columns[1]
+        closecol = df.columns[2]
+        in_timerange = (df[timecol]>=x0) & (df[timecol]<=x1)
+        is_down = df[opencol] > df[closecol] # open higher than close = goes down
+        df = df.loc[in_timerange&is_down]
+        if len(df) > 2000:
+            df = df.iloc[::len(df)//2000]
+        cols = df.columns[:colcnt]
+        return zip(*[df[c] for c in cols])
 
-    def bull_rows(self):
-        opencol = self.df.columns[1]
-        closecol = self.df.columns[2]
-        rows = self.df.loc[(self.df.loc[:,opencol]<=self.df.loc[:,closecol])] # open lower than close = goes up
-        return zip(*[rows[c] for c in rows.columns])
+    def bull_rows(self, colcnt, x0, x1):
+        df = self.df
+        timecol = df.columns[0]
+        opencol = df.columns[1]
+        closecol = df.columns[2]
+        in_timerange = (df[timecol]>=x0) & (df[timecol]<=x1)
+        is_up = df[opencol] <= df[closecol] # open lower than close = goes up
+        df = df.loc[in_timerange&is_up]
+        if len(df) > 2000:
+            df = df.iloc[::len(df)//2000]
+        cols = df.columns[:colcnt]
+        return zip(*[df[c] for c in cols])
 
 
 
@@ -244,9 +258,9 @@ class FinViewBox(pg.ViewBox):
         self.datasrc = datasrc
         if not self.datasrc:
             return
-        x0 = datasrc.get_time(offset_from_end=self.init_steps, period=-0.5)
-        x1 = datasrc.get_time(offset_from_end=0, period=+0.5)
-        t0,t1,hi,lo,cnt = self.datasrc.hilo(x0, x1)
+        datasrc.init_x0 = datasrc.get_time(offset_from_end=self.init_steps, period=-0.5)
+        datasrc.init_x1 = datasrc.get_time(offset_from_end=0, period=+0.5)
+        t0,t1,hi,lo,cnt = self.datasrc.hilo(datasrc.init_x0, datasrc.init_x1)
         if cnt >= 20:
             self._setRange(t0, lo, t1, hi)
 
@@ -269,21 +283,21 @@ class FinViewBox(pg.ViewBox):
     def mouseDragEvent(self, ev, axis=None):
         if ev.button() != QtCore.Qt.LeftButton:
             return super().mouseDragEvent(ev, axis)
+        if self.draw_line and not self.drawing:
+            self.set_draw_line_color(draw_done_color)
         p0 = ev.lastPos()
         p1 = ev.pos()
         p0 = pg.Point(pg.functions.invertQTransform(self.childGroup.transform()).map(p0))
         p1 = pg.Point(pg.functions.invertQTransform(self.childGroup.transform()).map(p1))
-        if self.draw_line is None:
+        if not self.drawing:
             # add new line
             self.draw_line = FinPolyLine(self, [p0, p1], closed=False, pen=pg.mkPen(draw_color), movable=False)
             self.lines.append(self.draw_line)
             self.addItem(self.draw_line)
             self.drawing = True
-        elif self.drawing:
+        else:
             # draw placed point at end of poly-line
             self.draw_line.movePoint(-1, p1)
-        else:
-            self.append_draw_segment(p1)
         if ev.isFinish():
             self.drawing = False
         ev.accept()
@@ -376,10 +390,27 @@ class FinPlotItem(pg.GraphicsObject):
         self.datasrc = datasrc
         self.bull_color = bull_color
         self.bear_color = bear_color
-        self.generatePicture()
+        self.picture = QtGui.QPicture()
+        self.painter = QtGui.QPainter()
+        # generate picture
+        visibleRect = QtCore.QRectF(self.datasrc.init_x0, 0, self.datasrc.init_x1-self.datasrc.init_x0, 0)
+        self._generatePicture(visibleRect)
 
     def paint(self, p, *args):
+        viewRect = self.viewRect()
+        self.updateDirtyPicture(viewRect)
         p.drawPicture(0, 0, self.picture)
+
+    def updateDirtyPicture(self, visibleRect):
+        if visibleRect.left() <= self.cachedRect.left() or \
+            visibleRect.right() >= self.cachedRect.right() or \
+            visibleRect.width() < self.cachedRect.width() / 10: # optimize when zooming in
+            self._generatePicture(visibleRect)
+
+    def _generatePicture(self, boundingRect):
+        w = boundingRect.width()
+        self.cachedRect = QtCore.QRectF(boundingRect.left()-w, 0, 3*w, 0)
+        return self.generatePicture(self.cachedRect)
 
     def boundingRect(self):
         return QtCore.QRectF(self.picture.boundingRect())
@@ -390,20 +421,25 @@ class CandlestickItem(FinPlotItem):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def generatePicture(self):
-        self.picture = QtGui.QPicture()
-        p = QtGui.QPainter(self.picture)
+    def generatePicture(self, boundingRect):
         w = self.datasrc.period * 0.7
         w2 = w * 0.5
+        left,right = boundingRect.left(), boundingRect.right()
+        p = self.painter
+        p.begin(self.picture)
         p.setPen(pg.mkPen(self.bear_color))
         p.setBrush(pg.mkBrush(self.bear_color))
-        for t,open,close,high,low in self.datasrc.bear_rows():
-            p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
+        rows = 0
+        for t,open,close,high,low in self.datasrc.bear_rows(5, left, right):
+            if high > low:
+                p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
             p.drawRect(QtCore.QRectF(t-w2, open, w, close-open))
+            rows += 1
         p.setPen(pg.mkPen(self.bull_color))
         p.setBrush(pg.mkBrush(self.bull_color))
-        for t,open,close,high,low in self.datasrc.bull_rows():
-            p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
+        for t,open,close,high,low in self.datasrc.bull_rows(5, left, right):
+            if high > low:
+                p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
             p.drawRect(QtCore.QRectF(t-w2, open, w, close-open))
         p.end()
 
@@ -413,18 +449,19 @@ class VolumeItem(FinPlotItem):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def generatePicture(self):
-        self.picture = QtGui.QPicture()
-        p = QtGui.QPainter(self.picture)
+    def generatePicture(self, boundingRect):
         w = self.datasrc.period * 0.7
         w2 = w * 0.5
+        left,right = boundingRect.left(), boundingRect.right()
+        p = self.painter
+        p.begin(self.picture)
         p.setPen(pg.mkPen(self.bear_color))
         p.setBrush(pg.mkBrush(self.bear_color))
-        for t,open,close,volume in self.datasrc.bear_rows():
+        for t,open,close,volume in self.datasrc.bear_rows(4, left, right):
             p.drawRect(QtCore.QRectF(t-w2, 0, w, volume))
         p.setPen(pg.mkPen(self.bull_color))
         p.setBrush(pg.mkBrush(self.bull_color))
-        for t,open,close,volume in self.datasrc.bull_rows():
+        for t,open,close,volume in self.datasrc.bull_rows(4, left, right):
             p.drawRect(QtCore.QRectF(t-w2, 0, w, volume))
         p.end()
 
