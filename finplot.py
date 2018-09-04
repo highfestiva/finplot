@@ -30,7 +30,8 @@ draw_done_color = '#555555'
 significant_digits = 8
 v_zoom_padding = 0.02 # padded on top+bottom of plot
 
-windows = [] # disallow garbage collecting
+windows = [] # no gc
+timers = [] # no gc
 epoch_period2 = 0.5
 
 
@@ -52,10 +53,12 @@ class PandasDataSource:
         self.df = df.copy()
         timecol = self.df.columns[0]
         self.df[timecol] = _pdtime2epoch(df[timecol])
+        self.col_data_offset = 0 # no. of preceeding columns for other plots
         self.skip_scale_colcnt = 1 # skip at least time for hi/lo, for candle sticks+volume we also skip open and close
         self.cache_hilo_query = ''
         self.cache_hilo_answer = None
         self.scale_colcnt = None # scale on all columns by default
+        self.renames = {}
         global epoch_period2
         epoch_period2 = self.period / 2
 
@@ -71,7 +74,7 @@ class PandasDataSource:
 
     @property
     def y(self):
-        ycol = self.df.columns[1]
+        ycol = self.df.columns[1+self.col_data_offset]
         return self.df[ycol]
 
     def closest_time(self, t):
@@ -79,11 +82,34 @@ class PandasDataSource:
         return t0
 
     def addcols(self, datasrc):
+        orig_col_data_cnt = len(self.df.columns)-1
         newcols = datasrc.df[datasrc.df.columns[1:]] # skip timecol
+        cols = list(newcols.columns)
+        for i,col in enumerate(cols):
+            old_col = col
+            while col in self.df.columns:
+                cols[i] = col = col+'+'
+            if old_col != col:
+                datasrc.renames[old_col] = col
+        newcols.columns = cols
         self.df = pd.concat([self.df, newcols], axis=1)
         self.skip_scale_colcnt = max(self.skip_scale_colcnt, datasrc.skip_scale_colcnt)
         if datasrc.scale_colcnt:
             self.set_last_scale_columns(True)
+        datasrc.df = self.df # they are the same now
+        datasrc.col_data_offset = orig_col_data_cnt
+
+    def update(self, datasrc):
+        orig_cols = list(self.df.columns)
+        timecol = orig_cols[0]
+        df = self.df.set_index(timecol)
+        data = datasrc.df.set_index(timecol)
+        data.columns = [self.renames.get(col, col) for col in data.columns]
+        for col in df.columns:
+            if col not in data.columns:
+                data[col] = df[col]
+        data = data.reset_index()
+        self.df = data[orig_cols]
 
     def set_last_scale_columns(self, is_last_scale):
         if is_last_scale:
@@ -115,36 +141,40 @@ class PandasDataSource:
             return 0,0,0,0,0
         t0 = df[timecol].iloc[0]
         t1 = df[timecol].iloc[-1]
-        valcols = df.columns[self.skip_scale_colcnt:self.scale_colcnt]
+        valcols = df.columns[self.skip_scale_colcnt+self.col_data_offset:self.scale_colcnt]
         hi = df[valcols].max().max()
         lo = df[valcols].min().min()
         pad = (hi-lo) * v_zoom_padding
-        return t0,t1,hi+pad,lo-pad,len(df)
+        pad = max(pad, 2e-7) # some very weird bug where too small scale stops rendering
+        hi = min(hi+pad, +1e10)
+        lo = max(lo-pad, -1e10)
+        return t0,t1,hi,lo,len(df)
 
     def bear_rows(self, colcnt, x0, x1):
         df = self.df
         timecol = df.columns[0]
-        opencol = df.columns[1]
-        closecol = df.columns[2]
+        opencol = df.columns[1+self.col_data_offset]
+        closecol = df.columns[2+self.col_data_offset]
         in_timerange = (df[timecol]>=x0) & (df[timecol]<=x1)
         is_down = df[opencol] > df[closecol] # open higher than close = goes down
         df = df.loc[in_timerange&is_down]
-        if len(df) > 2000:
-            df = df.iloc[::len(df)//2000]
-        cols = df.columns[:colcnt]
-        return zip(*[df[c] for c in cols])
+        return self._rows(df, colcnt)
 
     def bull_rows(self, colcnt, x0, x1):
         df = self.df
         timecol = df.columns[0]
-        opencol = df.columns[1]
-        closecol = df.columns[2]
+        opencol = df.columns[1+self.col_data_offset]
+        closecol = df.columns[2+self.col_data_offset]
         in_timerange = (df[timecol]>=x0) & (df[timecol]<=x1)
         is_up = df[opencol] <= df[closecol] # open lower than close = goes up
         df = df.loc[in_timerange&is_up]
+        return self._rows(df, colcnt)
+
+    def _rows(self, df, colcnt):
         if len(df) > 2000:
             df = df.iloc[::len(df)//2000]
-        cols = df.columns[:colcnt]
+        colcnt -= 1 # time is always implied
+        cols = [df.columns[0]] + list(df.columns[1+self.col_data_offset:1+self.col_data_offset+colcnt])
         return zip(*[df[c] for c in cols])
 
 
@@ -248,11 +278,6 @@ class FinViewBox(pg.ViewBox):
         self.set_datasrc(None)
         self.setMouseEnabled(x=True, y=False)
         self.init_steps = init_steps
-        self.heavies = []
-        self.heavies_blind_cnt = 50
-        self.heavies_timer = QtCore.QTimer()
-        self.heavies_timer.timeout.connect(self.show_heavies)
-        self.heavies_timer.start(50)
 
     def set_datasrc(self, datasrc):
         self.datasrc = datasrc
@@ -260,14 +285,9 @@ class FinViewBox(pg.ViewBox):
             return
         datasrc.init_x0 = datasrc.get_time(offset_from_end=self.init_steps, period=-0.5)
         datasrc.init_x1 = datasrc.get_time(offset_from_end=0, period=+0.5)
-        t0,t1,hi,lo,cnt = self.datasrc.hilo(datasrc.init_x0, datasrc.init_x1)
+        x0,x1,hi,lo,cnt = self.datasrc.hilo(datasrc.init_x0, datasrc.init_x1)
         if cnt >= 20:
-            self._setRange(t0, lo, t1, hi)
-
-    def add_heavy_item(self, item):
-        item.setVisible(False)
-        self.heavies.append(item)
-        self.heavies_blind_cnt = 50
+            self._setRange(x0, lo, x1, hi, pad=True)
 
     def wheelEvent(self, ev, axis=None):
         scale_fact = 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
@@ -332,32 +352,32 @@ class FinViewBox(pg.ViewBox):
             super().keyPressEvent(ev)
 
     def linkedViewChanged(self, view, axis):
-        tr = self.targetRect()
-        vr = view.viewRect() if view else tr
-        self.scaleRect(vr, 1.0)
+        if view:
+            tr = self.targetRect()
+            vr = view.viewRect()
+            period = self.datasrc.period
+            if abs(vr.left()-tr.left()) >= period or abs(vr.right()-tr.right()) >= period:
+                x0,x1,hi,lo,cnt = self.datasrc.hilo(vr.left(), vr.right())
+                self._setRange(vr.left(), lo, vr.right(), hi)
 
-    def scaleRect(self, vr, scale_fact, center=None):
+    def scaleRect(self, vr, scale_fact, center):
         if not self.datasrc:
             return
         x_ = vr.left()
-        if center is None:
-            center = vr.center()
         x0 = center.x() + (vr.left()-center.x()) * scale_fact
         x1 = center.x() + (vr.right()-center.x()) * scale_fact
-        t0,t1,hi,lo,cnt = self.datasrc.hilo(x0, x1)
+        x0,x1,hi,lo,cnt = self.datasrc.hilo(x0, x1)
         if cnt < 20:
             return
-        x0 = t0 - self.datasrc.period*0.5
-        x1 = t1 + self.datasrc.period*0.5
-        self._setRange(x0, lo, x1, hi)
+        self._setRange(x0, lo, x1, hi, pad=True)
 
-    def _setRange(self, x0, y0, x1, y1):
+    def _setRange(self, x0, y0, x1, y1, pad=False):
         if np.isnan(y0) or np.isnan(y1):
             return
-        for item in self.heavies:
-            item.setVisible(False) # deferred rendering for zoom+pan performance
+        if pad:
+            x0 -= self.datasrc.period*0.5
+            x1 += self.datasrc.period*0.5
         self.setRange(QtCore.QRectF(pg.Point(x0, y0), pg.Point(x1, y1)), padding=0)
-        self.heavies_blind_cnt = 2 # unblind in this many ticks
 
     def append_draw_segment(self, p):
         h0 = self.draw_line.handles[-1]['item']
@@ -372,13 +392,6 @@ class FinViewBox(pg.ViewBox):
                 segment.currentPen = segment.pen = pen
                 segment.update()
 
-    def show_heavies(self):
-        self.heavies_blind_cnt -= 1
-        if self.heavies_blind_cnt != 0:
-            return
-        for item in self.heavies:
-            item.setVisible(True)
-
     def suggestPadding(self, axis):
         return 0
 
@@ -392,6 +405,8 @@ class FinPlotItem(pg.GraphicsObject):
         self.bear_color = bear_color
         self.picture = QtGui.QPicture()
         self.painter = QtGui.QPainter()
+        self.dirty = True
+        self.lowres_item = None
         # generate picture
         visibleRect = QtCore.QRectF(self.datasrc.init_x0, 0, self.datasrc.init_x1-self.datasrc.init_x0, 0)
         self._generatePicture(visibleRect)
@@ -402,7 +417,8 @@ class FinPlotItem(pg.GraphicsObject):
         p.drawPicture(0, 0, self.picture)
 
     def updateDirtyPicture(self, visibleRect):
-        if visibleRect.left() <= self.cachedRect.left() or \
+        if self.dirty or \
+            visibleRect.left() <= self.cachedRect.left() or \
             visibleRect.right() >= self.cachedRect.right() or \
             visibleRect.width() < self.cachedRect.width() / 10: # optimize when zooming in
             self._generatePicture(visibleRect)
@@ -410,7 +426,8 @@ class FinPlotItem(pg.GraphicsObject):
     def _generatePicture(self, boundingRect):
         w = boundingRect.width()
         self.cachedRect = QtCore.QRectF(boundingRect.left()-w, 0, 3*w, 0)
-        return self.generatePicture(self.cachedRect)
+        self.generatePicture(self.cachedRect)
+        self.dirty = False
 
     def boundingRect(self):
         return QtCore.QRectF(self.picture.boundingRect())
@@ -473,6 +490,7 @@ def create_plot(title=None, rows=1, init_zoom_periods=300, maximize=True):
     windows.append(win)
     if maximize:
         win.showMaximized()
+    win.ci.setContentsMargins(0, 0, 0 ,0)
     # normally first graph is of higher significance, so enlarge
     win.ci.layout.setRowStretchFactor(0, 3)
     axs = []
@@ -493,11 +511,11 @@ def candlestick_ochl(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=Non
     if ax is None:
         ax = create_plot(maximize=False)
     datasrc.skip_scale_colcnt = 3 # skip open+close for scaling
-    _update_datasrc(ax, datasrc, is_last_scale=is_last_scale)
+    _set_datasrc(ax, datasrc, is_last_scale=is_last_scale)
     item = CandlestickItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color)
+    item.update_datasrc = partial(_update_datasrc, item)
     ax.addItem(item)
-    ax.vb.add_heavy_item(item) # heavy = deferred rendering
-    _update_main_plot(ax)
+    _set_plot_x_axis_leader(ax)
     return item
 
 
@@ -505,11 +523,11 @@ def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None):
     if ax is None:
         ax = create_plot(maximize=False)
     datasrc.skip_scale_colcnt = 3 # skip open+close for scaling
-    _update_datasrc(ax, datasrc)
+    _set_datasrc(ax, datasrc)
     item = VolumeItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color)
+    item.update_datasrc = partial(_update_datasrc, item)
     ax.addItem(item)
-    ax.vb.add_heavy_item(item) # heavy = deferred rendering
-    _update_main_plot(ax)
+    _set_plot_x_axis_leader(ax)
     return item
 
 
@@ -521,7 +539,7 @@ def plot(x, y, color='#000000', ax=None, style=None, legend=None):
 def plot_datasrc(datasrc, color='#000000', ax=None, style=None, legend=None):
     if ax is None:
         ax = create_plot(maximize=False)
-    _update_datasrc(ax, datasrc)
+    _set_datasrc(ax, datasrc)
     if legend is not None and ax.legend is None:
         ax.legend = FinLegendItem(border_color=legend_border_color, fill_color=legend_fill_color, size=None, offset=(3,2))
         ax.legend.setParentItem(ax.vb)
@@ -530,10 +548,12 @@ def plot_datasrc(datasrc, color='#000000', ax=None, style=None, legend=None):
     else:
         symbol = {'v':'t', '^':'t1', '>':'t2', '<':'t3'}.get(style, style) # translate some similar styles
         item = ax.plot(datasrc.x, datasrc.y, pen=None, symbol=symbol, symbolPen=None, symbolSize=10, symbolBrush=pg.mkBrush(color), name=legend)
+    item.datasrc = datasrc
+    item.update_datasrc = partial(_update_datasrc, item)
     if ax.legend is not None:
         for _,label in ax.legend.items:
             label.setText(label.text, color=legend_text_color)
-    _update_main_plot(ax)
+    _set_plot_x_axis_leader(ax)
     return item
 
 
@@ -553,9 +573,20 @@ def add_time_inspector(ax, inspector):
     win.proxy_click = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_time_clicked, ax, inspector))
 
 
+def timer_callback(update_func, seconds, single_shot=False):
+    global timers
+    timer = QtCore.QTimer()
+    timer.timeout.connect(update_func)
+    if single_shot:
+        timer.setSingleShot(True)
+    timer.start(seconds*1000)
+    timers.append(timer)
+
+
 def show():
     if windows:
         QtGui.QApplication.instance().exec_()
+        windows.clear()
 
 
 
@@ -568,6 +599,8 @@ def _add_timestamp_plot(win, prev_ax, viewbox, n):
         prev_ax.hideAxis('bottom') # hide the whole previous axis
         win.nextRow()
     ax = pg.PlotItem(viewBox=viewbox, axisItems={'bottom': EpochAxisItem(orientation='bottom')}, name='plot-%i'%n)
+    ax.axes['left']['item'].textWidth = 51 # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
+    ax.axes['left']['item'].setStyle(tickLength=-5) # some bug, totally unexplicable (why setting the default value again would fix repaint width as axis scale down)
     ax.axes['left']['item'].setZValue(10) # put axis in front instead of behind data
     ax.axes['bottom']['item'].setZValue(10)
     ax.crosshair = FinCrossHair(ax, color=cross_hair_color)
@@ -578,26 +611,63 @@ def _add_timestamp_plot(win, prev_ax, viewbox, n):
     return ax
 
 
-def _update_datasrc(ax, datasrc, is_last_scale=False):
+def _set_datasrc(ax, datasrc, is_last_scale=False):
     datasrc.set_last_scale_columns(is_last_scale)
     viewbox = ax.vb
     if viewbox.datasrc is None:
         viewbox.set_datasrc(datasrc) # for mwheel zoom-scaling
-        x0 = datasrc.get_time(1e20, period=-1.0)
-        x1 = datasrc.get_time(0, period=+0.5)
-        ax.setLimits(xMin=x0, xMax=x1)
+        _set_x_limits(ax, datasrc)
     else:
         viewbox.datasrc.addcols(datasrc)
         viewbox.set_datasrc(viewbox.datasrc) # update zoom
+        datasrc.init_x0 = viewbox.datasrc.init_x0
+        datasrc.init_x1 = viewbox.datasrc.init_x1
 
 
-def _update_main_plot(ax):
+def _update_datasrc(item, ds):
+    item.datasrc.update(ds)
+    if isinstance(item, FinPlotItem):
+        item.dirty = True
+    else:
+        item.setData(item.datasrc.x, item.datasrc.y)
+    for ax in _axs_with_datasrc(item.datasrc):
+        _,x1 = _set_x_limits(ax, item.datasrc)
+        tr = ax.vb.targetRect()
+        if tr.right() >= x1-item.datasrc.period*3:
+            x0 = x1 - tr.width()
+            x0,x1,y0,y1,cnt = item.datasrc.hilo(x0, x1)
+            ax.vb._setRange(x0, y0, x1, y1, pad=True)
+            ax.vb.update()
+
+
+def _set_plot_x_axis_leader(ax):
     '''The first plot to add some data is the leader. All other's X-axis will follow this one.'''
     if ax.vb.linkedView(0):
         return
     for ax_ in ax.vb.win.ci.items:
         if ax_.vb.name != ax.vb.name:
             ax_.setXLink(ax.vb.name)
+
+
+def _set_x_limits(ax, datasrc):
+    x0 = datasrc.get_time(1e20, period=-0.5)
+    x1 = datasrc.get_time(0, period=+0.5)
+    ax.setLimits(xMin=x0, xMax=x1)
+    return x0, x1
+
+
+def _items_with_datasrc(datasrc):
+    for ax in axs_with_datasrc(datasrc):
+        for item in ax.items:
+            if item.datasrc == datasrc:
+                yield item
+
+
+def _axs_with_datasrc(datasrc):
+    for win in windows:
+        for ax in win.ci.items:
+            if ax.vb.datasrc == datasrc:
+                yield ax
 
 
 def _mouse_moved(win, ev):
@@ -616,7 +686,7 @@ def _time_clicked(ax, inspector, ev):
 
 
 def _pdtime2epoch(t):
-    if type(t) is pd.Series and type(t.iloc[0]) is pd.Timestamp:
+    if isinstance(t, pd.Series) and isinstance(t.iloc[0], pd.Timestamp):
         return t.astype('int64') // int(1e9)
     return t
 
@@ -627,7 +697,8 @@ def _epoch2local(t):
 
 def _round_to_significant(x, num_significant):
     x = round(x, num_significant-1-int(floor(log10(abs(x)))))
-    return ('%f' % x)[:num_significant+1]
+    fmt = '%%.%if' % num_significant
+    return (fmt % x)[:num_significant+2]
 
 
 def _draw_line_segment_text(polyline, segment, pos0, pos1):
@@ -637,12 +708,24 @@ def _draw_line_segment_text(polyline, segment, pos0, pos1):
         mins = mins%60
         ts = '%0.2i:%0.2i' % (hours, mins)
         percent = '%+.2f' % (100 * pos1.y() / pos0.y() - 100)
-        extra = draw_line_extra_text(polyline, segment, pos0, pos1)
+        extra = _draw_line_extra_text(polyline, segment, pos0, pos1)
         return '%s %% %s (%s)' % (percent, extra, ts)
 
 
-def draw_line_extra_text(polyline, segment, pos0, pos1):
-    '''Overwrite to fill in additional information per drawn line segment.'''
+def _draw_line_extra_text(polyline, segment, pos0, pos1):
+    '''Shows the proportions of this line height compared to the previous segment.'''
+    prev_text = None
+    for text in polyline.texts:
+        if prev_text is not None and text.segment == segment:
+            h0 = prev_text.segment.handles[0]['item']
+            h1 = prev_text.segment.handles[1]['item']
+            prev_change = h1.pos().y() / h0.pos().y() - 1
+            if not abs(prev_change) > 1e-8:
+                break
+            this_change = pos1.y() / pos0.y() - 1
+            change_part = abs(this_change / prev_change)
+            return ' = 1:%.2f ' % change_part
+        prev_text = text
     return ''
 
 
