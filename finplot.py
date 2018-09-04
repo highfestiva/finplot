@@ -272,6 +272,7 @@ class FinViewBox(pg.ViewBox):
     def __init__(self, win, init_steps=300, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.win = win
+        self.force_range_update = 0
         self.lines = []
         self.draw_line = None
         self.drawing = False
@@ -287,7 +288,7 @@ class FinViewBox(pg.ViewBox):
         datasrc.init_x1 = datasrc.get_time(offset_from_end=0, period=+0.5)
         x0,x1,hi,lo,cnt = self.datasrc.hilo(datasrc.init_x0, datasrc.init_x1)
         if cnt >= 20:
-            self._setRange(x0, lo, x1, hi, pad=True)
+            self.set_range(x0, lo, x1, hi, pad=True)
 
     def wheelEvent(self, ev, axis=None):
         scale_fact = 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
@@ -297,12 +298,16 @@ class FinViewBox(pg.ViewBox):
             center = pg.Point(vr.left(), center.y())
         elif (center.x()-vr.left())/vr.width() > 0.95: # zoom to far right => all the way right
             center = pg.Point(vr.right(), center.y())
-        self.scaleRect(vr, scale_fact, center)
+        self.zoom_rect(vr, scale_fact, center)
         ev.accept()
 
     def mouseDragEvent(self, ev, axis=None):
         if ev.button() != QtCore.Qt.LeftButton:
-            return super().mouseDragEvent(ev, axis)
+            super().mouseDragEvent(ev, axis)
+            if ev.isFinish():
+                self.force_range_update = 6 # as many as plots, or some more is fine too
+                self.update_range()
+            return
         if self.draw_line and not self.drawing:
             self.set_draw_line_color(draw_done_color)
         p0 = ev.lastPos()
@@ -356,22 +361,32 @@ class FinViewBox(pg.ViewBox):
             tr = self.targetRect()
             vr = view.viewRect()
             period = self.datasrc.period
-            if abs(vr.left()-tr.left()) >= period or abs(vr.right()-tr.right()) >= period:
+            is_dirty = view.force_range_update > 0
+            if is_dirty or abs(vr.left()-tr.left()) >= period or abs(vr.right()-tr.right()) >= period:
+                if is_dirty:
+                    view.force_range_update -= 1
                 x0,x1,hi,lo,cnt = self.datasrc.hilo(vr.left(), vr.right())
-                self._setRange(vr.left(), lo, vr.right(), hi)
+                self.set_range(vr.left(), lo, vr.right(), hi)
 
-    def scaleRect(self, vr, scale_fact, center):
+    def zoom_rect(self, vr, scale_fact, center):
         if not self.datasrc:
             return
         x_ = vr.left()
         x0 = center.x() + (vr.left()-center.x()) * scale_fact
         x1 = center.x() + (vr.right()-center.x()) * scale_fact
+        self.update_range(x0, x1)
+
+    def update_range(self, x0=None, x1=None):
+        if x0 is None or x1 is None:
+            tr = self.targetRect()
+            x0 = tr.left()
+            x1 = tr.right()
         x0,x1,hi,lo,cnt = self.datasrc.hilo(x0, x1)
         if cnt < 20:
             return
-        self._setRange(x0, lo, x1, hi, pad=True)
+        self.set_range(x0, lo, x1, hi, pad=True)
 
-    def _setRange(self, x0, y0, x1, y1, pad=False):
+    def set_range(self, x0, y0, x1, y1, pad=False):
         if np.isnan(y0) or np.isnan(y1):
             return
         if pad:
@@ -636,7 +651,7 @@ def _update_datasrc(item, ds):
         if tr.right() >= x1-item.datasrc.period*3:
             x0 = x1 - tr.width()
             x0,x1,y0,y1,cnt = item.datasrc.hilo(x0, x1)
-            ax.vb._setRange(x0, y0, x1, y1, pad=True)
+            ax.vb.set_range(x0, y0, x1, y1, pad=True)
             ax.vb.update()
 
 
