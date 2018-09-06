@@ -534,11 +534,11 @@ def candlestick_ochl(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=Non
     return item
 
 
-def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None):
+def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None, is_last_scale=True):
     if ax is None:
         ax = create_plot(maximize=False)
     datasrc.skip_scale_colcnt = 3 # skip open+close for scaling
-    _set_datasrc(ax, datasrc)
+    _set_datasrc(ax, datasrc, is_last_scale=is_last_scale)
     item = VolumeItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color)
     item.update_datasrc = partial(_update_datasrc, item)
     ax.addItem(item)
@@ -546,15 +546,15 @@ def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None):
     return item
 
 
-def plot(x, y, color='#000000', ax=None, style=None, legend=None):
+def plot(x, y, color='#000000', ax=None, style=None, legend=None, is_last_scale=False):
     datasrc = PandasDataSource(pd.concat([x,y], axis=1))
-    return plot_datasrc(datasrc, color=color, ax=ax, style=style, legend=legend)
+    return plot_datasrc(datasrc, color=color, ax=ax, style=style, legend=legend, is_last_scale=is_last_scale)
 
 
-def plot_datasrc(datasrc, color='#000000', ax=None, style=None, legend=None):
+def plot_datasrc(datasrc, color='#000000', ax=None, style=None, legend=None, is_last_scale=False):
     if ax is None:
         ax = create_plot(maximize=False)
-    _set_datasrc(ax, datasrc)
+    _set_datasrc(ax, datasrc, is_last_scale=is_last_scale)
     if legend is not None and ax.legend is None:
         ax.legend = FinLegendItem(border_color=legend_border_color, fill_color=legend_fill_color, size=None, offset=(3,2))
         ax.legend.setParentItem(ax.vb)
