@@ -22,6 +22,7 @@ from pyqtgraph import QtCore, QtGui
 legend_border_color = '#000000dd'
 legend_fill_color   = '#00000088'
 legend_text_color   = '#dddddd66'
+plot_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 odd_plot_background = '#f0f0f0'
 band_color = '#aabbdd'
 cross_hair_color = '#000000aa'
@@ -32,6 +33,7 @@ v_zoom_padding = 0.02 # padded on top+bottom of plot
 
 windows = [] # no gc
 timers = [] # no gc
+plotdf2df = {} # for pandas df.plot
 epoch_period2 = 0.5
 
 
@@ -176,6 +178,22 @@ class PandasDataSource:
         colcnt -= 1 # time is always implied
         cols = [df.columns[0]] + list(df.columns[1+self.col_data_offset:1+self.col_data_offset+colcnt])
         return zip(*[df[c] for c in cols])
+
+
+
+class PlotDf(object):
+    '''This class is for allowing you to do df.plot(...), as you normally would in Pandas.'''
+    def __init__(self, df):
+        global plotdf2df
+        plotdf2df[self] = df
+    def __getattribute__(self, name):
+        if name == 'plot':
+            return partial(dfplot, plotdf2df[self])
+        return getattr(plotdf2df[self], name)
+    def __getitem__(self, i):
+        return plotdf2df[self].__getitem__(i)
+    def __setitem__(self, i, v):
+        return plotdf2df[self].__setitem__(i, v)
 
 
 
@@ -499,7 +517,7 @@ class VolumeItem(FinPlotItem):
 
 
 
-def create_plot(title=None, rows=1, init_zoom_periods=300, maximize=True):
+def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True):
     global windows
     win = pg.GraphicsWindow(title=title)
     windows.append(win)
@@ -546,14 +564,15 @@ def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None, is_
     return item
 
 
-def plot(x, y, color='#000000', ax=None, style=None, legend=None, is_last_scale=False):
+def plot(x, y, color=None, ax=None, style=None, legend=None, is_last_scale=False):
     datasrc = PandasDataSource(pd.concat([x,y], axis=1))
     return plot_datasrc(datasrc, color=color, ax=ax, style=style, legend=legend, is_last_scale=is_last_scale)
 
 
-def plot_datasrc(datasrc, color='#000000', ax=None, style=None, legend=None, is_last_scale=False):
+def plot_datasrc(datasrc, color=None, ax=None, style=None, legend=None, is_last_scale=False):
     if ax is None:
         ax = create_plot(maximize=False)
+    color = color if color else _get_color(ax)
     _set_datasrc(ax, datasrc, is_last_scale=is_last_scale)
     if legend is not None and ax.legend is None:
         ax.legend = FinLegendItem(border_color=legend_border_color, fill_color=legend_fill_color, size=None, offset=(3,2))
@@ -570,6 +589,11 @@ def plot_datasrc(datasrc, color='#000000', ax=None, style=None, legend=None, is_
             label.setText(label.text, color=legend_text_color)
     _set_plot_x_axis_leader(ax)
     return item
+
+
+def dfplot(df, x=None, y=None, color=None, ax=None, style=None, legend=None):
+    legend = legend if legend else y
+    return plot(df[x], df[y], color=color, ax=ax, style=style, legend=legend, is_last_scale=True)
 
 
 def set_y_range(ax, ymin, ymax):
@@ -698,6 +722,11 @@ def _time_clicked(ax, inspector, ev):
     t = point.x() - epoch_period2
     t = ax.vb.datasrc.closest_time(t)
     inspector(t, point.y())
+
+
+def _get_color(ax):
+    index = len(ax.items) - 4
+    return plot_colors[index%len(plot_colors)]
 
 
 def _pdtime2epoch(t):
