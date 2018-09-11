@@ -20,7 +20,7 @@ from pyqtgraph import QtCore, QtGui
 
 
 legend_border_color = '#000000dd'
-legend_fill_color   = '#00000088'
+legend_fill_color   = '#00000055'
 legend_text_color   = '#dddddd66'
 plot_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 odd_plot_background = '#f0f0f0'
@@ -84,8 +84,10 @@ class PandasDataSource:
         return t0
 
     def addcols(self, datasrc):
-        orig_col_data_cnt = len(self.df.columns)-1
-        newcols = datasrc.df[datasrc.df.columns[1:]] # skip timecol
+        timecol = self.df.columns[0]
+        df = self.df.set_index(timecol)
+        orig_col_data_cnt = len(df.columns)
+        newcols = datasrc.df.set_index(timecol)
         cols = list(newcols.columns)
         for i,col in enumerate(cols):
             old_col = col
@@ -94,7 +96,8 @@ class PandasDataSource:
             if old_col != col:
                 datasrc.renames[old_col] = col
         newcols.columns = cols
-        self.df = pd.concat([self.df, newcols], axis=1)
+        df = pd.concat([df, newcols], axis=1)
+        self.df = df.reset_index()
         self.skip_scale_colcnt = max(self.skip_scale_colcnt, datasrc.skip_scale_colcnt)
         if datasrc.scale_colcnt:
             self.set_last_scale_columns(True)
@@ -229,7 +232,8 @@ class FinCrossHair:
 class FinLegendItem(pg.LegendItem):
     def __init__(self, border_color, fill_color, **kwargs):
         super().__init__(**kwargs)
-        self.layout.setSpacing(2)
+        self.layout.setVerticalSpacing(2)
+        self.layout.setHorizontalSpacing(20)
         self.layout.setContentsMargins(2, 2, 10, 2)
         self.border_color = border_color
         self.fill_color = fill_color
@@ -586,6 +590,7 @@ def plot_datasrc(datasrc, color=None, ax=None, style=None, legend=None, is_last_
     item.update_datasrc = partial(_update_datasrc, item)
     if ax.legend is not None:
         for _,label in ax.legend.items:
+            label.setAttr('justify', 'left')
             label.setText(label.text, color=legend_text_color)
     _set_plot_x_axis_leader(ax)
     return item
@@ -661,6 +666,7 @@ def _set_datasrc(ax, datasrc, is_last_scale=False):
         viewbox.set_datasrc(viewbox.datasrc) # update zoom
         datasrc.init_x0 = viewbox.datasrc.init_x0
         datasrc.init_x1 = viewbox.datasrc.init_x1
+        _set_x_limits(ax, datasrc)
 
 
 def _update_datasrc(item, ds):
