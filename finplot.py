@@ -182,6 +182,9 @@ class PandasDataSource:
         cols = [df.columns[0]] + list(df.columns[1+self.col_data_offset:1+self.col_data_offset+colcnt])
         return zip(*[df[c] for c in cols])
 
+    def __eq__(self, other):
+        return id(self) == id(other) or id(self.df) == id(other.df)
+
 
 
 class PlotDf(object):
@@ -379,9 +382,11 @@ class FinViewBox(pg.ViewBox):
             super().keyPressEvent(ev)
 
     def linkedViewChanged(self, view, axis):
+        if not self.datasrc:
+            return
         if view:
             tr = self.targetRect()
-            vr = view.viewRect()
+            vr = view.targetRect()
             period = self.datasrc.period
             is_dirty = view.force_range_update > 0
             if is_dirty or abs(vr.left()-tr.left()) >= period or abs(vr.right()-tr.right()) >= period:
@@ -393,7 +398,6 @@ class FinViewBox(pg.ViewBox):
     def zoom_rect(self, vr, scale_fact, center):
         if not self.datasrc:
             return
-        x_ = vr.left()
         x0 = center.x() + (vr.left()-center.x()) * scale_fact
         x1 = center.x() + (vr.right()-center.x()) * scale_fact
         self.update_range(x0, x1)
@@ -550,6 +554,7 @@ def candlestick_ochl(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=Non
     datasrc.skip_scale_colcnt = 3 # skip open+close for scaling
     _set_datasrc(ax, datasrc, is_last_scale=is_last_scale)
     item = CandlestickItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color)
+    item.ax = ax
     item.update_datasrc = partial(_update_datasrc, item)
     ax.addItem(item)
     _set_plot_x_axis_leader(ax)
@@ -562,6 +567,7 @@ def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None, is_
     datasrc.skip_scale_colcnt = 3 # skip open+close for scaling
     _set_datasrc(ax, datasrc, is_last_scale=is_last_scale)
     item = VolumeItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color)
+    item.ax = ax
     item.update_datasrc = partial(_update_datasrc, item)
     ax.addItem(item)
     _set_plot_x_axis_leader(ax)
@@ -576,7 +582,11 @@ def plot(x, y, color=None, ax=None, style=None, legend=None, is_last_scale=False
 def plot_datasrc(datasrc, color=None, ax=None, style=None, legend=None, is_last_scale=False):
     if ax is None:
         ax = create_plot(maximize=False)
+    if not color and style:
+        color = ax.last_color
     color = color if color else _get_color(ax)
+    if not style:
+        ax.last_color = color
     _set_datasrc(ax, datasrc, is_last_scale=is_last_scale)
     if legend is not None and ax.legend is None:
         ax.legend = FinLegendItem(border_color=legend_border_color, fill_color=legend_fill_color, size=None, offset=(3,2))
@@ -586,6 +596,7 @@ def plot_datasrc(datasrc, color=None, ax=None, style=None, legend=None, is_last_
     else:
         symbol = {'v':'t', '^':'t1', '>':'t2', '<':'t3'}.get(style, style) # translate some similar styles
         item = ax.plot(datasrc.x, datasrc.y, pen=None, symbol=symbol, symbolPen=None, symbolSize=10, symbolBrush=pg.mkBrush(color), name=legend)
+    item.ax = ax
     item.datasrc = datasrc
     item.update_datasrc = partial(_update_datasrc, item)
     if ax.legend is not None:
@@ -648,6 +659,7 @@ def _add_timestamp_plot(win, prev_ax, viewbox, n):
     ax.axes['left']['item'].setZValue(10) # put axis in front instead of behind data
     ax.axes['bottom']['item'].setZValue(10)
     ax.crosshair = FinCrossHair(ax, color=cross_hair_color)
+    ax.last_color = None
     if n%2:
         viewbox.setBackgroundColor(odd_plot_background)
     viewbox.setParent(ax)
@@ -663,10 +675,10 @@ def _set_datasrc(ax, datasrc, is_last_scale=False):
         _set_x_limits(ax, datasrc)
     else:
         viewbox.datasrc.addcols(datasrc)
+        _set_x_limits(ax, datasrc)
         viewbox.set_datasrc(viewbox.datasrc) # update zoom
         datasrc.init_x0 = viewbox.datasrc.init_x0
         datasrc.init_x1 = viewbox.datasrc.init_x1
-        _set_x_limits(ax, datasrc)
 
 
 def _update_datasrc(item, ds):
@@ -675,23 +687,27 @@ def _update_datasrc(item, ds):
         item.dirty = True
     else:
         item.setData(item.datasrc.x, item.datasrc.y)
-    for ax in _axs_with_datasrc(item.datasrc):
-        _,x1 = _set_x_limits(ax, item.datasrc)
-        tr = ax.vb.targetRect()
-        if tr.right() >= x1-item.datasrc.period*3:
-            x0 = x1 - tr.width()
-            x0,x1,y0,y1,cnt = item.datasrc.hilo(x0, x1)
-            ax.vb.set_range(x0, y0, x1, y1, pad=True)
-            ax.vb.update()
+    x_min,x1 = _set_x_limits(item.ax, item.datasrc)
+    # scroll all plots if we're at the far right
+    tr = item.ax.vb.targetRect()
+    x0 = x1 - tr.width()
+    for ax in item.ax.vb.win.ci.items:
+        ax.setLimits(xMin=x_min, xMax=x1)
+    if tr.right() >= x1-item.datasrc.period*5:
+        for ax in item.ax.vb.win.ci.items:
+            _,_,y0,y1,cnt = ax.vb.datasrc.hilo(x0, x1)
+            ax.vb.set_range(x0, y0, x1, y1, pad=False)
+    for ax in item.ax.vb.win.ci.items:
+        ax.vb.update()
 
 
 def _set_plot_x_axis_leader(ax):
     '''The first plot to add some data is the leader. All other's X-axis will follow this one.'''
     if ax.vb.linkedView(0):
         return
-    for ax_ in ax.vb.win.ci.items:
-        if ax_.vb.name != ax.vb.name:
-            ax_.setXLink(ax.vb.name)
+    for _ax in ax.vb.win.ci.items:
+        if _ax.vb.name != ax.vb.name:
+            _ax.setXLink(ax.vb.name)
 
 
 def _set_x_limits(ax, datasrc):
@@ -706,13 +722,6 @@ def _items_with_datasrc(datasrc):
         for item in ax.items:
             if item.datasrc == datasrc:
                 yield item
-
-
-def _axs_with_datasrc(datasrc):
-    for win in windows:
-        for ax in win.ci.items:
-            if ax.vb.datasrc == datasrc:
-                yield ax
 
 
 def _mouse_moved(win, ev):
