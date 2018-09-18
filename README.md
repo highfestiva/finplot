@@ -6,7 +6,9 @@ Meet Finance Plotter, or finplot! It utilizes pyqtgraph underneath, which to my 
 to immitate matplotlib's api, but with better default looks and much better performance.
 
 Also included is some zooming+scaling logic, so you won't get that "panning all over the place" feeling as one normally finds in
-most non-finance plot libraries.
+most non-finance plot libraries. Plus manual line drawing, where each line segment shows % and time change.
+
+Note that I've placed panning on the middle mouse button, and line drawing on the left mouse drag/click. This is subject to change.
 
 
 ## Easy installation
@@ -14,7 +16,7 @@ most non-finance plot libraries.
 You will need to pip install a couple of libraries, but no external installations required. (Which is a nice change under Windows, as
 pretty much everything performant used to require MSVC altercation or external installation of binaries.)
 
-So all you need to do (at least in Win10/Py3.5.1x64 2018-08) is:
+So all you need to do (at least in Win10/Py3.6.6x64 2018-09) is:
 
 ```bash
 $ pip install pandas
