@@ -76,8 +76,13 @@ class PandasDataSource:
 
     @property
     def y(self):
-        ycol = self.df.columns[1+self.col_data_offset]
-        return self.df[ycol]
+        col = self.df.columns[1+self.col_data_offset]
+        return self.df[col]
+
+    @property
+    def z(self):
+        col = self.df.columns[2+self.col_data_offset]
+        return self.df[col]
 
     def closest_time(self, t):
         t0,_,_,_,_ = self._hilo(t, t+self.period)
@@ -92,7 +97,7 @@ class PandasDataSource:
         for i,col in enumerate(cols):
             old_col = col
             while col in self.df.columns:
-                cols[i] = col = col+'+'
+                cols[i] = col = str(col)+'+'
             if old_col != col:
                 datasrc.renames[old_col] = col
         newcols.columns = cols
@@ -100,7 +105,7 @@ class PandasDataSource:
         self.df = df.reset_index()
         self.skip_scale_colcnt = max(self.skip_scale_colcnt, datasrc.skip_scale_colcnt)
         if datasrc.scale_colcnt:
-            self.set_last_scale_columns(True)
+            self.scale_colcnt = orig_col_data_cnt + datasrc.scale_colcnt - 1 # skip time col
         datasrc.df = self.df # they are the same now
         datasrc.col_data_offset = orig_col_data_cnt
 
@@ -155,7 +160,7 @@ class PandasDataSource:
         lo = max(lo-pad, -1e10)
         return t0,t1,hi,lo,len(df)
 
-    def bear_rows(self, colcnt, x0, x1):
+    def bear_rows(self, colcnt, x0, x1, throttle_at=2000):
         df = self.df
         timecol = df.columns[0]
         opencol = df.columns[1+self.col_data_offset]
@@ -163,9 +168,9 @@ class PandasDataSource:
         in_timerange = (df[timecol]>=x0) & (df[timecol]<=x1)
         is_down = df[opencol] > df[closecol] # open higher than close = goes down
         df = df.loc[in_timerange&is_down]
-        return self._rows(df, colcnt)
+        return self._rows(df, colcnt, throttle_at=throttle_at)
 
-    def bull_rows(self, colcnt, x0, x1):
+    def bull_rows(self, colcnt, x0, x1, throttle_at=2000):
         df = self.df
         timecol = df.columns[0]
         opencol = df.columns[1+self.col_data_offset]
@@ -173,11 +178,18 @@ class PandasDataSource:
         in_timerange = (df[timecol]>=x0) & (df[timecol]<=x1)
         is_up = df[opencol] <= df[closecol] # open lower than close = goes up
         df = df.loc[in_timerange&is_up]
-        return self._rows(df, colcnt)
+        return self._rows(df, colcnt, throttle_at=throttle_at)
 
-    def _rows(self, df, colcnt):
-        if len(df) > 2000:
-            df = df.iloc[::len(df)//2000]
+    def rows(self, colcnt, x0, x1, throttle_at=2000):
+        df = self.df
+        timecol = df.columns[0]
+        in_timerange = (df[timecol]>=x0) & (df[timecol]<=x1)
+        df = df.loc[in_timerange]
+        return self._rows(df, colcnt, throttle_at=throttle_at)
+
+    def _rows(self, df, colcnt, throttle_at):
+        if len(df) > throttle_at:
+            df = df.iloc[::len(df)//throttle_at]
         colcnt -= 1 # time is always implied
         cols = [df.columns[0]] + list(df.columns[1+self.col_data_offset:1+self.col_data_offset+colcnt])
         return zip(*[df[c] for c in cols])
@@ -439,35 +451,32 @@ class FinViewBox(pg.ViewBox):
 
 
 class FinPlotItem(pg.GraphicsObject):
-    def __init__(self, datasrc, bull_color, bear_color):
+    def __init__(self, datasrc):
         super().__init__()
         self.datasrc = datasrc
-        self.bull_color = bull_color
-        self.bear_color = bear_color
         self.picture = QtGui.QPicture()
         self.painter = QtGui.QPainter()
         self.dirty = True
-        self.lowres_item = None
         # generate picture
         visibleRect = QtCore.QRectF(self.datasrc.init_x0, 0, self.datasrc.init_x1-self.datasrc.init_x0, 0)
-        self._generatePicture(visibleRect)
+        self._generate_picture(visibleRect)
 
     def paint(self, p, *args):
         viewRect = self.viewRect()
-        self.updateDirtyPicture(viewRect)
+        self.update_dirty_picture(viewRect)
         p.drawPicture(0, 0, self.picture)
 
-    def updateDirtyPicture(self, visibleRect):
+    def update_dirty_picture(self, visibleRect):
         if self.dirty or \
             visibleRect.left() <= self.cachedRect.left() or \
             visibleRect.right() >= self.cachedRect.right() or \
             visibleRect.width() < self.cachedRect.width() / 10: # optimize when zooming in
-            self._generatePicture(visibleRect)
+            self._generate_picture(visibleRect)
 
-    def _generatePicture(self, boundingRect):
+    def _generate_picture(self, boundingRect):
         w = boundingRect.width()
         self.cachedRect = QtCore.QRectF(boundingRect.left()-w, 0, 3*w, 0)
-        self.generatePicture(self.cachedRect)
+        self.generate_picture(self.cachedRect)
         self.dirty = False
 
     def boundingRect(self):
@@ -476,10 +485,12 @@ class FinPlotItem(pg.GraphicsObject):
 
 
 class CandlestickItem(FinPlotItem):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, datasrc, bull_color, bear_color):
+        self.bull_color = bull_color
+        self.bear_color = bear_color
+        super().__init__(datasrc)
 
-    def generatePicture(self, boundingRect):
+    def generate_picture(self, boundingRect):
         w = self.datasrc.period * 0.7
         w2 = w * 0.5
         left,right = boundingRect.left(), boundingRect.right()
@@ -504,10 +515,12 @@ class CandlestickItem(FinPlotItem):
 
 
 class VolumeItem(FinPlotItem):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, datasrc, bull_color, bear_color):
+        self.bull_color = bull_color
+        self.bear_color = bear_color
+        super().__init__(datasrc)
 
-    def generatePicture(self, boundingRect):
+    def generate_picture(self, boundingRect):
         w = self.datasrc.period * 0.7
         w2 = w * 0.5
         left,right = boundingRect.left(), boundingRect.right()
@@ -523,6 +536,42 @@ class VolumeItem(FinPlotItem):
             p.drawRect(QtCore.QRectF(t-w2, 0, w, volume))
         p.end()
 
+
+
+class ScatterLabelItem(FinPlotItem):
+    def __init__(self, datasrc, color, anchor):
+        self.color = color
+        self.text_items = {}
+        self.anchor = anchor
+        super().__init__(datasrc)
+
+    def generate_picture(self, boundingRect):
+        left,right = boundingRect.left(), boundingRect.right()
+        rows = list(self.datasrc.rows(3, left, right))
+        if len(rows) > 500:
+            self.clear_items(list(self.text_items.keys()))
+            return
+        drops = set(self.text_items.keys())
+        for t,y,txt in rows:
+            key = '%s:%.8f' % (t, y)
+            if key in self.text_items:
+                item = self.text_items[key]
+                item.setText(txt)
+                drops.remove(key)
+            else:
+                self.text_items[key] = item = pg.TextItem(txt, color=self.color, anchor=self.anchor)
+                item.setPos(t, y)
+                item.setParentItem(self)
+        self.clear_items(drops)
+
+    def clear_items(self, drop_keys):
+        for key in drop_keys:
+            item = self.text_items[key]
+            item.scene().removeItem(item)
+            del self.text_items[key]
+
+    def boundingRect(self):
+        return self.viewRect()
 
 
 def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True):
@@ -603,6 +652,25 @@ def plot_datasrc(datasrc, color=None, ax=None, style=None, legend=None, is_last_
         for _,label in ax.legend.items:
             label.setAttr('justify', 'left')
             label.setText(label.text, color=legend_text_color)
+    _set_plot_x_axis_leader(ax)
+    return item
+
+
+def labels(x, y, labels, color=None, ax=None, anchor=(0.5,1)):
+    datasrc = PandasDataSource(pd.concat([x,y,labels], axis=1))
+    return plot_labels_datasrc(datasrc, color=color, ax=ax)
+
+
+def labels_datasrc(datasrc, color=None, ax=None, anchor=(0.5,1)):
+    if ax is None:
+        ax = create_plot(maximize=False)
+    color = color if color else '#000000'
+    datasrc.scale_colcnt = 2 # don't scale on text column
+    _set_datasrc(ax, datasrc)
+    item = ScatterLabelItem(datasrc=datasrc, color=color, anchor=anchor)
+    item.ax = ax
+    item.update_datasrc = partial(_update_datasrc, item)
+    ax.addItem(item)
     _set_plot_x_axis_leader(ax)
     return item
 
