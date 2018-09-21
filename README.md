@@ -76,3 +76,11 @@ fplt.volume_ocv(volume_src, ax=ax3)
 # we're done
 fplt.show()
 ```
+
+
+## Realtime updating with realistic indicator
+
+Included in this repo [a 40-liner example](example.py) which updates in realtime with Bitcoin/Dollar
+pulled from the BitFinex exchange. It also shows a realistic and useful indicator (TD Sequential).
+
+Enjoy!
