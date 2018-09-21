@@ -8,7 +8,7 @@ to immitate matplotlib's api, but with better default looks and much better perf
 Also included is some zooming+scaling logic, so you won't get that "panning all over the place" feeling as one normally finds in
 most non-finance plot libraries. Plus manual line drawing, where each line segment shows % and time change.
 
-Note that I've placed panning on the middle mouse button, and line drawing on the left mouse drag/click. This is subject to change.
+The left mouse button pans, the mouse wheel zooms, and holding Ctrl allows you to draw lines.
 
 
 ## Easy installation

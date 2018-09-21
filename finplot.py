@@ -104,7 +104,7 @@ class PandasDataSource:
         df = pd.concat([df, newcols], axis=1)
         self.df = df.reset_index()
         self.skip_scale_colcnt = max(self.skip_scale_colcnt, datasrc.skip_scale_colcnt)
-        if datasrc.scale_colcnt:
+        if datasrc.scale_colcnt and not self.scale_colcnt:
             self.scale_colcnt = orig_col_data_cnt + datasrc.scale_colcnt - 1 # skip time col
         datasrc.df = self.df # they are the same now
         datasrc.col_data_offset = orig_col_data_cnt
@@ -339,7 +339,7 @@ class FinViewBox(pg.ViewBox):
         ev.accept()
 
     def mouseDragEvent(self, ev, axis=None):
-        if ev.button() != QtCore.Qt.LeftButton:
+        if ev.button() != QtCore.Qt.LeftButton or ev.modifiers() != QtCore.Qt.ControlModifier:
             super().mouseDragEvent(ev, axis)
             if ev.isFinish():
                 self.force_range_update = 6 # as many as plots, or some more is fine too
@@ -365,7 +365,7 @@ class FinViewBox(pg.ViewBox):
         ev.accept()
 
     def mouseClickEvent(self, ev):
-        if ev.button() != QtCore.Qt.LeftButton or not self.draw_line:
+        if ev.button() != QtCore.Qt.LeftButton or ev.modifiers() != QtCore.Qt.ControlModifier or not self.draw_line:
             return super().mouseClickEvent(ev)
         # add another segment to the currently drawn line
         p = ev.pos()
@@ -553,6 +553,8 @@ class ScatterLabelItem(FinPlotItem):
             return
         drops = set(self.text_items.keys())
         for t,y,txt in rows:
+            if not txt:
+                continue
             key = '%s:%.8f' % (t, y)
             if key in self.text_items:
                 item = self.text_items[key]
