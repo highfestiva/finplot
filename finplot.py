@@ -29,7 +29,7 @@ cross_hair_color = '#000000aa'
 draw_color = '#000000'
 draw_done_color = '#555555'
 significant_digits = 8
-v_zoom_padding = 0.02 # padded on top+bottom of plot
+v_zoom_padding = 0.03 # padded on top+bottom of plot
 
 windows = [] # no gc
 timers = [] # no gc
@@ -56,10 +56,9 @@ class PandasDataSource:
         timecol = self.df.columns[0]
         self.df[timecol] = _pdtime2epoch(df[timecol])
         self.col_data_offset = 0 # no. of preceeding columns for other plots
-        self.skip_scale_colcnt = 1 # skip at least time for hi/lo, for candle sticks+volume we also skip open and close
+        self.scale_cols = [i for i in range(1,len(self.df.columns)) if self.df[self.df.columns[i]].dtype!=object]
         self.cache_hilo_query = ''
         self.cache_hilo_answer = None
-        self.scale_colcnt = None # scale on all columns by default
         self.renames = {}
         global epoch_period2
         epoch_period2 = self.period / 2
@@ -89,6 +88,7 @@ class PandasDataSource:
         return t0
 
     def addcols(self, datasrc):
+        self.scale_cols += [c+len(self.df.columns)-1 for c in datasrc.scale_cols]
         timecol = self.df.columns[0]
         df = self.df.set_index(timecol)
         orig_col_data_cnt = len(df.columns)
@@ -103,9 +103,6 @@ class PandasDataSource:
         newcols.columns = cols
         df = pd.concat([df, newcols], axis=1)
         self.df = df.reset_index()
-        self.skip_scale_colcnt = max(self.skip_scale_colcnt, datasrc.skip_scale_colcnt)
-        if datasrc.scale_colcnt and not self.scale_colcnt:
-            self.scale_colcnt = orig_col_data_cnt + datasrc.scale_colcnt - 1 # skip time col
         datasrc.df = self.df # they are the same now
         datasrc.col_data_offset = orig_col_data_cnt
 
@@ -120,10 +117,6 @@ class PandasDataSource:
                 data[col] = df[col]
         data = data.reset_index()
         self.df = data[orig_cols]
-
-    def set_last_scale_columns(self, is_last_scale):
-        if is_last_scale:
-            self.scale_colcnt = len(self.df.columns)
 
     def get_time(self, offset_from_end=0, period=0):
         '''Return timestamp of offset *from end*.'''
@@ -151,13 +144,13 @@ class PandasDataSource:
             return 0,0,0,0,0
         t0 = df[timecol].iloc[0]
         t1 = df[timecol].iloc[-1]
-        valcols = df.columns[self.skip_scale_colcnt+self.col_data_offset:self.scale_colcnt]
+        valcols = df.columns[self.scale_cols]
         hi = df[valcols].max().max()
         lo = df[valcols].min().min()
         pad = (hi-lo) * v_zoom_padding
         pad = max(pad, 2e-7) # some very weird bug where too small scale stops rendering
-        hi = min(hi+pad, +1e10)
-        lo = max(lo-pad, -1e10)
+        hi = min(hi+pad, +1e99)
+        lo = max(lo-pad, -1e99)
         return t0,t1,hi,lo,len(df)
 
     def bear_rows(self, colcnt, x0, x1, throttle_at=2000):
@@ -218,6 +211,7 @@ class PlotDf(object):
 class FinCrossHair:
     def __init__(self, ax, color):
         self.ax = ax
+        self.infos = []
         self.vline = pg.InfiniteLine(angle=90, movable=False, pen=color)
         self.hline = pg.InfiniteLine(angle=0, movable=False, pen=color)
         self.xtext = pg.TextItem(color=color, anchor=(0,1))
@@ -233,14 +227,19 @@ class FinCrossHair:
 
     def update(self, point):
         x = point.x() - fmod(point.x()-epoch_period2, epoch_period2*2) + epoch_period2
+        y = point.y()
         self.vline.setPos(x)
-        self.hline.setPos(point.y())
+        self.hline.setPos(y)
         self.xtext.setPos(point)
         self.ytext.setPos(point)
         space = '      '
-        self.xtext.setText(space + _epoch2local(x))
-        value = _round_to_significant(point.y(), significant_digits)
-        self.ytext.setText(space + value)
+        xtext = space + _epoch2local(x)
+        value = _round_to_significant(y, significant_digits)
+        ytext = space + value
+        for info in self.infos:
+            xtext,ytext = info(x,y,xtext,ytext)
+        self.xtext.setText(xtext)
+        self.ytext.setText(ytext)
 
 
 
@@ -306,9 +305,10 @@ class FinPolyLine(pg.PolyLineROI):
 
 
 class FinViewBox(pg.ViewBox):
-    def __init__(self, win, init_steps=300, *args, **kwargs):
+    def __init__(self, win, init_steps=300, yscale='linear', *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.win = win
+        self.yscale = yscale
         self.force_range_update = 0
         self.lines = []
         self.draw_line = None
@@ -430,6 +430,9 @@ class FinViewBox(pg.ViewBox):
         if pad:
             x0 -= self.datasrc.period*0.5
             x1 += self.datasrc.period*0.5
+        if self.yscale == 'log':
+            y0 = np.log10(y0) if y0 > 0 else 0
+            y1 = np.log10(y1) if y1 > 0 else 0
         self.setRange(QtCore.QRectF(pg.Point(x0, y0), pg.Point(x1, y1)), padding=0)
 
     def append_draw_segment(self, p):
@@ -543,18 +546,17 @@ class ScatterLabelItem(FinPlotItem):
         self.color = color
         self.text_items = {}
         self.anchor = anchor
+        self.show = False
         super().__init__(datasrc)
 
-    def generate_picture(self, boundingRect):
-        left,right = boundingRect.left(), boundingRect.right()
-        rows = list(self.datasrc.rows(3, left, right))
-        if len(rows) > 500:
+    def generate_picture(self, bounding_rect):
+        rows = self.getrows(bounding_rect)
+        if len(rows) > 700: # don't even generate when there's too many of them
             self.clear_items(list(self.text_items.keys()))
             return
         drops = set(self.text_items.keys())
+        created = 0
         for t,y,txt in rows:
-            if not txt:
-                continue
             key = '%s:%.8f' % (t, y)
             if key in self.text_items:
                 item = self.text_items[key]
@@ -564,7 +566,9 @@ class ScatterLabelItem(FinPlotItem):
                 self.text_items[key] = item = pg.TextItem(txt, color=self.color, anchor=self.anchor)
                 item.setPos(t, y)
                 item.setParentItem(self)
-        self.clear_items(drops)
+                created += 1
+        if created > 0 or self.dirty: # only reduce cache if we've added some new or updated
+            self.clear_items(drops)
 
     def clear_items(self, drop_keys):
         for key in drop_keys:
@@ -572,12 +576,19 @@ class ScatterLabelItem(FinPlotItem):
             item.scene().removeItem(item)
             del self.text_items[key]
 
+    def getrows(self, bounding_rect):
+        left,right = bounding_rect.left(), bounding_rect.right()
+        rows = [(t,y,txt) for t,y,txt in self.datasrc.rows(3, left, right) if txt]
+        return rows
+
     def boundingRect(self):
         return self.viewRect()
 
 
-def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True):
-    global windows
+def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True, yscale='linear'):
+    global windows, v_zoom_padding
+    if yscale == 'log':
+        v_zoom_padding = 0.0
     win = pg.GraphicsWindow(title=title)
     windows.append(win)
     if maximize:
@@ -588,8 +599,8 @@ def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True):
     axs = []
     prev_ax = None
     for n in range(rows):
-        viewbox = FinViewBox(win, init_steps=init_zoom_periods)
-        ax = prev_ax = _add_timestamp_plot(win, prev_ax, viewbox, n)
+        viewbox = FinViewBox(win, init_steps=init_zoom_periods, yscale=yscale)
+        ax = prev_ax = _add_timestamp_plot(win, prev_ax, viewbox=viewbox, index=n, yscale=yscale)
         axs += [ax]
     win.proxy_mmove = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=60, slot=partial(_mouse_moved, win))
     if len(axs) == 1:
@@ -597,13 +608,12 @@ def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True):
     return axs
 
 
-def candlestick_ochl(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None, is_last_scale=True):
-    '''The is_last_scale parameter means that no other graphs added afterwards will be included in the
-       zoom/pan Y-scaling. Normally the candlesticks provide the relevant scale for this plot area.'''
+def candlestick_ochl(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None):
     if ax is None:
         ax = create_plot(maximize=False)
-    datasrc.skip_scale_colcnt = 3 # skip open+close for scaling
-    _set_datasrc(ax, datasrc, is_last_scale=is_last_scale)
+    ax.last_color = None
+    datasrc.scale_cols = [3,4] # only hi+lo scales
+    _set_datasrc(ax, datasrc)
     item = CandlestickItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color)
     item.ax = ax
     item.update_datasrc = partial(_update_datasrc, item)
@@ -612,11 +622,12 @@ def candlestick_ochl(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=Non
     return item
 
 
-def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None, is_last_scale=True):
+def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None):
     if ax is None:
         ax = create_plot(maximize=False)
-    datasrc.skip_scale_colcnt = 3 # skip open+close for scaling
-    _set_datasrc(ax, datasrc, is_last_scale=is_last_scale)
+    ax.last_color = None
+    datasrc.scale_cols = [3] # only volume scales
+    _set_datasrc(ax, datasrc)
     item = VolumeItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color)
     item.ax = ax
     item.update_datasrc = partial(_update_datasrc, item)
@@ -625,25 +636,26 @@ def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None, is_
     return item
 
 
-def plot(x, y, color=None, ax=None, style=None, legend=None, is_last_scale=False):
+def plot(x, y, color=None, width=1, ax=None, style=None, legend=None, scale=True):
     datasrc = PandasDataSource(pd.concat([x,y], axis=1))
-    return plot_datasrc(datasrc, color=color, ax=ax, style=style, legend=legend, is_last_scale=is_last_scale)
+    return plot_datasrc(datasrc, color=color, width=width, ax=ax, style=style, legend=legend, scale=scale)
 
 
-def plot_datasrc(datasrc, color=None, ax=None, style=None, legend=None, is_last_scale=False):
+def plot_datasrc(datasrc, color=None, width=1, ax=None, style=None, legend=None, scale=True):
     if ax is None:
         ax = create_plot(maximize=False)
     if not color and style:
         color = ax.last_color
     color = color if color else _get_color(ax)
-    if not style:
-        ax.last_color = color
-    _set_datasrc(ax, datasrc, is_last_scale=is_last_scale)
+    ax.last_color = color if not style else None
+    if not scale:
+        datasrc.scale_cols = []
+    _set_datasrc(ax, datasrc)
     if legend is not None and ax.legend is None:
         ax.legend = FinLegendItem(border_color=legend_border_color, fill_color=legend_fill_color, size=None, offset=(3,2))
         ax.legend.setParentItem(ax.vb)
     if style is None or style=='-':
-        item = ax.plot(datasrc.x, datasrc.y, pen=pg.mkPen(color), name=legend)
+        item = ax.plot(datasrc.x, datasrc.y, pen=pg.mkPen(color, width=width), name=legend, connect='finite')
     else:
         symbol = {'v':'t', '^':'t1', '>':'t2', '<':'t3'}.get(style, style) # translate some similar styles
         item = ax.plot(datasrc.x, datasrc.y, pen=None, symbol=symbol, symbolPen=None, symbolSize=10, symbolBrush=pg.mkBrush(color), name=legend)
@@ -667,7 +679,8 @@ def labels_datasrc(datasrc, color=None, ax=None, anchor=(0.5,1)):
     if ax is None:
         ax = create_plot(maximize=False)
     color = color if color else '#000000'
-    datasrc.scale_colcnt = 2 # don't scale on text column
+    ax.last_color = None
+    datasrc.scale_cols = [] # don't use this for scaling
     _set_datasrc(ax, datasrc)
     item = ScatterLabelItem(datasrc=datasrc, color=color, anchor=anchor)
     item.ax = ax
@@ -677,9 +690,9 @@ def labels_datasrc(datasrc, color=None, ax=None, anchor=(0.5,1)):
     return item
 
 
-def dfplot(df, x=None, y=None, color=None, ax=None, style=None, legend=None):
+def dfplot(df, x=None, y=None, color=None, width=1, ax=None, style=None, legend=None, scale=True):
     legend = legend if legend else y
-    return plot(df[x], df[y], color=color, ax=ax, style=style, legend=legend, is_last_scale=True)
+    return plot(df[x], df[y], color=color, width=width, ax=ax, style=style, legend=legend, scale=scale)
 
 
 def set_y_range(ax, ymin, ymax):
@@ -694,8 +707,15 @@ def add_band(ax, y0, y1, color=band_color):
 
 
 def add_time_inspector(ax, inspector):
+    '''Callback when clicked like so: inspector().'''
     win = ax.vb.win
     win.proxy_click = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_time_clicked, ax, inspector))
+
+
+def add_crosshair_info(ax, info):
+    '''Callback when crosshair updated like so: info(x,y,xtext,ytext); the info()
+       callback must return two values: xtext and ytext.'''
+    ax.crosshair.infos.append(info)
 
 
 def timer_callback(update_func, seconds, single_shot=False):
@@ -719,26 +739,26 @@ def show():
 #################### INTERNALS ####################
 
 
-def _add_timestamp_plot(win, prev_ax, viewbox, n):
+def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
     if prev_ax is not None:
         prev_ax.hideAxis('bottom') # hide the whole previous axis
         win.nextRow()
-    ax = pg.PlotItem(viewBox=viewbox, axisItems={'bottom': EpochAxisItem(orientation='bottom')}, name='plot-%i'%n)
+    ax = pg.PlotItem(viewBox=viewbox, axisItems={'bottom': EpochAxisItem(orientation='bottom')}, name='plot-%i'%index)
     ax.axes['left']['item'].textWidth = 51 # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
     ax.axes['left']['item'].setStyle(tickLength=-5) # some bug, totally unexplicable (why setting the default value again would fix repaint width as axis scale down)
     ax.axes['left']['item'].setZValue(10) # put axis in front instead of behind data
     ax.axes['bottom']['item'].setZValue(10)
+    ax.setLogMode(y=(yscale=='log'))
     ax.crosshair = FinCrossHair(ax, color=cross_hair_color)
     ax.last_color = None
-    if n%2:
+    if index%2:
         viewbox.setBackgroundColor(odd_plot_background)
     viewbox.setParent(ax)
     win.addItem(ax)
     return ax
 
 
-def _set_datasrc(ax, datasrc, is_last_scale=False):
-    datasrc.set_last_scale_columns(is_last_scale)
+def _set_datasrc(ax, datasrc):
     viewbox = ax.vb
     if viewbox.datasrc is None:
         viewbox.set_datasrc(datasrc) # for mwheel zoom-scaling
