@@ -19,6 +19,7 @@ import pyqtgraph as pg
 from pyqtgraph import QtCore, QtGui
 
 
+hollow_brush_color = '#ffffff'
 legend_border_color = '#000000dd'
 legend_fill_color   = '#00000055'
 legend_text_color   = '#dddddd66'
@@ -26,7 +27,7 @@ plot_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b',
 odd_plot_background = '#f0f0f0'
 band_color = '#aabbdd'
 cross_hair_color = '#000000aa'
-draw_color = '#000000'
+draw_line_color = '#000000'
 draw_done_color = '#555555'
 significant_digits = 8
 v_zoom_padding = 0.03 # padded on top+bottom of plot
@@ -34,7 +35,7 @@ v_zoom_padding = 0.03 # padded on top+bottom of plot
 windows = [] # no gc
 timers = [] # no gc
 plotdf2df = {} # for pandas df.plot
-epoch_period2 = 0.5
+epoch_period2 = 1e30
 
 
 
@@ -60,8 +61,11 @@ class PandasDataSource:
         self.cache_hilo_query = ''
         self.cache_hilo_answer = None
         self.renames = {}
+        self.standalone = False
         global epoch_period2
-        epoch_period2 = self.period / 2
+        ep2 = self.period / 2
+        if ep2 < epoch_period2:
+            epoch_period2 = ep2
 
     @property
     def period(self):
@@ -267,7 +271,7 @@ class FinPolyLine(pg.PolyLineROI):
 
     def addSegment(self, h1, h2, index=None):
         super().addSegment(h1, h2, index)
-        text = pg.TextItem(color=draw_color)
+        text = pg.TextItem(color=draw_line_color)
         text.segment = self.segments[-1 if index is None else index]
         if index is None:
             self.texts.append(text)
@@ -353,7 +357,7 @@ class FinViewBox(pg.ViewBox):
         p1 = pg.Point(pg.functions.invertQTransform(self.childGroup.transform()).map(p1))
         if not self.drawing:
             # add new line
-            self.draw_line = FinPolyLine(self, [p0, p1], closed=False, pen=pg.mkPen(draw_color), movable=False)
+            self.draw_line = FinPolyLine(self, [p0, p1], closed=False, pen=pg.mkPen(draw_line_color), movable=False)
             self.lines.append(self.draw_line)
             self.addItem(self.draw_line)
             self.drawing = True
@@ -389,7 +393,7 @@ class FinViewBox(pg.ViewBox):
                     self.draw_line = None
                 if self.lines:
                     self.draw_line = self.lines[-1]
-                    self.set_draw_line_color(draw_color)
+                    self.set_draw_line_color(draw_line_color)
         else:
             super().keyPressEvent(ev)
 
@@ -488,13 +492,16 @@ class FinPlotItem(pg.GraphicsObject):
 
 
 class CandlestickItem(FinPlotItem):
-    def __init__(self, datasrc, bull_color, bear_color):
+    def __init__(self, datasrc, bull_color, bear_color, draw_body=True, draw_shadow=True, candle_width=0.7):
         self.bull_color = bull_color
         self.bear_color = bear_color
+        self.draw_body = draw_body
+        self.draw_shadow = draw_shadow
+        self.candle_width = candle_width
         super().__init__(datasrc)
 
     def generate_picture(self, boundingRect):
-        w = self.datasrc.period * 0.7
+        w = self.datasrc.period * self.candle_width
         w2 = w * 0.5
         left,right = boundingRect.left(), boundingRect.right()
         p = self.painter
@@ -503,16 +510,18 @@ class CandlestickItem(FinPlotItem):
         p.setBrush(pg.mkBrush(self.bear_color))
         rows = 0
         for t,open,close,high,low in self.datasrc.bear_rows(5, left, right):
-            if high > low:
+            if high > low and self.draw_shadow:
                 p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
-            p.drawRect(QtCore.QRectF(t-w2, open, w, close-open))
+            if self.draw_body:
+                p.drawRect(QtCore.QRectF(t-w2, open, w, close-open))
             rows += 1
         p.setPen(pg.mkPen(self.bull_color))
-        p.setBrush(pg.mkBrush(self.bull_color))
+        p.setBrush(pg.mkBrush(hollow_brush_color))
         for t,open,close,high,low in self.datasrc.bull_rows(5, left, right):
-            if high > low:
+            if high > low and self.draw_shadow:
                 p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
-            p.drawRect(QtCore.QRectF(t-w2, open, w, close-open))
+            if self.draw_body:
+                p.drawRect(QtCore.QRectF(t-w2, open, w, close-open))
         p.end()
 
 
@@ -557,6 +566,7 @@ class ScatterLabelItem(FinPlotItem):
         drops = set(self.text_items.keys())
         created = 0
         for t,y,txt in rows:
+            txt = str(txt)
             key = '%s:%.8f' % (t, y)
             if key in self.text_items:
                 item = self.text_items[key]
@@ -608,13 +618,13 @@ def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True, yscal
     return axs
 
 
-def candlestick_ochl(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None):
+def candlestick_ochl(datasrc, bull_color='#26a69a', bear_color='#ef5350', draw_body=True, draw_shadow=True, candle_width=0.7, ax=None):
     if ax is None:
         ax = create_plot(maximize=False)
     ax.last_color = None
     datasrc.scale_cols = [3,4] # only hi+lo scales
     _set_datasrc(ax, datasrc)
-    item = CandlestickItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color)
+    item = CandlestickItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width)
     item.ax = ax
     item.update_datasrc = partial(_update_datasrc, item)
     ax.addItem(item)
@@ -636,26 +646,27 @@ def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None):
     return item
 
 
-def plot(x, y, color=None, width=1, ax=None, style=None, legend=None, scale=True):
+def plot(x, y, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True):
     datasrc = PandasDataSource(pd.concat([x,y], axis=1))
-    return plot_datasrc(datasrc, color=color, width=width, ax=ax, style=style, legend=legend, scale=scale)
+    return plot_datasrc(datasrc, color=color, width=width, ax=ax, style=style, legend=legend, zoomscale=zoomscale)
 
 
-def plot_datasrc(datasrc, color=None, width=1, ax=None, style=None, legend=None, scale=True):
+def plot_datasrc(datasrc, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True):
     if ax is None:
         ax = create_plot(maximize=False)
     if not color and style:
         color = ax.last_color
     color = color if color else _get_color(ax)
     ax.last_color = color if not style else None
-    if not scale:
+    if not zoomscale:
         datasrc.scale_cols = []
     _set_datasrc(ax, datasrc)
     if legend is not None and ax.legend is None:
         ax.legend = FinLegendItem(border_color=legend_border_color, fill_color=legend_fill_color, size=None, offset=(3,2))
         ax.legend.setParentItem(ax.vb)
     if style is None or style=='-':
-        item = ax.plot(datasrc.x, datasrc.y, pen=pg.mkPen(color, width=width), name=legend, connect='finite')
+        connect_dots = 'finite' # same as matplotlib; use datasrc.standalone=True if you want to keep separate intervals on a plot
+        item = ax.plot(datasrc.x, datasrc.y, pen=pg.mkPen(color, width=width), name=legend, connect=connect_dots)
     else:
         symbol = {'v':'t', '^':'t1', '>':'t2', '<':'t3'}.get(style, style) # translate some similar styles
         item = ax.plot(datasrc.x, datasrc.y, pen=None, symbol=symbol, symbolPen=None, symbolSize=10, symbolBrush=pg.mkBrush(color), name=legend)
@@ -690,9 +701,9 @@ def labels_datasrc(datasrc, color=None, ax=None, anchor=(0.5,1)):
     return item
 
 
-def dfplot(df, x=None, y=None, color=None, width=1, ax=None, style=None, legend=None, scale=True):
+def dfplot(df, x=None, y=None, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True):
     legend = legend if legend else y
-    return plot(df[x], df[y], color=color, width=width, ax=ax, style=style, legend=legend, scale=scale)
+    return plot(df[x], df[y], color=color, width=width, ax=ax, style=style, legend=legend, zoomscale=zoomscale)
 
 
 def set_y_range(ax, ymin, ymax):
@@ -706,7 +717,7 @@ def add_band(ax, y0, y1, color=band_color):
     ax.addItem(lr)
 
 
-def add_time_inspector(ax, inspector):
+def set_time_inspector(ax, inspector):
     '''Callback when clicked like so: inspector().'''
     win = ax.vb.win
     win.proxy_click = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_time_clicked, ax, inspector))
@@ -764,9 +775,10 @@ def _set_datasrc(ax, datasrc):
         viewbox.set_datasrc(datasrc) # for mwheel zoom-scaling
         _set_x_limits(ax, datasrc)
     else:
-        viewbox.datasrc.addcols(datasrc)
-        _set_x_limits(ax, datasrc)
-        viewbox.set_datasrc(viewbox.datasrc) # update zoom
+        if not datasrc.standalone:
+            viewbox.datasrc.addcols(datasrc)
+            _set_x_limits(ax, datasrc)
+            viewbox.set_datasrc(viewbox.datasrc) # update zoom
         datasrc.init_x0 = viewbox.datasrc.init_x0
         datasrc.init_x1 = viewbox.datasrc.init_x1
 
