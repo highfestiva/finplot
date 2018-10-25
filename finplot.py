@@ -11,6 +11,7 @@ region.
 '''
 
 from datetime import datetime
+from decimal import Decimal
 from functools import partial
 from math import log10, floor, fmod
 import numpy as np
@@ -29,8 +30,10 @@ band_color = '#aabbdd'
 cross_hair_color = '#000000aa'
 draw_line_color = '#000000'
 draw_done_color = '#555555'
-significant_digits = 8
+significant_decimals = 8
 v_zoom_padding = 0.03 # padded on top+bottom of plot
+max_zoom_points = 20 # number of visible candles at maximum zoom
+clamp_crosshair = False
 
 windows = [] # no gc
 timers = [] # no gc
@@ -52,7 +55,7 @@ class PandasDataSource:
     '''Candle sticks: create with five columns: time, open, close, hi, lo - in that order.
        Volume bars: create with three columns: time, open, close, volume - in that order.
        For all other types, time needs to be first, usually followed by one or more Y-columns.'''
-    def __init__(self, df):
+    def __init__(self, df, standalone=False):
         self.df = df.copy()
         timecol = self.df.columns[0]
         self.df[timecol] = _pdtime2epoch(df[timecol])
@@ -61,11 +64,7 @@ class PandasDataSource:
         self.cache_hilo_query = ''
         self.cache_hilo_answer = None
         self.renames = {}
-        self.standalone = False
-        global epoch_period2
-        ep2 = self.period / 2
-        if ep2 < epoch_period2:
-            epoch_period2 = ep2
+        self.standalone = standalone
 
     @property
     def period(self):
@@ -86,6 +85,18 @@ class PandasDataSource:
     def z(self):
         col = self.df.columns[2+self.col_data_offset]
         return self.df[col]
+
+    def calc_significant_decimals(self):
+        absdiff = (self.y - self.y.shift()).abs()
+        absdiff[absdiff<1e-30] = 1e30
+        smallest_diff = absdiff.min()
+        s = '%.0e' % smallest_diff
+        exp = -int(s.partition('e')[2])
+        return min(10, exp)
+
+    def update_init_x(self, init_steps):
+        self.init_x0 = self.get_time(offset_from_end=init_steps, period=-0.5)
+        self.init_x1 = self.get_time(offset_from_end=0, period=+0.5)
 
     def closest_time(self, t):
         t0,_,_,_,_ = self._hilo(t, t+self.period)
@@ -215,6 +226,8 @@ class PlotDf(object):
 class FinCrossHair:
     def __init__(self, ax, color):
         self.ax = ax
+        self.x = 0
+        self.y = 0
         self.infos = []
         self.vline = pg.InfiniteLine(angle=90, movable=False, pen=color)
         self.hline = pg.InfiniteLine(angle=0, movable=False, pen=color)
@@ -229,16 +242,22 @@ class FinCrossHair:
         ax.addItem(self.xtext, ignoreBounds=True)
         ax.addItem(self.ytext, ignoreBounds=True)
 
-    def update(self, point):
-        x = point.x() - fmod(point.x()-epoch_period2, epoch_period2*2) + epoch_period2
-        y = point.y()
+    def update(self, point=None):
+        if point is not None:
+            self.x = point.x()
+            self.y = point.y()
+        x,y = self.x,self.y
+        if clamp_crosshair:
+            x -= fmod(x+epoch_period2, epoch_period2*2) - epoch_period2
+            eps = 10**-self.ax.significant_decimals
+            y -= fmod(y+eps*0.5, eps) - eps*0.5
         self.vline.setPos(x)
         self.hline.setPos(y)
-        self.xtext.setPos(point)
-        self.ytext.setPos(point)
+        self.xtext.setPos(x, y)
+        self.ytext.setPos(x, y)
         space = '      '
         xtext = space + _epoch2local(x)
-        value = _round_to_significant(y, significant_digits)
+        value = _round_to_significant(y, self.ax.significant_decimals)
         ytext = space + value
         for info in self.infos:
             xtext,ytext = info(x,y,xtext,ytext)
@@ -325,10 +344,9 @@ class FinViewBox(pg.ViewBox):
         self.datasrc = datasrc
         if not self.datasrc:
             return
-        datasrc.init_x0 = datasrc.get_time(offset_from_end=self.init_steps, period=-0.5)
-        datasrc.init_x1 = datasrc.get_time(offset_from_end=0, period=+0.5)
+        datasrc.update_init_x(self.init_steps)
         x0,x1,hi,lo,cnt = self.datasrc.hilo(datasrc.init_x0, datasrc.init_x1)
-        if cnt >= 20:
+        if cnt >= max_zoom_points:
             self.set_range(x0, lo, x1, hi, pad=True)
 
     def wheelEvent(self, ev, axis=None):
@@ -379,7 +397,14 @@ class FinViewBox(pg.ViewBox):
         ev.accept()
 
     def keyPressEvent(self, ev):
-        if ev.text() in ('\r', ' ', '\x1b'): # enter, space, esc
+        if ev.text() == 'g': # grid
+            global clamp_crosshair
+            clamp_crosshair = not clamp_crosshair
+            for win in windows:
+                for ax in win.ci.items:
+                    ax.crosshair.update()
+            ev.accept()
+        elif ev.text() in ('\r', ' ', '\x1b'): # enter, space, esc
             self.set_draw_line_color(draw_done_color)
             self.draw_line = None
             ev.accept()
@@ -424,7 +449,7 @@ class FinViewBox(pg.ViewBox):
             x0 = tr.left()
             x1 = tr.right()
         x0,x1,hi,lo,cnt = self.datasrc.hilo(x0, x1)
-        if cnt < 20:
+        if cnt < max_zoom_points:
             return
         self.set_range(x0, lo, x1, hi, pad=True)
 
@@ -625,6 +650,7 @@ def candlestick_ochl(datasrc, bull_color='#26a69a', bear_color='#ef5350', draw_b
     datasrc.scale_cols = [3,4] # only hi+lo scales
     _set_datasrc(ax, datasrc)
     item = CandlestickItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width)
+    ax.significant_decimals = datasrc.calc_significant_decimals()
     item.ax = ax
     item.update_datasrc = partial(_update_datasrc, item)
     ax.addItem(item)
@@ -647,7 +673,7 @@ def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None):
 
 
 def plot(x, y, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True):
-    datasrc = PandasDataSource(pd.concat([x,y], axis=1))
+    datasrc = _create_datasrc(x, y)
     return plot_datasrc(datasrc, color=color, width=width, ax=ax, style=style, legend=legend, zoomscale=zoomscale)
 
 
@@ -682,7 +708,7 @@ def plot_datasrc(datasrc, color=None, width=1, ax=None, style=None, legend=None,
 
 
 def labels(x, y, labels, color=None, ax=None, anchor=(0.5,1)):
-    datasrc = PandasDataSource(pd.concat([x,y,labels], axis=1))
+    datasrc = _create_datasrc(x, y, labels)
     return plot_labels_datasrc(datasrc, color=color, ax=ax)
 
 
@@ -760,6 +786,7 @@ def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
     ax.axes['left']['item'].setZValue(10) # put axis in front instead of behind data
     ax.axes['bottom']['item'].setZValue(10)
     ax.setLogMode(y=(yscale=='log'))
+    ax.significant_decimals = significant_decimals
     ax.crosshair = FinCrossHair(ax, color=cross_hair_color)
     ax.last_color = None
     if index%2:
@@ -769,18 +796,31 @@ def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
     return ax
 
 
+def _create_datasrc(*args):
+    args = [(a if isinstance(a, pd.Series) else pd.Series(a)) for a in args]
+    return PandasDataSource(pd.concat(args, axis=1))
+
+
 def _set_datasrc(ax, datasrc):
     viewbox = ax.vb
-    if viewbox.datasrc is None:
-        viewbox.set_datasrc(datasrc) # for mwheel zoom-scaling
-        _set_x_limits(ax, datasrc)
-    else:
-        if not datasrc.standalone:
+    if not datasrc.standalone:
+        if viewbox.datasrc is None:
+            viewbox.set_datasrc(datasrc) # for mwheel zoom-scaling
+            _set_x_limits(ax, datasrc)
+        else:
             viewbox.datasrc.addcols(datasrc)
             _set_x_limits(ax, datasrc)
             viewbox.set_datasrc(viewbox.datasrc) # update zoom
-        datasrc.init_x0 = viewbox.datasrc.init_x0
-        datasrc.init_x1 = viewbox.datasrc.init_x1
+            datasrc.init_x0 = viewbox.datasrc.init_x0
+            datasrc.init_x1 = viewbox.datasrc.init_x1
+    else:
+        datasrc.update_init_x(viewbox.init_steps)
+    # update period if this datasrc has higher resolution
+    global epoch_period2
+    if epoch_period2 > 1e10 or not datasrc.standalone:
+        ep2 = datasrc.period / 2
+        if ep2 < epoch_period2:
+            epoch_period2 = ep2
 
 
 def _update_datasrc(item, ds):
@@ -819,13 +859,6 @@ def _set_x_limits(ax, datasrc):
     return x0, x1
 
 
-def _items_with_datasrc(datasrc):
-    for ax in axs_with_datasrc(datasrc):
-        for item in ax.items:
-            if item.datasrc == datasrc:
-                yield item
-
-
 def _mouse_moved(win, ev):
     pos = ev[0]
     for ax in win.ci.items:
@@ -856,10 +889,10 @@ def _epoch2local(t):
     return datetime.fromtimestamp(t).isoformat().replace('T',' ').rsplit(':',1)[0]
 
 
-def _round_to_significant(x, num_significant):
-    x = round(x, num_significant-1-int(floor(log10(abs(x)))))
-    fmt = '%%.%if' % num_significant
-    return (fmt % x)[:num_significant+2]
+def _round_to_significant(x, significant_decimals):
+    x = round(x, significant_decimals)
+    fmt = '%%.%if' % significant_decimals
+    return fmt % x
 
 
 def _draw_line_segment_text(polyline, segment, pos0, pos1):
