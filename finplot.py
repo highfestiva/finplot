@@ -33,7 +33,7 @@ draw_done_color = '#555555'
 significant_decimals = 8
 v_zoom_padding = 0.03 # padded on top+bottom of plot
 max_zoom_points = 20 # number of visible candles at maximum zoom
-clamp_crosshair = False
+clamp_grid = False
 
 windows = [] # no gc
 timers = [] # no gc
@@ -247,10 +247,7 @@ class FinCrossHair:
             self.x = point.x()
             self.y = point.y()
         x,y = self.x,self.y
-        if clamp_crosshair:
-            x -= fmod(x+epoch_period2, epoch_period2*2) - epoch_period2
-            eps = 10**-self.ax.significant_decimals
-            y -= fmod(y+eps*0.5, eps) - eps*0.5
+        x,y = _clamp_xy(self.ax, x,y)
         self.vline.setPos(x)
         self.hline.setPos(y)
         self.xtext.setPos(x, y)
@@ -369,12 +366,14 @@ class FinViewBox(pg.ViewBox):
             return
         if self.draw_line and not self.drawing:
             self.set_draw_line_color(draw_done_color)
-        p0 = ev.lastPos()
         p1 = ev.pos()
-        p0 = pg.Point(pg.functions.invertQTransform(self.childGroup.transform()).map(p0))
         p1 = pg.Point(pg.functions.invertQTransform(self.childGroup.transform()).map(p1))
+        p1 = _clamp_point(self.parent(), p1)
         if not self.drawing:
             # add new line
+            p0 = ev.lastPos()
+            p0 = pg.Point(pg.functions.invertQTransform(self.childGroup.transform()).map(p0))
+            p0 = _clamp_point(self.parent(), p0)
             self.draw_line = FinPolyLine(self, [p0, p1], closed=False, pen=pg.mkPen(draw_line_color), movable=False)
             self.lines.append(self.draw_line)
             self.addItem(self.draw_line)
@@ -392,14 +391,15 @@ class FinViewBox(pg.ViewBox):
         # add another segment to the currently drawn line
         p = ev.pos()
         p = pg.Point(pg.functions.invertQTransform(self.childGroup.transform()).map(p))
+        p = _clamp_point(self.parent(), p)
         self.append_draw_segment(p)
         self.drawing = False
         ev.accept()
 
     def keyPressEvent(self, ev):
         if ev.text() == 'g': # grid
-            global clamp_crosshair
-            clamp_crosshair = not clamp_crosshair
+            global clamp_grid
+            clamp_grid = not clamp_grid
             for win in windows:
                 for ax in win.ci.items:
                     ax.crosshair.update()
@@ -419,6 +419,13 @@ class FinViewBox(pg.ViewBox):
                 if self.lines:
                     self.draw_line = self.lines[-1]
                     self.set_draw_line_color(draw_line_color)
+                ev.accept()
+        elif ev.key() == QtCore.Qt.Key_Left:
+            self.pan_x(percent=-15)
+            ev.accept()
+        elif ev.key() == QtCore.Qt.Key_Right:
+            self.pan_x(percent=+15)
+            ev.accept()
         else:
             super().keyPressEvent(ev)
 
@@ -441,6 +448,22 @@ class FinViewBox(pg.ViewBox):
             return
         x0 = center.x() + (vr.left()-center.x()) * scale_fact
         x1 = center.x() + (vr.right()-center.x()) * scale_fact
+        self.update_range(x0, x1)
+
+    def pan_x(self, steps=None, percent=None):
+        if steps is None:
+            steps = int(percent/100*self.targetRect().width())
+        tr = self.targetRect()
+        x1 = tr.right() + steps
+        xarr = _create_series(self.datasrc.x)
+        startx = xarr.iloc[0]
+        endx = xarr.iloc[-1]
+        if x1 > endx:
+            x1 = endx
+        x0 = x1 - self.targetRect().width() + 1
+        if x0 < startx:
+            x0 = startx
+            x1 = x0 + self.targetRect().width() - 1
         self.update_range(x0, x1)
 
     def update_range(self, x0=None, x1=None):
@@ -796,8 +819,12 @@ def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
     return ax
 
 
+def _create_series(a):
+    return a if isinstance(a, pd.Series) else pd.Series(a)
+
+
 def _create_datasrc(*args):
-    args = [(a if isinstance(a, pd.Series) else pd.Series(a)) for a in args]
+    args = [_create_series(a) for a in args]
     return PandasDataSource(pd.concat(args, axis=1))
 
 
@@ -893,6 +920,21 @@ def _round_to_significant(x, significant_decimals):
     x = round(x, significant_decimals)
     fmt = '%%.%if' % significant_decimals
     return fmt % x
+
+
+def _clamp_xy(ax, x, y):
+    if clamp_grid:
+        x -= fmod(x+epoch_period2, epoch_period2*2) - epoch_period2
+        eps = 10**-ax.significant_decimals
+        y -= fmod(y+eps*0.5, eps) - eps*0.5
+    return x, y
+
+
+def _clamp_point(ax, p):
+    if clamp_grid:
+        x,y = _clamp_xy(ax, p.x(), p.y())
+        return pg.Point(x, y)
+    return p
 
 
 def _draw_line_segment_text(polyline, segment, pos0, pos1):
