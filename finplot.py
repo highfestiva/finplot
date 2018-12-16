@@ -719,6 +719,9 @@ def plot_datasrc(datasrc, color=None, width=1, ax=None, style=None, legend=None,
     else:
         symbol = {'v':'t', '^':'t1', '>':'t2', '<':'t3'}.get(style, style) # translate some similar styles
         item = ax.plot(datasrc.x, datasrc.y, pen=None, symbol=symbol, symbolPen=None, symbolSize=10, symbolBrush=pg.mkBrush(color), name=legend)
+        # optimize (when having large number of points) by ignoring scatter click detection
+        _dummy_mouse_click = lambda ev: 0
+        item.scatter.mouseClickEvent = _dummy_mouse_click
     item.ax = ax
     item.datasrc = datasrc
     item.update_datasrc = partial(_update_datasrc, item)
@@ -732,7 +735,7 @@ def plot_datasrc(datasrc, color=None, width=1, ax=None, style=None, legend=None,
 
 def labels(x, y, labels, color=None, ax=None, anchor=(0.5,1)):
     datasrc = _create_datasrc(x, y, labels)
-    return plot_labels_datasrc(datasrc, color=color, ax=ax)
+    return labels_datasrc(datasrc, color=color, ax=ax)
 
 
 def labels_datasrc(datasrc, color=None, ax=None, anchor=(0.5,1)):
