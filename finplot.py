@@ -31,9 +31,11 @@ cross_hair_color = '#000000aa'
 draw_line_color = '#000000'
 draw_done_color = '#555555'
 significant_decimals = 8
+significant_eps = 1e-8
 v_zoom_padding = 0.03 # padded on top+bottom of plot
 max_zoom_points = 20 # number of visible candles at maximum zoom
-clamp_grid = False
+top_graph_scale = 3
+clamp_grid = True
 
 windows = [] # no gc
 timers = [] # no gc
@@ -92,7 +94,7 @@ class PandasDataSource:
         smallest_diff = absdiff.min()
         s = '%.0e' % smallest_diff
         exp = -int(s.partition('e')[2])
-        return min(10, exp)
+        return min(10, exp), smallest_diff
 
     def update_init_x(self, init_steps):
         self.init_x0 = self.get_time(offset_from_end=init_steps, period=-0.5)
@@ -254,7 +256,7 @@ class FinCrossHair:
         self.ytext.setPos(x, y)
         space = '      '
         xtext = space + _epoch2local(x)
-        value = _round_to_significant(y, self.ax.significant_decimals)
+        value = _round_to_significant(y, self.ax.significant_decimals, self.ax.significant_eps)
         ytext = space + value
         for info in self.infos:
             xtext,ytext = info(x,y,xtext,ytext)
@@ -653,7 +655,7 @@ def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True, yscal
         win.showMaximized()
     win.ci.setContentsMargins(0, 0, 0 ,0)
     # normally first graph is of higher significance, so enlarge
-    win.ci.layout.setRowStretchFactor(0, 3)
+    win.ci.layout.setRowStretchFactor(0, top_graph_scale)
     axs = []
     prev_ax = None
     for n in range(rows):
@@ -673,7 +675,7 @@ def candlestick_ochl(datasrc, bull_color='#26a69a', bear_color='#ef5350', draw_b
     datasrc.scale_cols = [3,4] # only hi+lo scales
     _set_datasrc(ax, datasrc)
     item = CandlestickItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width)
-    ax.significant_decimals = datasrc.calc_significant_decimals()
+    ax.significant_decimals,ax.significant_eps = datasrc.calc_significant_decimals()
     item.ax = ax
     item.update_datasrc = partial(_update_datasrc, item)
     ax.addItem(item)
@@ -807,12 +809,13 @@ def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
         prev_ax.hideAxis('bottom') # hide the whole previous axis
         win.nextRow()
     ax = pg.PlotItem(viewBox=viewbox, axisItems={'bottom': EpochAxisItem(orientation='bottom')}, name='plot-%i'%index)
-    ax.axes['left']['item'].textWidth = 51 # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
+    ax.axes['left']['item'].textWidth = 62 # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
     ax.axes['left']['item'].setStyle(tickLength=-5) # some bug, totally unexplicable (why setting the default value again would fix repaint width as axis scale down)
     ax.axes['left']['item'].setZValue(10) # put axis in front instead of behind data
     ax.axes['bottom']['item'].setZValue(10)
     ax.setLogMode(y=(yscale=='log'))
     ax.significant_decimals = significant_decimals
+    ax.significant_eps = significant_eps
     ax.crosshair = FinCrossHair(ax, color=cross_hair_color)
     ax.last_color = None
     if index%2:
@@ -919,8 +922,12 @@ def _epoch2local(t):
     return datetime.fromtimestamp(t).isoformat().replace('T',' ').rsplit(':',1)[0]
 
 
-def _round_to_significant(x, significant_decimals):
-    x = round(x, significant_decimals)
+def _round_to_significant(x, significant_decimals, significant_eps):
+    eps = fmod(x, significant_eps)
+    if abs(eps) >= significant_eps/2:
+        # round up
+        eps -= np.sign(eps)*significant_eps
+    x -= eps
     fmt = '%%.%if' % significant_decimals
     return fmt % x
 
@@ -928,7 +935,7 @@ def _round_to_significant(x, significant_decimals):
 def _clamp_xy(ax, x, y):
     if clamp_grid:
         x -= fmod(x+epoch_period2, epoch_period2*2) - epoch_period2
-        eps = 10**-ax.significant_decimals
+        eps = ax.significant_eps
         y -= fmod(y+eps*0.5, eps) - eps*0.5
     return x, y
 
