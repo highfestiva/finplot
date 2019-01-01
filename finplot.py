@@ -12,7 +12,7 @@ region.
 
 from datetime import datetime
 from decimal import Decimal
-from functools import partial
+from functools import partial, partialmethod
 from math import log10, floor, fmod
 import numpy as np
 import pandas as pd
@@ -331,6 +331,7 @@ class FinViewBox(pg.ViewBox):
         super().__init__(*args, **kwargs)
         self.win = win
         self.yscale = yscale
+        self.y_positive = True
         self.force_range_update = 0
         self.lines = []
         self.draw_line = None
@@ -363,8 +364,14 @@ class FinViewBox(pg.ViewBox):
         if ev.button() != QtCore.Qt.LeftButton or ev.modifiers() != QtCore.Qt.ControlModifier:
             super().mouseDragEvent(ev, axis)
             if ev.isFinish():
-                self.force_range_update = 6 # as many as plots, or some more is fine too
+                main_vb = self
+                if self.linkedView(0):
+                    self.force_range_update = 1 # main need to update only once to us
+                    main_vb = list(self.win.ci.items)[0].vb
+                main_vb.force_range_update = len(self.win.ci.items)-1 # update main as many times as there are other rows
                 self.update_range()
+                # refresh crosshair when done
+                timer_callback(lambda:_mouse_moved(self.win,None), 0.01, single_shot=True)
             return
         if self.draw_line and not self.drawing:
             self.set_draw_line_color(draw_done_color)
@@ -406,7 +413,7 @@ class FinViewBox(pg.ViewBox):
                 for ax in win.ci.items:
                     ax.crosshair.update()
             ev.accept()
-        elif ev.text() in ('\r', ' ', '\x1b'): # enter, space, esc
+        elif ev.text() in ('\r', ' '): # enter, space
             self.set_draw_line_color(draw_done_color)
             self.draw_line = None
             ev.accept()
@@ -427,6 +434,17 @@ class FinViewBox(pg.ViewBox):
             ev.accept()
         elif ev.key() == QtCore.Qt.Key_Right:
             self.pan_x(percent=+15)
+            ev.accept()
+        elif ev.key() == QtCore.Qt.Key_Home:
+            self.pan_x(steps=-1e10)
+            _repaint_candles()
+            ev.accept()
+        elif ev.key() == QtCore.Qt.Key_End:
+            self.pan_x(steps=+1e10)
+            _repaint_candles()
+            ev.accept()
+        elif ev.key() == QtCore.Qt.Key_Escape:
+            self.win.close()
             ev.accept()
         else:
             super().keyPressEvent(ev)
@@ -661,6 +679,9 @@ def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True, yscal
     for n in range(rows):
         viewbox = FinViewBox(win, init_steps=init_zoom_periods, yscale=yscale)
         ax = prev_ax = _add_timestamp_plot(win, prev_ax, viewbox=viewbox, index=n, yscale=yscale)
+        _set_plot_x_axis_leader(ax)
+        if n == 0:
+            viewbox.setFocus()
         axs += [ax]
     win.proxy_mmove = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=60, slot=partial(_mouse_moved, win))
     if len(axs) == 1:
@@ -679,7 +700,7 @@ def candlestick_ochl(datasrc, bull_color='#26a69a', bear_color='#ef5350', draw_b
     item.ax = ax
     item.update_datasrc = partial(_update_datasrc, item)
     ax.addItem(item)
-    _set_plot_x_axis_leader(ax)
+    _pre_process_data(item)
     return item
 
 
@@ -693,7 +714,7 @@ def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None):
     item.ax = ax
     item.update_datasrc = partial(_update_datasrc, item)
     ax.addItem(item)
-    _set_plot_x_axis_leader(ax)
+    _pre_process_data(item)
     return item
 
 
@@ -727,11 +748,11 @@ def plot_datasrc(datasrc, color=None, width=1, ax=None, style=None, legend=None,
     item.ax = ax
     item.datasrc = datasrc
     item.update_datasrc = partial(_update_datasrc, item)
+    _pre_process_data(item)
     if ax.legend is not None:
         for _,label in ax.legend.items:
             label.setAttr('justify', 'left')
             label.setText(label.text, color=legend_text_color)
-    _set_plot_x_axis_leader(ax)
     return item
 
 
@@ -751,7 +772,7 @@ def labels_datasrc(datasrc, color=None, ax=None, anchor=(0.5,1)):
     item.ax = ax
     item.update_datasrc = partial(_update_datasrc, item)
     ax.addItem(item)
-    _set_plot_x_axis_leader(ax)
+    _pre_process_data(item)
     return item
 
 
@@ -809,7 +830,7 @@ def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
         prev_ax.hideAxis('bottom') # hide the whole previous axis
         win.nextRow()
     ax = pg.PlotItem(viewBox=viewbox, axisItems={'bottom': EpochAxisItem(orientation='bottom')}, name='plot-%i'%index)
-    ax.axes['left']['item'].textWidth = 62 # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
+    ax.axes['left']['item'].textWidth = 65 # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
     ax.axes['left']['item'].setStyle(tickLength=-5) # some bug, totally unexplicable (why setting the default value again would fix repaint width as axis scale down)
     ax.axes['left']['item'].setZValue(10) # put axis in front instead of behind data
     ax.axes['bottom']['item'].setZValue(10)
@@ -876,13 +897,19 @@ def _update_datasrc(item, ds):
         ax.vb.update()
 
 
+def _pre_process_data(item):
+    if np.nanmin(item.datasrc.y) <= 0:
+        item.ax.vb.y_positive = False
+
+
 def _set_plot_x_axis_leader(ax):
     '''The first plot to add some data is the leader. All other's X-axis will follow this one.'''
     if ax.vb.linkedView(0):
         return
     for _ax in ax.vb.win.ci.items:
-        if _ax.vb.name != ax.vb.name:
-            _ax.setXLink(ax.vb.name)
+        if not _ax.vb.linkedView(0) and _ax.vb.name != ax.vb.name:
+            ax.setXLink(_ax.vb.name)
+            break
 
 
 def _set_x_limits(ax, datasrc):
@@ -892,11 +919,32 @@ def _set_x_limits(ax, datasrc):
     return x0, x1
 
 
+def _repaint_candles():
+    '''Candles are only partially drawn, and therefore needs manual dirty reminder whenever it goes off-screen.'''
+    for win in windows:
+        for ax in win.ci.items:
+            for item in ax.items:
+                if isinstance(item, FinPlotItem):
+                    item.dirty = True
+                    item.paint(item.painter)
+
+
 def _mouse_moved(win, ev):
+    if not ev:
+        ev = win._last_mouse_ev
+    win._last_mouse_ev = ev
     pos = ev[0]
     for ax in win.ci.items:
         point = ax.vb.mapSceneToView(pos)
-        ax.crosshair.update(point)
+        if ax.crosshair:
+            ax.crosshair.update(point)
+
+
+def _wheel_event_wrapper(self, orig_func, ev):
+    # scrolling on the border is simply annoying, pop in a couple of pixels to make sure
+    d = QtCore.QPoint(-2,0)
+    ev = QtGui.QWheelEvent(ev.pos()+d, ev.globalPos()+d, ev.pixelDelta(), ev.angleDelta(), ev.angleDelta().y(), QtCore.Qt.Vertical, ev.buttons(), ev.modifiers())
+    orig_func(self, ev)
 
 
 def _time_clicked(ax, inspector, ev):
@@ -953,9 +1001,16 @@ def _draw_line_segment_text(polyline, segment, pos0, pos1):
         hours = mins//60
         mins = mins%60
         ts = '%0.2i:%0.2i' % (hours, mins)
-        percent = '%+.2f' % (100 * pos1.y() / pos0.y() - 100)
+        if polyline.vb.y_positive:
+            value = '%+.2f %%' % (100 * pos1.y() / pos0.y() - 100)
+        else:
+            dy = diff.y()
+            if dy and (abs(dy) >= 1e4 or abs(dy) <= 1e-2):
+                value = '+%.3g' % dy
+            else:
+                value = '%+.2f' % dy
         extra = _draw_line_extra_text(polyline, segment, pos0, pos1)
-        return '%s %% %s (%s)' % (percent, extra, ts)
+        return '%s %s (%s)' % (value, extra, ts)
 
 
 def _draw_line_extra_text(polyline, segment, pos0, pos1):
@@ -965,10 +1020,14 @@ def _draw_line_extra_text(polyline, segment, pos0, pos1):
         if prev_text is not None and text.segment == segment:
             h0 = prev_text.segment.handles[0]['item']
             h1 = prev_text.segment.handles[1]['item']
-            prev_change = h1.pos().y() / h0.pos().y() - 1
+            if polyline.vb.y_positive:
+                prev_change = h1.pos().y() / h0.pos().y() - 1
+                this_change = pos1.y() / pos0.y() - 1
+            else:
+                prev_change = h1.pos().y() - h0.pos().y()
+                this_change = pos1.y() - pos0.y()
             if not abs(prev_change) > 1e-8:
                 break
-            this_change = pos1.y() / pos0.y() - 1
             change_part = abs(this_change / prev_change)
             return ' = 1:%.2f ' % change_part
         prev_text = text
@@ -978,3 +1037,4 @@ def _draw_line_extra_text(polyline, segment, pos0, pos1):
 # default to black-on-white
 pg.setConfigOption('background', 'w')
 pg.setConfigOption('foreground', 'k')
+pg.widgets.GraphicsView.GraphicsView.wheelEvent = partialmethod(_wheel_event_wrapper, pg.widgets.GraphicsView.GraphicsView.wheelEvent)
