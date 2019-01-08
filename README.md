@@ -13,15 +13,8 @@ The left mouse button pans, the mouse wheel zooms, and holding Ctrl allows you t
 
 ## Easy installation
 
-You will need to pip install a couple of libraries, but no external installations required. (Which is a nice change under Windows, as
-pretty much everything performant used to require MSVC altercation or external installation of binaries.)
-
-So all you need to do (at least in Win10/Py3.6.6x64 2018-09) is:
-
 ```bash
-$ pip install pandas
-$ pip install pyqtgraph
-$ pip install PyQT5==5.9 # for some reason 5.11 did not work
+$ pip install finplot
 ```
 
 
@@ -80,7 +73,7 @@ fplt.show()
 
 ## Realtime updating with realistic indicator
 
-Included in this repo are [a 40-liner Bitfinex example](example-bfx.py) and [a slightly more complicated BitMEX websocket example](example-bitmex-ws.py),
+Included in this repo are [a 40-liner Bitfinex example](finplot/example-bfx.py) and [a slightly longer BitMEX websocket example](finplot/example-bitmex-ws.py),
 which both update in realtime with Bitcoin/Dollar pulled from the exchange. They also shows realistic and useful indicators (TD Sequential for BFX and
 Bollinger Bands for BitMEX).
 
