@@ -71,7 +71,7 @@ class PandasDataSource:
     @property
     def period(self):
         timecol = self.df.columns[0]
-        return self.df[timecol].iloc[1] - self.df[timecol].iloc[0]
+        return self.df[timecol].iloc[-1] - self.df[timecol].iloc[-2]
 
     @property
     def x(self):
@@ -235,10 +235,10 @@ class FinCrossHair:
         self.hline = pg.InfiniteLine(angle=0, movable=False, pen=color)
         self.xtext = pg.TextItem(color=color, anchor=(0,1))
         self.ytext = pg.TextItem(color=color, anchor=(0,0))
-        self.vline.setZValue(5)
-        self.hline.setZValue(5)
-        self.xtext.setZValue(5)
-        self.ytext.setZValue(5)
+        self.vline.setZValue(50)
+        self.hline.setZValue(50)
+        self.xtext.setZValue(50)
+        self.ytext.setZValue(50)
         ax.addItem(self.vline, ignoreBounds=True)
         ax.addItem(self.hline, ignoreBounds=True)
         ax.addItem(self.xtext, ignoreBounds=True)
@@ -254,10 +254,22 @@ class FinCrossHair:
         self.hline.setPos(y)
         self.xtext.setPos(x, y)
         self.ytext.setPos(x, y)
-        space = '      '
-        xtext = space + _epoch2local(x)
+        xtext = _epoch2local(x)
         value = _round_to_significant(y, self.ax.significant_decimals, self.ax.significant_eps)
-        ytext = space + value
+        ytext = value
+        far_right = self.ax.viewRect().x() + self.ax.viewRect().width()*0.9
+        close2right = x > far_right
+        space = '      '
+        if close2right:
+            xtext += space
+            ytext += space
+            self.xtext.setAnchor((1,1))
+            self.ytext.setAnchor((1,0))
+        else:
+            xtext = space + xtext
+            ytext = space + ytext
+            self.xtext.setAnchor((0,1))
+            self.ytext.setAnchor((0,0))
         for info in self.infos:
             xtext,ytext = info(x,y,xtext,ytext)
         self.xtext.setText(xtext)
@@ -536,6 +548,10 @@ class FinPlotItem(pg.GraphicsObject):
         visibleRect = QtCore.QRectF(self.datasrc.init_x0, 0, self.datasrc.init_x1-self.datasrc.init_x0, 0)
         self._generate_picture(visibleRect)
 
+    def repaint(self):
+        self.dirty = True
+        self.paint(self.painter)
+
     def paint(self, p, *args):
         viewRect = self.viewRect()
         self.update_dirty_picture(viewRect)
@@ -562,7 +578,11 @@ class FinPlotItem(pg.GraphicsObject):
 class CandlestickItem(FinPlotItem):
     def __init__(self, datasrc, bull_color, bear_color, draw_body=True, draw_shadow=True, candle_width=0.7):
         self.bull_color = bull_color
+        self.bull_frame_color = bull_color
+        self.bull_body_color = hollow_brush_color
         self.bear_color = bear_color
+        self.bear_frame_color = bear_color
+        self.bear_body_color = bear_color
         self.draw_body = draw_body
         self.draw_shadow = draw_shadow
         self.candle_width = candle_width
@@ -574,21 +594,27 @@ class CandlestickItem(FinPlotItem):
         left,right = boundingRect.left(), boundingRect.right()
         p = self.painter
         p.begin(self.picture)
-        p.setPen(pg.mkPen(self.bear_color))
-        p.setBrush(pg.mkBrush(self.bear_color))
-        rows = 0
-        for t,open,close,high,low in self.datasrc.bear_rows(5, left, right):
-            if high > low and self.draw_shadow:
-                p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
-            if self.draw_body:
+        rows = list(self.datasrc.bear_rows(5, left, right))
+        if self.draw_shadow:
+            p.setPen(pg.mkPen(self.bear_color))
+            for t,open,close,high,low in rows:
+                if high > low:
+                    p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
+        if self.draw_body:
+            p.setPen(pg.mkPen(self.bear_frame_color))
+            p.setBrush(pg.mkBrush(self.bear_body_color))
+            for t,open,close,high,low in rows:
                 p.drawRect(QtCore.QRectF(t-w2, open, w, close-open))
-            rows += 1
-        p.setPen(pg.mkPen(self.bull_color))
-        p.setBrush(pg.mkBrush(hollow_brush_color))
-        for t,open,close,high,low in self.datasrc.bull_rows(5, left, right):
-            if high > low and self.draw_shadow:
-                p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
-            if self.draw_body:
+        rows = list(self.datasrc.bull_rows(5, left, right))
+        if self.draw_shadow:
+            p.setPen(pg.mkPen(self.bull_color))
+            for t,open,close,high,low in rows:
+                if high > low:
+                    p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
+        if self.draw_body:
+            p.setPen(pg.mkPen(self.bull_frame_color))
+            p.setBrush(pg.mkBrush(self.bull_body_color))
+            for t,open,close,high,low in rows:
                 p.drawRect(QtCore.QRectF(t-w2, open, w, close-open))
         p.end()
 
@@ -672,6 +698,7 @@ def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True, yscal
     if maximize:
         win.showMaximized()
     win.ci.setContentsMargins(0, 0, 0 ,0)
+    win.ci.setSpacing(0)
     # normally first graph is of higher significance, so enlarge
     win.ci.layout.setRowStretchFactor(0, top_graph_scale)
     axs = []
@@ -700,6 +727,7 @@ def candlestick_ochl(datasrc, bull_color='#26a69a', bear_color='#ef5350', draw_b
     item.ax = ax
     item.update_datasrc = partial(_update_datasrc, item)
     ax.addItem(item)
+    item.setZValue(20)
     _pre_process_data(item)
     return item
 
@@ -714,6 +742,7 @@ def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None):
     item.ax = ax
     item.update_datasrc = partial(_update_datasrc, item)
     ax.addItem(item)
+    item.setZValue(-1)
     _pre_process_data(item)
     return item
 
@@ -786,7 +815,6 @@ def set_y_range(ax, ymin, ymax):
 
 
 def add_band(ax, y0, y1, color=band_color):
-    ax.vb.setBackgroundColor(None)
     lr = pg.LinearRegionItem([y0,y1], orientation=pg.LinearRegionItem.Horizontal, brush=pg.mkBrush(color), movable=False)
     lr.setZValue(-10)
     ax.addItem(lr)
@@ -832,8 +860,8 @@ def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
     ax = pg.PlotItem(viewBox=viewbox, axisItems={'bottom': EpochAxisItem(orientation='bottom')}, name='plot-%i'%index)
     ax.axes['left']['item'].textWidth = 65 # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
     ax.axes['left']['item'].setStyle(tickLength=-5) # some bug, totally unexplicable (why setting the default value again would fix repaint width as axis scale down)
-    ax.axes['left']['item'].setZValue(10) # put axis in front instead of behind data
-    ax.axes['bottom']['item'].setZValue(10)
+    ax.axes['left']['item'].setZValue(30) # put axis in front instead of behind data
+    ax.axes['bottom']['item'].setZValue(30)
     ax.setLogMode(y=(yscale=='log'))
     ax.significant_decimals = significant_decimals
     ax.significant_eps = significant_eps

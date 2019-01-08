@@ -30,7 +30,7 @@ $ pip install PyQT5==5.9 # for some reason 5.11 did not work
 ![sample](https://raw.githubusercontent.com/highfestiva/finplot/master/screenshot.jpg)
 
 
-This 25-liner pulls some BitCoin data and shows the above:
+This 25-liner pulls some BitCoin data off of Bittrex and shows the above:
 
 
 ```python
@@ -80,7 +80,8 @@ fplt.show()
 
 ## Realtime updating with realistic indicator
 
-Included in this repo [a 40-liner example](example.py) which updates in realtime with Bitcoin/Dollar
-pulled from the BitFinex exchange. It also shows a realistic and useful indicator (TD Sequential).
+Included in this repo are [a 40-liner Bitfinex example](example-bfx.py) and [a slightly more complicated BitMEX websocket example](example-bitmex-ws.py),
+which both update in realtime with Bitcoin/Dollar pulled from the exchange. They also shows realistic and useful indicators (TD Sequential for BFX and
+Bollinger Bands for BitMEX).
 
 Enjoy!
