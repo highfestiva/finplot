@@ -73,7 +73,8 @@ fplt.show()
 
 ## Realtime updating with realistic indicator
 
-Included in this repo are [a 40-liner Bitfinex example](finplot/example-bfx.py) and [a slightly longer BitMEX websocket example](finplot/example-bitmex-ws.py),
+Included in this repo are [a 40-liner Bitfinex example](https://github.com/highfestiva/finplot/blob/master/finplot/example-bfx.py) and
+[a slightly longer BitMEX websocket example](https://github.com/highfestiva/finplot/blob/master/finplot/example-bitmex-ws.py),
 which both update in realtime with Bitcoin/Dollar pulled from the exchange. They also shows realistic and useful indicators (TD Sequential for BFX and
 Bollinger Bands for BitMEX).
 
