@@ -24,9 +24,10 @@ hollow_brush_color = '#ffffff'
 legend_border_color = '#000000dd'
 legend_fill_color   = '#00000055'
 legend_text_color   = '#dddddd66'
-plot_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+soft_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+hard_colors = ['#000000', '#772211', '#000066', '#555555', '#0022cc', '#ffcc00']
 odd_plot_background = '#f0f0f0'
-band_color = '#aabbdd'
+band_color = '#ddbbaa'
 cross_hair_color = '#000000aa'
 draw_line_color = '#000000'
 draw_done_color = '#555555'
@@ -39,6 +40,7 @@ clamp_grid = True
 
 windows = [] # no gc
 timers = [] # no gc
+sounds = {} # no gc
 plotdf2df = {} # for pandas df.plot
 epoch_period2 = 1e30
 
@@ -302,6 +304,7 @@ class FinPolyLine(pg.PolyLineROI):
     def addSegment(self, h1, h2, index=None):
         super().addSegment(h1, h2, index)
         text = pg.TextItem(color=draw_line_color)
+        text.setZValue(50)
         text.segment = self.segments[-1 if index is None else index]
         if index is None:
             self.texts.append(text)
@@ -396,6 +399,7 @@ class FinViewBox(pg.ViewBox):
             p0 = pg.Point(pg.functions.invertQTransform(self.childGroup.transform()).map(p0))
             p0 = _clamp_point(self.parent(), p0)
             self.draw_line = FinPolyLine(self, [p0, p1], closed=False, pen=pg.mkPen(draw_line_color), movable=False)
+            self.draw_line.setZValue(40)
             self.lines.append(self.draw_line)
             self.addItem(self.draw_line)
             self.drawing = True
@@ -719,7 +723,6 @@ def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True, yscal
 def candlestick_ochl(datasrc, bull_color='#26a69a', bear_color='#ef5350', draw_body=True, draw_shadow=True, candle_width=0.7, ax=None):
     if ax is None:
         ax = create_plot(maximize=False)
-    ax.last_color = None
     datasrc.scale_cols = [3,4] # only hi+lo scales
     _set_datasrc(ax, datasrc)
     item = CandlestickItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width)
@@ -727,7 +730,7 @@ def candlestick_ochl(datasrc, bull_color='#26a69a', bear_color='#ef5350', draw_b
     item.ax = ax
     item.update_datasrc = partial(_update_datasrc, item)
     ax.addItem(item)
-    item.setZValue(20)
+    # item.setZValue(20)
     _pre_process_data(item)
     return item
 
@@ -735,7 +738,6 @@ def candlestick_ochl(datasrc, bull_color='#26a69a', bear_color='#ef5350', draw_b
 def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None):
     if ax is None:
         ax = create_plot(maximize=False)
-    ax.last_color = None
     datasrc.scale_cols = [3] # only volume scales
     _set_datasrc(ax, datasrc)
     item = VolumeItem(datasrc=datasrc, bull_color=bull_color, bear_color=bear_color)
@@ -755,10 +757,7 @@ def plot(x, y, color=None, width=1, ax=None, style=None, legend=None, zoomscale=
 def plot_datasrc(datasrc, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True):
     if ax is None:
         ax = create_plot(maximize=False)
-    if not color and style:
-        color = ax.last_color
-    color = color if color else _get_color(ax)
-    ax.last_color = color if not style else None
+    color = color if color else _get_color(ax, style)
     if not zoomscale:
         datasrc.scale_cols = []
     _set_datasrc(ax, datasrc)
@@ -794,7 +793,6 @@ def labels_datasrc(datasrc, color=None, ax=None, anchor=(0.5,1)):
     if ax is None:
         ax = create_plot(maximize=False)
     color = color if color else '#000000'
-    ax.last_color = None
     datasrc.scale_cols = [] # don't use this for scaling
     _set_datasrc(ax, datasrc)
     item = ScatterLabelItem(datasrc=datasrc, color=color, anchor=anchor)
@@ -816,6 +814,8 @@ def set_y_range(ax, ymin, ymax):
 
 def add_band(ax, y0, y1, color=band_color):
     lr = pg.LinearRegionItem([y0,y1], orientation=pg.LinearRegionItem.Horizontal, brush=pg.mkBrush(color), movable=False)
+    lr.lines[0].setPen(pg.mkPen(None))
+    lr.lines[1].setPen(pg.mkPen(None))
     lr.setZValue(-10)
     ax.addItem(lr)
 
@@ -848,6 +848,12 @@ def show():
         windows.clear()
 
 
+def play_sound(filename):
+    if filename not in sounds:
+        from PyQt5.QtMultimedia import QSound
+        sounds[filename] = QSound(filename) # disallow gc
+    s = sounds[filename]
+    s.play()
 
 
 #################### INTERNALS ####################
@@ -866,7 +872,6 @@ def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
     ax.significant_decimals = significant_decimals
     ax.significant_eps = significant_eps
     ax.crosshair = FinCrossHair(ax, color=cross_hair_color)
-    ax.last_color = None
     if index%2:
         viewbox.setBackgroundColor(odd_plot_background)
     viewbox.setParent(ax)
@@ -983,9 +988,12 @@ def _time_clicked(ax, inspector, ev):
     inspector(t, point.y())
 
 
-def _get_color(ax):
-    index = len(ax.items) - 4
-    return plot_colors[index%len(plot_colors)]
+def _get_color(ax, style):
+    if style is None or style=='-':
+        index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and not i.opts['symbol']])
+        return soft_colors[index%len(soft_colors)]
+    index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and i.opts['symbol']])
+    return hard_colors[index%len(hard_colors)]
 
 
 def _pdtime2epoch(t):
