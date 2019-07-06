@@ -266,8 +266,9 @@ class FinCrossHair:
         self.xtext.setPos(x, y)
         self.ytext.setPos(x, y)
         xtext = _epoch2local(x)
-        value = _round_to_significant(y, self.ax.significant_decimals, self.ax.significant_eps)
-        ytext = value
+        if self.ax.vb.yscale == 'log':
+            y = 10**y
+        ytext = _round_to_significant(y, self.ax.significant_decimals, self.ax.significant_eps)
         far_right = self.ax.viewRect().x() + self.ax.viewRect().width()*0.9
         close2right = x > far_right
         space = '      '
@@ -348,6 +349,20 @@ class FinPolyLine(pg.PolyLineROI):
         super().movePoint(handle, pos, modifiers, finish, coords)
         self.update_texts()
 
+
+
+class FinLine(pg.GraphicsObject):
+    def __init__(self, points, pen):
+        super().__init__()
+        self.points = points
+        self.pen = pen
+
+    def paint(self, p, *args):
+        p.setPen(self.pen)
+        p.drawLine(QtCore.QPointF(*self.points[0]), QtCore.QPointF(*self.points[1]))
+
+    def boundingRect(self):
+        return QtCore.QRectF(*self.points[0], *self.points[1])
 
 
 class FinViewBox(pg.ViewBox):
@@ -528,8 +543,8 @@ class FinViewBox(pg.ViewBox):
             x0 -= self.datasrc.period*0.5
             x1 += self.datasrc.period*0.5
         if self.yscale == 'log':
-            y0 = np.log10(y0) if y0 > 0 else 0
-            y1 = np.log10(y1) if y1 > 0 else 0
+            y0 = np.log10(y0) if y0 > 0 else -1
+            y1 = np.log10(y1) if y1 > 0 else -1
         self.setRange(QtCore.QRectF(pg.Point(x0, y0), pg.Point(x1, y1)), padding=0)
 
     def append_draw_segment(self, p):
@@ -824,12 +839,29 @@ def set_y_range(ax, ymin, ymax):
     ax.setLimits(yMin=ymin, yMax=ymax)
 
 
+def set_yscale(ax, yscale='linear'):
+    ax.setLogMode(y=(yscale=='log'))
+    ax.vb.yscale = yscale
+
+
 def add_band(ax, y0, y1, color=band_color):
     lr = pg.LinearRegionItem([y0,y1], orientation=pg.LinearRegionItem.Horizontal, brush=pg.mkBrush(color), movable=False)
     lr.lines[0].setPen(pg.mkPen(None))
     lr.lines[1].setPen(pg.mkPen(None))
     lr.setZValue(-10)
     ax.addItem(lr)
+
+
+def add_line(ax, p0, p1, color=draw_line_color):
+    line = FinLine([p0, p1], pen=pg.mkPen(color))
+    line.ax = ax
+    ax.addItem(line)
+    return line
+
+
+def remove_line(ax, line):
+    ax.removeItem(line)
+    ax.removeItem(line)
 
 
 def set_time_inspector(ax, inspector):
