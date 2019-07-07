@@ -762,7 +762,7 @@ def candlestick_ochl(datasrc, bull_color='#26a69a', bear_color='#ef5350', draw_b
     return item
 
 
-def volume_ocv(datasrc, bull_color='#44bb55', bear_color='#dd6666', ax=None):
+def volume_ocv(datasrc, bull_color='#92d2cc', bear_color='#f7a9a7', ax=None):
     if ax is None:
         ax = create_plot(maximize=False)
     datasrc.scale_cols = [3] # only volume scales
