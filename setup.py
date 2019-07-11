@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import setuptools
 
 with open('README.md', 'r') as fh:
@@ -5,7 +6,7 @@ with open('README.md', 'r') as fh:
 
 setuptools.setup(
     name='finplot',
-    version='0.3.2',
+    version='0.3.4',
     author='Jonas Byström',
     author_email='highfestiva@gmail.com',
     description='Finance plotting',

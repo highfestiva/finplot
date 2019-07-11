@@ -64,6 +64,8 @@ class PandasDataSource:
        Volume bars: create with three columns: time, open, close, volume - in that order.
        For all other types, time needs to be first, usually followed by one or more Y-columns.'''
     def __init__(self, df, standalone=False):
+        if type(df.index) == pd.DatetimeIndex:
+            df = df.reset_index()
         self.df = df.copy()
         timecol = self.df.columns[0]
         self.df[timecol] = _pdtime2epoch(df[timecol])
@@ -750,6 +752,8 @@ def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True, yscal
 def candlestick_ochl(datasrc, bull_color='#26a69a', bear_color='#ef5350', draw_body=True, draw_shadow=True, candle_width=0.7, ax=None):
     if ax is None:
         ax = create_plot(maximize=False)
+    if type(datasrc) == pd.DataFrame:
+        datasrc = PandasDataSource(datasrc)
     datasrc.scale_cols = [3,4] # only hi+lo scales
     _set_datasrc(ax, datasrc)
     item = CandlestickItem(ax=ax, datasrc=datasrc, bull_color=bull_color, bear_color=bear_color, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width)
@@ -765,6 +769,8 @@ def candlestick_ochl(datasrc, bull_color='#26a69a', bear_color='#ef5350', draw_b
 def volume_ocv(datasrc, bull_color='#92d2cc', bear_color='#f7a9a7', ax=None):
     if ax is None:
         ax = create_plot(maximize=False)
+    if type(datasrc) == pd.DataFrame:
+        datasrc = PandasDataSource(datasrc)
     datasrc.scale_cols = [3] # only volume scales
     _set_datasrc(ax, datasrc)
     item = VolumeItem(ax=ax, datasrc=datasrc, bull_color=bull_color, bear_color=bear_color)
@@ -852,8 +858,12 @@ def add_band(ax, y0, y1, color=band_color):
     ax.addItem(lr)
 
 
-def add_line(ax, p0, p1, color=draw_line_color):
-    line = FinLine([p0, p1], pen=pg.mkPen(color))
+def add_line(ax, p0, p1, color=draw_line_color, interactive=False):
+    if interactive:
+        line = FinPolyLine(ax.vb, [p0, p1], closed=False, pen=pg.mkPen(color), movable=False)
+        ax.vb.lines.append(line)
+    else:
+        line = FinLine([p0, p1], pen=pg.mkPen(color))
     line.ax = ax
     ax.addItem(line)
     return line
@@ -861,7 +871,24 @@ def add_line(ax, p0, p1, color=draw_line_color):
 
 def remove_line(ax, line):
     ax.removeItem(line)
-    ax.removeItem(line)
+    if line in ax.vb.lines:
+        ax.vb.lines.remove(line)
+    if hasattr(line, 'texts'):
+        for txt in line.texts:
+            ax.vb.removeItem(txt)
+
+
+def add_text(ax, pos, s, color=draw_line_color, anchor=(0,0)):
+    text = pg.TextItem(s, color=color, anchor=anchor)
+    text.setPos(*pos)
+    text.setZValue(50)
+    text.ax = ax
+    ax.addItem(text, ignoreBounds=True)
+    return text
+
+
+def remove_text(ax, text):
+    ax.removeItem(text)
 
 
 def set_time_inspector(ax, inspector):
