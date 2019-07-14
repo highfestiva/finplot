@@ -859,11 +859,13 @@ def add_band(ax, y0, y1, color=band_color):
 
 
 def add_line(ax, p0, p1, color=draw_line_color, interactive=False):
+    x_pts = _pdtime2epoch(pd.Series([p0[0], p1[0]]))
+    pts = [(x_pts[0], p0[1]), (x_pts[1], p1[1])]
     if interactive:
-        line = FinPolyLine(ax.vb, [p0, p1], closed=False, pen=pg.mkPen(color), movable=False)
+        line = FinPolyLine(ax.vb, pts, closed=False, pen=pg.mkPen(color), movable=False)
         ax.vb.lines.append(line)
     else:
-        line = FinLine([p0, p1], pen=pg.mkPen(color))
+        line = FinLine(pts, pen=pg.mkPen(color))
     line.ax = ax
     ax.addItem(line)
     return line
@@ -880,7 +882,7 @@ def remove_line(ax, line):
 
 def add_text(ax, pos, s, color=draw_line_color, anchor=(0,0)):
     text = pg.TextItem(s, color=color, anchor=anchor)
-    text.setPos(*pos)
+    text.setPos(_pdtime2epoch(pd.Series([pos[0]]))[0], pos[1])
     text.setZValue(50)
     text.ax = ax
     ax.addItem(text, ignoreBounds=True)
