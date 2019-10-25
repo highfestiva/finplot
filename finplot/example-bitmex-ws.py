@@ -2,11 +2,13 @@
 '''Slightly more advanced example which requires "pip install bitmex-ws" to run. The data is pushed from the BitMEX server
    to our chart, which we update once per second.'''
 
-from bitmex_websocket import BitMEXWebsocket
+from bitmex_websocket import Instrument
+from bitmex_websocket.constants import InstrumentChannels
 import dateutil.parser
 import finplot as fplt
 import pandas as pd
 import requests
+from threading import Thread
 from time import time
 
 
@@ -33,7 +35,7 @@ def calc_bollinger_bands(df):
     df['bbl'] = r.mean() - 2*r.std()
 
 
-def update_plot(df):
+def update_plot():
     calc_bollinger_bands(df)
     datasrc0 = fplt.PandasDataSource(df['t o c h l'.split()])
     datasrc1 = fplt.PandasDataSource(df['t bbh'.split()])
@@ -57,37 +59,44 @@ def update_plot(df):
         plots[2].update_datasrc(datasrc2)
 
 
-def update_data(interval_mins=1):
-    global df, ws
-    for trade in ws.recent_trades():
-        t = int(dateutil.parser.parse(trade['timestamp']).timestamp())
-        t -= t % (60*interval_mins)
-        c = trade['price']
-        if t < df['t'].iloc[-1]:
-            # ignore already-recorded trades
-            continue
-        elif t > df['t'].iloc[-1]:
-            # add new candle
-            o = df['c'].iloc[-1]
-            h = c if c>o else o
-            l = o if o<c else c
-            df1 = pd.DataFrame(dict(t=[t], o=[o], c=[c], h=[l], l=[l]))
-            df = pd.concat([df, df1], ignore_index=True, sort=False)
-        else:
-            # update last candle
-            i = df.index.max()
-            df.loc[i,'c'] = c
-            if c > df.loc[i,'h']:
-                df.loc[i,'h'] = c
-            if c < df.loc[i,'l']:
-                df.loc[i,'l'] = c
-    update_plot(df)
+def update_candlestick_data(trade, interval_mins=1):
+    global df
+    t = int(dateutil.parser.parse(trade['timestamp']).timestamp())
+    t -= t % (60*interval_mins)
+    c = trade['price']
+    if t < df['t'].iloc[-1]:
+        # ignore already-recorded trades
+        return
+    elif t > df['t'].iloc[-1]:
+        # add new candle
+        o = df['c'].iloc[-1]
+        h = c if c>o else o
+        l = o if o<c else c
+        df1 = pd.DataFrame(dict(t=[t], o=[o], c=[c], h=[l], l=[l]))
+        df = pd.concat([df, df1], ignore_index=True, sort=False)
+    else:
+        # update last candle
+        i = df.index.max()
+        df.loc[i,'c'] = c
+        if c > df.loc[i,'h']:
+            df.loc[i,'h'] = c
+        if c < df.loc[i,'l']:
+            df.loc[i,'l'] = c
 
 
 if __name__ == '__main__':
     df = pd.DataFrame(price_history())
-    ws = BitMEXWebsocket(endpoint=baseurl+'/v1', symbol='XBTUSD')
+    ws = Instrument(channels=[InstrumentChannels.trade])
+    @ws.on('action')
+    def action(message):
+        if not 'data' in message:
+            return
+        for trade in message['data']:
+            update_candlestick_data(trade)
+    thread = Thread(target=ws.run_forever)
+    thread.daemon = True
+    thread.start()
     ax = fplt.create_plot('Realtime Bitcoin/Dollar 1m (BitMEX websocket)', init_zoom_periods=100, maximize=False)
-    update_plot(df)
-    fplt.timer_callback(update_data, 1.0) # update every second
+    update_plot()
+    fplt.timer_callback(update_plot, 1.0) # update every second
     fplt.show()
