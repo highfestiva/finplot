@@ -1097,21 +1097,22 @@ def _clamp_point(ax, p):
 
 
 def _draw_line_segment_text(polyline, segment, pos0, pos1):
-        diff = pos1 - pos0
-        mins = int(abs(diff.x()) / 60)
-        hours = mins//60
-        mins = mins%60
-        ts = '%0.2i:%0.2i' % (hours, mins)
-        if polyline.vb.y_positive:
-            value = '%+.2f %%' % (100 * pos1.y() / pos0.y() - 100)
+    diff = pos1 - pos0
+    mins = int(abs(diff.x()) / 60)
+    hours = mins//60
+    mins = mins%60
+    ts = '%0.2i:%0.2i' % (hours, mins)
+    if polyline.vb.y_positive:
+        y0,y1 = (10**pos0.y(),10**pos1.y()) if polyline.vb.yscale == 'log' else (pos0.y(),pos1.y())
+        value = '%+.2f %%' % (100 * y1 / y0 - 100)
+    else:
+        dy = diff.y()
+        if dy and (abs(dy) >= 1e4 or abs(dy) <= 1e-2):
+            value = '+%.3g' % dy
         else:
-            dy = diff.y()
-            if dy and (abs(dy) >= 1e4 or abs(dy) <= 1e-2):
-                value = '+%.3g' % dy
-            else:
-                value = '%+.2f' % dy
-        extra = _draw_line_extra_text(polyline, segment, pos0, pos1)
-        return '%s %s (%s)' % (value, extra, ts)
+            value = '%+.2f' % dy
+    extra = _draw_line_extra_text(polyline, segment, pos0, pos1)
+    return '%s %s (%s)' % (value, extra, ts)
 
 
 def _draw_line_extra_text(polyline, segment, pos0, pos1):
