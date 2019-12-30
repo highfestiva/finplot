@@ -20,7 +20,6 @@ import pyqtgraph as pg
 from pyqtgraph import QtCore, QtGui
 
 
-hollow_brush_color = '#ffffff'
 legend_border_color = '#000000dd'
 legend_fill_color   = '#00000055'
 legend_text_color   = '#dddddd66'
@@ -28,6 +27,11 @@ soft_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b',
 hard_colors = ['#000000', '#772211', '#000066', '#555555', '#0022cc', '#ffcc00']
 foreground = 'k' # black
 background = 'w' # white
+hollow_brush_color = background
+candle_bull_color = '#26a69a'
+candle_bear_color = '#ef5350'
+volume_bull_color = '#92d2cc'
+volume_bear_color = '#f7a9a7'
 odd_plot_background = '#f0f0f0'
 band_color = '#ddbbaa'
 cross_hair_color = '#000000aa'
@@ -607,14 +611,14 @@ class FinPlotItem(pg.GraphicsObject):
 
 
 class CandlestickItem(FinPlotItem):
-    def __init__(self, ax, datasrc, bull_color, bear_color, draw_body=True, draw_shadow=True, candle_width=0.7):
+    def __init__(self, ax, datasrc, draw_body=True, draw_shadow=True, candle_width=0.7):
         self.ax = ax
-        self.bull_color = bull_color
-        self.bull_frame_color = bull_color
+        self.bull_color = candle_bull_color
+        self.bull_frame_color = candle_bull_color
         self.bull_body_color = hollow_brush_color
-        self.bear_color = bear_color
-        self.bear_frame_color = bear_color
-        self.bear_body_color = bear_color
+        self.bear_color = candle_bear_color
+        self.bear_frame_color = candle_bear_color
+        self.bear_body_color = candle_bear_color
         self.draw_body = draw_body
         self.draw_shadow = draw_shadow
         self.candle_width = candle_width
@@ -653,10 +657,10 @@ class CandlestickItem(FinPlotItem):
 
 
 class VolumeItem(FinPlotItem):
-    def __init__(self, ax, datasrc, bull_color, bear_color):
+    def __init__(self, ax, datasrc):
         self.ax = ax
-        self.bull_color = bull_color
-        self.bear_color = bear_color
+        self.bull_color = volume_bull_color
+        self.bear_color = volume_bear_color
         super().__init__(datasrc)
 
     def generate_picture(self, boundingRect):
@@ -751,14 +755,14 @@ def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True, yscal
     return axs
 
 
-def candlestick_ochl(datasrc, bull_color='#26a69a', bear_color='#ef5350', draw_body=True, draw_shadow=True, candle_width=0.7, ax=None):
+def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.7, ax=None):
     if ax is None:
         ax = create_plot(maximize=False)
     if type(datasrc) == pd.DataFrame:
         datasrc = PandasDataSource(datasrc)
     datasrc.scale_cols = [3,4] # only hi+lo scales
     _set_datasrc(ax, datasrc)
-    item = CandlestickItem(ax=ax, datasrc=datasrc, bull_color=bull_color, bear_color=bear_color, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width)
+    item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width)
     ax.significant_decimals,ax.significant_eps = datasrc.calc_significant_decimals()
     item.ax = ax
     item.update_datasrc = partial(_update_datasrc, item)
@@ -768,14 +772,14 @@ def candlestick_ochl(datasrc, bull_color='#26a69a', bear_color='#ef5350', draw_b
     return item
 
 
-def volume_ocv(datasrc, bull_color='#92d2cc', bear_color='#f7a9a7', ax=None):
+def volume_ocv(datasrc, ax=None):
     if ax is None:
         ax = create_plot(maximize=False)
     if type(datasrc) == pd.DataFrame:
         datasrc = PandasDataSource(datasrc)
     datasrc.scale_cols = [3] # only volume scales
     _set_datasrc(ax, datasrc)
-    item = VolumeItem(ax=ax, datasrc=datasrc, bull_color=bull_color, bear_color=bear_color)
+    item = VolumeItem(ax=ax, datasrc=datasrc)
     item.ax = ax
     item.update_datasrc = partial(_update_datasrc, item)
     ax.addItem(item)
