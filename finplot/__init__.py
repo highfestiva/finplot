@@ -43,7 +43,7 @@ v_zoom_padding = 0.03 # padded on top+bottom of plot
 max_zoom_points = 20 # number of visible candles at maximum zoom
 top_graph_scale = 3
 clamp_grid = True
-lod_candles = 2000
+lod_candles = 3000
 lod_labels = 700
 y_label_width = 65
 
@@ -135,6 +135,8 @@ class PandasDataSource:
         self.df = df.reset_index()
         datasrc.df = self.df # they are the same now
         datasrc.col_data_offset = orig_col_data_cnt
+        self.cache_hilo_query = ''
+        self.cache_hilo_answer = None
 
     def update(self, datasrc):
         orig_cols = list(self.df.columns)
@@ -404,6 +406,8 @@ class FinViewBox(pg.ViewBox):
         elif (center.x()-vr.left())/vr.width() > 0.95: # zoom to far right => all the way right
             center = pg.Point(vr.right(), center.y())
         self.zoom_rect(vr, scale_fact, center)
+        # update crosshair
+        timer_callback(lambda:_mouse_moved(self.win,None), 0.01, single_shot=True)
         ev.accept()
 
     def mouseDragEvent(self, ev, axis=None):
@@ -596,7 +600,7 @@ class FinPlotItem(pg.GraphicsObject):
         if self.dirty or \
             visibleRect.left() <= self.cachedRect.left() or \
             visibleRect.right() >= self.cachedRect.right() or \
-            visibleRect.width() < self.cachedRect.width() / 10: # optimize when zooming in
+            visibleRect.width() < self.cachedRect.width() / 4: # optimize when zooming in
             self._generate_picture(visibleRect)
 
     def _generate_picture(self, boundingRect):
@@ -796,7 +800,7 @@ def plot(x, y, color=None, width=1, ax=None, style=None, legend=None, zoomscale=
 def plot_datasrc(datasrc, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True):
     if ax is None:
         ax = create_plot(maximize=False)
-    color = color if color else _get_color(ax, style)
+    used_color = color if color else _get_color(ax, style)
     if not zoomscale:
         datasrc.scale_cols = []
     _set_datasrc(ax, datasrc)
@@ -805,13 +809,14 @@ def plot_datasrc(datasrc, color=None, width=1, ax=None, style=None, legend=None,
         ax.legend.setParentItem(ax.vb)
     if style is None or style=='-':
         connect_dots = 'finite' # same as matplotlib; use datasrc.standalone=True if you want to keep separate intervals on a plot
-        item = ax.plot(datasrc.x, datasrc.y, pen=pg.mkPen(color, width=width), name=legend, connect=connect_dots)
+        item = ax.plot(datasrc.x, datasrc.y, pen=pg.mkPen(used_color, width=width), name=legend, connect=connect_dots)
     else:
         symbol = {'v':'t', '^':'t1', '>':'t2', '<':'t3'}.get(style, style) # translate some similar styles
-        item = ax.plot(datasrc.x, datasrc.y, pen=None, symbol=symbol, symbolPen=None, symbolSize=10, symbolBrush=pg.mkBrush(color), name=legend)
+        item = ax.plot(datasrc.x, datasrc.y, pen=None, symbol=symbol, symbolPen=None, symbolSize=10, symbolBrush=pg.mkBrush(used_color), name=legend)
         # optimize (when having large number of points) by ignoring scatter click detection
         _dummy_mouse_click = lambda ev: 0
         item.scatter.mouseClickEvent = _dummy_mouse_click
+    item.opts['handed_color'] = color
     item.ax = ax
     item.datasrc = datasrc
     item.update_datasrc = partial(_update_datasrc, item)
@@ -1069,9 +1074,9 @@ def _time_clicked(ax, inspector, ev):
 
 def _get_color(ax, style):
     if style is None or style=='-':
-        index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and not i.opts['symbol']])
+        index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and not i.opts['symbol'] and not i.opts['handed_color']])
         return soft_colors[index%len(soft_colors)]
-    index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and i.opts['symbol']])
+    index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and i.opts['symbol'] and not i.opts['handed_color']])
     return hard_colors[index%len(hard_colors)]
 
 
@@ -1155,3 +1160,11 @@ def _draw_line_extra_text(polyline, segment, pos0, pos1):
 
 # default to black-on-white
 pg.widgets.GraphicsView.GraphicsView.wheelEvent = partialmethod(_wheel_event_wrapper, pg.widgets.GraphicsView.GraphicsView.wheelEvent)
+# pick up win resolution
+try:
+    import ctypes
+    user32 = ctypes.windll.user32
+    user32.SetProcessDPIAware()
+    lod_candles = int(user32.GetSystemMetrics(0) * 1.6)
+except:
+    pass
