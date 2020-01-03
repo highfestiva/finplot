@@ -38,6 +38,7 @@ cross_hair_color = '#000000aa'
 draw_line_color = '#000000'
 draw_done_color = '#555555'
 significant_decimals = 8
+significant_decimals_scinot = 2
 significant_eps = 1e-8
 v_zoom_padding = 0.03 # padded on top+bottom of plot
 max_zoom_points = 20 # number of visible candles at maximum zoom
@@ -266,10 +267,13 @@ class FinCrossHair:
 
     def update(self, point=None):
         if point is not None:
-            self.x = point.x()
-            self.y = point.y()
-        x,y = self.x,self.y
+            x,y = point.x(),point.y()
+        else:
+            x,y = self.x,self.y
         x,y = _clamp_xy(self.ax, x,y)
+        if x == self.x and y == self.y:
+            return
+        self.x,self.y = x,y
         self.vline.setPos(x)
         self.hline.setPos(y)
         self.xtext.setPos(x, y)
@@ -407,7 +411,7 @@ class FinViewBox(pg.ViewBox):
             center = pg.Point(vr.right(), center.y())
         self.zoom_rect(vr, scale_fact, center)
         # update crosshair
-        timer_callback(lambda:_mouse_moved(self.win,None), 0.01, single_shot=True)
+        _mouse_moved(self.win, None)
         ev.accept()
 
     def mouseDragEvent(self, ev, axis=None):
@@ -421,7 +425,7 @@ class FinViewBox(pg.ViewBox):
                 main_vb.force_range_update = len(self.win.ci.items)-1 # update main as many times as there are other rows
                 self.update_range()
                 # refresh crosshair when done
-                timer_callback(lambda:_mouse_moved(self.win,None), 0.01, single_shot=True)
+                _mouse_moved(self.win, None)
             return
         if self.draw_line and not self.drawing:
             self.set_draw_line_color(draw_done_color)
@@ -598,9 +602,9 @@ class FinPlotItem(pg.GraphicsObject):
 
     def update_dirty_picture(self, visibleRect):
         if self.dirty or \
-            visibleRect.left() <= self.cachedRect.left() or \
-            visibleRect.right() >= self.cachedRect.right() or \
-            visibleRect.width() < self.cachedRect.width() / 4: # optimize when zooming in
+            visibleRect.left() < self.cachedRect.left() or \
+            visibleRect.right() > self.cachedRect.right() or \
+            visibleRect.width() < self.cachedRect.width() / 3: # optimize when zooming in
             self._generate_picture(visibleRect)
 
     def _generate_picture(self, boundingRect):
@@ -753,7 +757,7 @@ def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True, yscal
         if n == 0:
             viewbox.setFocus()
         axs += [ax]
-    win.proxy_mmove = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=60, slot=partial(_mouse_moved, win))
+    win.proxy_mmove = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, win))
     if len(axs) == 1:
         return axs[0]
     return axs
@@ -1042,15 +1046,14 @@ def _repaint_candles():
         for ax in win.ci.items:
             for item in ax.items:
                 if isinstance(item, FinPlotItem):
-                    item.dirty = True
-                    item.paint(item.painter)
+                    item.repaint()
 
 
 def _mouse_moved(win, ev):
     if not ev:
         ev = win._last_mouse_ev
     win._last_mouse_ev = ev
-    pos = ev[0]
+    pos = ev[-1]
     for ax in win.ci.items:
         point = ax.vb.mapSceneToView(pos)
         if ax.crosshair:
@@ -1094,12 +1097,15 @@ def _epoch2local(t):
 
 
 def _round_to_significant(x, significant_decimals, significant_eps):
-    eps = fmod(x, significant_eps)
-    if abs(eps) >= significant_eps/2:
-        # round up
-        eps -= np.sign(eps)*significant_eps
-    x -= eps
-    fmt = '%%.%if' % significant_decimals
+    if  abs(x)/significant_eps > 1e6:
+        fmt = '%%.%ig' % max(significant_decimals//3, 2)
+    else:
+        eps = fmod(x, significant_eps)
+        if abs(eps) >= significant_eps/2:
+            # round up
+            eps -= np.sign(eps)*significant_eps
+        x -= eps
+        fmt = '%%.%if' % significant_decimals
     return fmt % x
 
 
@@ -1168,3 +1174,32 @@ try:
     lod_candles = int(user32.GetSystemMetrics(0) * 1.6)
 except:
     pass
+
+
+if False: # performance measurement code
+    import time, sys
+    def self_timecall(self, pname, fname, func, *args, **kwargs):
+        t0 = time.perf_counter()
+        r = func(self, *args, **kwargs)
+        t1 = time.perf_counter()
+        print('%s.%s: %f' % (pname, fname, t1-t0))
+        return r
+    def timecall(fname, func, *args, **kwargs):
+        t0 = time.perf_counter()
+        r = func(*args, **kwargs)
+        t1 = time.perf_counter()
+        print('%s: %f' % (fname, t1-t0))
+        return r
+    def wrappable(fn, f):
+        try:    return callable(f) and str(f.__module__) == 'finplot'
+        except: return False
+    m = sys.modules['finplot']
+    for fname in dir(m):
+        func = getattr(m, fname)
+        if wrappable(fname, func):
+            for fname2 in dir(func):
+                func2 = getattr(func, fname2)
+                if wrappable(fname2, func2):
+                    print(fname, str(type(func)), '->', fname2, str(type(func2)))
+                    setattr(func, fname2, partialmethod(self_timecall, fname, fname2, func2))
+            setattr(m, fname, partial(timecall, fname, func))
