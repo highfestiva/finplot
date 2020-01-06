@@ -25,8 +25,8 @@ legend_fill_color   = '#00000055'
 legend_text_color   = '#dddddd66'
 soft_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 hard_colors = ['#000000', '#772211', '#000066', '#555555', '#0022cc', '#ffcc00']
-foreground = 'k' # black
-background = 'w' # white
+foreground = '#000000'
+background = '#ffffff'
 hollow_brush_color = background
 candle_bull_color = '#26a69a'
 candle_bear_color = '#ef5350'
@@ -281,24 +281,34 @@ class FinCrossHair:
         xtext = _epoch2local(x)
         if self.ax.vb.yscale == 'log':
             y = 10**y
-        ytext = _round_to_significant(y, self.ax.significant_decimals, self.ax.significant_eps)
+        rng = self.ax.vb.y_max - self.ax.vb.y_min
+        ytext = _round_to_significant(rng, y, self.ax.significant_decimals, self.ax.significant_eps)
         far_right = self.ax.viewRect().x() + self.ax.viewRect().width()*0.9
+        far_bottom = self.ax.viewRect().y() + self.ax.viewRect().height()*0.1
         close2right = x > far_right
+        close2bottom = y < far_bottom
         space = '      '
         if close2right:
-            xtext += space
-            ytext += space
-            self.xtext.setAnchor((1,1))
-            self.ytext.setAnchor((1,0))
+            rxtext = xtext + space
+            rytext = ytext + space
+            xanchor = [1,1]
+            yanchor = [1,0]
         else:
-            xtext = space + xtext
-            ytext = space + ytext
-            self.xtext.setAnchor((0,1))
-            self.ytext.setAnchor((0,0))
+            rxtext = space + xtext
+            rytext = space + ytext
+            xanchor = [0,1]
+            yanchor = [0,0]
+        if close2bottom:
+            rytext = ytext + space
+            yanchor = [1,1]
+            if close2right:
+                xanchor = [1,2]
+        self.xtext.setAnchor(xanchor)
+        self.ytext.setAnchor(yanchor)
         for info in self.infos:
-            xtext,ytext = info(x,y,xtext,ytext)
-        self.xtext.setText(xtext)
-        self.ytext.setText(ytext)
+            rxtext,rytext = info(x,y,rxtext,rytext)
+        self.xtext.setText(rxtext)
+        self.ytext.setText(rytext)
 
 
 
@@ -383,6 +393,8 @@ class FinViewBox(pg.ViewBox):
         super().__init__(*args, **kwargs)
         self.win = win
         self.yscale = yscale
+        self.y_max = True
+        self.y_min = True
         self.y_positive = True
         self.force_range_update = 0
         self.lines = []
@@ -461,45 +473,7 @@ class FinViewBox(pg.ViewBox):
         ev.accept()
 
     def keyPressEvent(self, ev):
-        if ev.text() == 'g': # grid
-            global clamp_grid
-            clamp_grid = not clamp_grid
-            for win in windows:
-                for ax in win.ci.items:
-                    ax.crosshair.update()
-            ev.accept()
-        elif ev.text() in ('\r', ' '): # enter, space
-            self.set_draw_line_color(draw_done_color)
-            self.draw_line = None
-            ev.accept()
-        elif ev.text() in ('\x7f', '\b'): # del, backspace
-            if self.lines:
-                h = self.lines[-1].handles[-1]['item']
-                self.lines[-1].removeHandle(h)
-                if not self.lines[-1].segments:
-                    self.removeItem(self.lines[-1])
-                    self.lines = self.lines[:-1]
-                    self.draw_line = None
-                if self.lines:
-                    self.draw_line = self.lines[-1]
-                    self.set_draw_line_color(draw_line_color)
-                ev.accept()
-        elif ev.key() == QtCore.Qt.Key_Left:
-            self.pan_x(percent=-15)
-            ev.accept()
-        elif ev.key() == QtCore.Qt.Key_Right:
-            self.pan_x(percent=+15)
-            ev.accept()
-        elif ev.key() == QtCore.Qt.Key_Home:
-            self.pan_x(steps=-1e10)
-            _repaint_candles()
-            ev.accept()
-        elif ev.key() == QtCore.Qt.Key_End:
-            self.pan_x(steps=+1e10)
-            _repaint_candles()
-            ev.accept()
-        elif ev.key() == QtCore.Qt.Key_Escape:
-            self.win.close()
+        if _key_pressed(self, ev):
             ev.accept()
         else:
             super().keyPressEvent(ev)
@@ -561,6 +535,19 @@ class FinViewBox(pg.ViewBox):
             y0 = np.log10(y0) if y0 > 0 else -1
             y1 = np.log10(y1) if y1 > 0 else -1
         self.setRange(QtCore.QRectF(pg.Point(x0, y0), pg.Point(x1, y1)), padding=0)
+
+    def remove_last_line(self):
+        if self.lines:
+            h = self.lines[-1].handles[-1]['item']
+            self.lines[-1].removeHandle(h)
+            if not self.lines[-1].segments:
+                self.removeItem(self.lines[-1])
+                self.lines = self.lines[:-1]
+                self.draw_line = None
+            if self.lines:
+                self.draw_line = self.lines[-1]
+                self.set_draw_line_color(draw_line_color)
+            return True
 
     def append_draw_segment(self, p):
         h0 = self.draw_line.handles[-1]['item']
@@ -1019,7 +1006,9 @@ def _update_datasrc(item, ds):
 
 
 def _pre_process_data(item):
-    if np.nanmin(item.datasrc.y) <= 0:
+    item.ax.vb.y_max = np.nanmax(item.datasrc.y)
+    item.ax.vb.y_min = np.nanmin(item.datasrc.y)
+    if item.ax.vb.y_min <= 0:
         item.ax.vb.y_positive = False
 
 
@@ -1047,6 +1036,36 @@ def _repaint_candles():
             for item in ax.items:
                 if isinstance(item, FinPlotItem):
                     item.repaint()
+
+
+def _key_pressed(vb, ev):
+    if ev.text() == 'g': # grid
+        global clamp_grid
+        clamp_grid = not clamp_grid
+        for win in windows:
+            for ax in win.ci.items:
+                ax.crosshair.update()
+    elif ev.text() in ('\r', ' '): # enter, space
+        vb.set_draw_line_color(draw_done_color)
+        vb.draw_line = None
+    elif ev.text() in ('\x7f', '\b'): # del, backspace
+        if not vb.remove_last_line():
+            return False
+    elif ev.key() == QtCore.Qt.Key_Left:
+        vb.pan_x(percent=-15)
+    elif ev.key() == QtCore.Qt.Key_Right:
+        vb.pan_x(percent=+15)
+    elif ev.key() == QtCore.Qt.Key_Home:
+        vb.pan_x(steps=-1e10)
+        _repaint_candles()
+    elif ev.key() == QtCore.Qt.Key_End:
+        vb.pan_x(steps=+1e10)
+        _repaint_candles()
+    elif ev.key() == QtCore.Qt.Key_Escape:
+        vb.win.close()
+    else:
+        return False
+    return True
 
 
 def _mouse_moved(win, ev):
@@ -1096,17 +1115,20 @@ def _epoch2local(t):
         return ''
 
 
-def _round_to_significant(x, significant_decimals, significant_eps):
-    if  abs(x)/significant_eps > 1e6:
-        fmt = '%%.%ig' % max(significant_decimals//3, 2)
+def _round_to_significant(rng, x, significant_decimals, significant_eps):
+    is_highres = rng/significant_eps > 1e6
+    sd = max(significant_decimals//3, 2) if is_highres else significant_decimals
+    if is_highres and abs(x) > 10**sd:
+        fmt = '%%.%ig' % (sd+1)
     else:
         eps = fmod(x, significant_eps)
         if abs(eps) >= significant_eps/2:
             # round up
             eps -= np.sign(eps)*significant_eps
         x -= eps
-        fmt = '%%.%if' % significant_decimals
-    return fmt % x
+        fmt = '%%%i.%if' % (sd, sd)
+    r = fmt % x
+    return r
 
 
 def _clamp_xy(ax, x, y):
@@ -1136,9 +1158,9 @@ def _draw_line_segment_text(polyline, segment, pos0, pos1):
     else:
         dy = diff.y()
         if dy and (abs(dy) >= 1e4 or abs(dy) <= 1e-2):
-            value = '+%.3g' % dy
+            value = '%+3.3g' % dy
         else:
-            value = '%+.2f' % dy
+            value = '%+2.2f' % dy
     extra = _draw_line_extra_text(polyline, segment, pos0, pos1)
     return '%s %s (%s)' % (value, extra, ts)
 
