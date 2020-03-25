@@ -69,7 +69,7 @@ class PandasDataSource:
     '''Candle sticks: create with five columns: time, open, close, hi, lo - in that order.
        Volume bars: create with three columns: time, open, close, volume - in that order.
        For all other types, time needs to be first, usually followed by one or more Y-columns.'''
-    def __init__(self, df, standalone=False):
+    def __init__(self, df):
         if type(df.index) == pd.DatetimeIndex:
             df = df.reset_index()
         self.df = df.copy()
@@ -80,7 +80,7 @@ class PandasDataSource:
         self.cache_hilo_query = ''
         self.cache_hilo_answer = None
         self.renames = {}
-        self.standalone = standalone
+        self.standalone = not np.amin(np.diff(self.df[timecol].values)) > 0
 
     @property
     def period(self):
@@ -427,6 +427,8 @@ class FinViewBox(pg.ViewBox):
         ev.accept()
 
     def mouseDragEvent(self, ev, axis=None):
+        if not self.datasrc:
+            return
         if ev.button() != QtCore.Qt.LeftButton or ev.modifiers() != QtCore.Qt.ControlModifier:
             super().mouseDragEvent(ev, axis)
             if ev.isFinish():
@@ -745,12 +747,13 @@ def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True, yscal
             viewbox.setFocus()
         axs += [ax]
     win.proxy_mmove = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, win))
+    win._last_mouse_ev = None
     if len(axs) == 1:
         return axs[0]
     return axs
 
 
-def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.7, ax=None):
+def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6, ax=None):
     if ax is None:
         ax = create_plot(maximize=False)
     if type(datasrc) == pd.DataFrame:
@@ -1071,6 +1074,8 @@ def _key_pressed(vb, ev):
 def _mouse_moved(win, ev):
     if not ev:
         ev = win._last_mouse_ev
+        if not ev:
+            return
     win._last_mouse_ev = ev
     pos = ev[-1]
     for ax in win.ci.items:
@@ -1151,7 +1156,12 @@ def _draw_line_segment_text(polyline, segment, pos0, pos1):
     mins = int(abs(diff.x()) / 60)
     hours = mins//60
     mins = mins%60
-    ts = '%0.2i:%0.2i' % (hours, mins)
+    if hours < 24:
+        ts = '%0.2i:%0.2i' % (hours, mins)
+    else:
+        days = hours // 24
+        hours %= 24
+        ts = '%id %0.2i:%0.2i' % (days, hours, mins)
     if polyline.vb.y_positive:
         y0,y1 = (10**pos0.y(),10**pos1.y()) if polyline.vb.yscale == 'log' else (pos0.y(),pos1.y())
         value = '%+.2f %%' % (100 * y1 / y0 - 100)
