@@ -282,7 +282,8 @@ class FinCrossHair:
         if self.ax.vb.yscale == 'log':
             y = 10**y
         rng = self.ax.vb.y_max - self.ax.vb.y_min
-        ytext = _round_to_significant(rng, y, self.ax.significant_decimals, self.ax.significant_eps)
+        sd,se = (self.ax.significant_decimals,self.ax.significant_eps) if clamp_grid else (significant_decimals,significant_eps)
+        ytext = _round_to_significant(rng, y, sd, se)
         far_right = self.ax.viewRect().x() + self.ax.viewRect().width()*0.9
         far_bottom = self.ax.viewRect().y() + self.ax.viewRect().height()*0.1
         close2right = x > far_right
@@ -813,6 +814,9 @@ def plot_datasrc(datasrc, color=None, width=1, ax=None, style=None, legend=None,
     item.opts['handed_color'] = color
     item.ax = ax
     item.datasrc = datasrc
+    # check if no epsilon set yet
+    if 0.99 < ax.significant_eps/significant_eps < 1.01:
+        ax.significant_decimals,ax.significant_eps = datasrc.calc_significant_decimals()
     item.update_datasrc = partial(_update_datasrc, item)
     _pre_process_data(item)
     if ax.legend is not None:
@@ -1108,8 +1112,11 @@ def _get_color(ax, style):
 
 
 def _pdtime2epoch(t):
-    if isinstance(t, pd.Series) and isinstance(t.iloc[0], pd.Timestamp):
-        return t.astype('int64') // int(1e9)
+    if isinstance(t, pd.Series):
+        if isinstance(t.iloc[0], pd.Timestamp):
+            return t.astype('int64') // int(1e9)
+        if np.nanmax(t.values) > 1e10: # handle ms epochs
+            return t.astype('int64') // int(1e3)
     return t
 
 
