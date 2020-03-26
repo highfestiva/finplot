@@ -46,25 +46,25 @@ df = df.astype({'time':'datetime64[ns]'})
 ax,ax2,ax3 = fplt.create_plot(symbol, rows=3)
 
 # plot candle sticks
-candle_src = fplt.PandasDataSource(df[['time','open','close','high','low']])
-fplt.candlestick_ochl(candle_src, ax=ax)
+candles = df[['time','open','close','high','low']]
+fplt.candlestick_ochl(candles, ax=ax)
 
 # put an MA in there
-fplt.plot(df['time'], df['close'].rolling(25).mean(), ax=ax, color='#0000ff', legend='ma-25')
+fplt.plot(df['time'], df['close'].rolling(25).mean(), ax=ax, color='#00f', legend='ma-25')
 
 # place some dumb markers
-hi_wicks = df['high'] - df[['open','close']].T.max().T
-df.loc[(hi_wicks>hi_wicks.quantile(0.99)), 'marker'] = df['close']
-fplt.plot(df['time'], df['marker'], ax=ax, color='#000000', style='^', legend='dumb mark')
+hi_wicks = df['high'] - df[['open','close']].T.max()
+df.loc[(hi_wicks>hi_wicks.quantile(0.99)), 'marker'] = df['low']
+fplt.plot(df['time'], df['marker'], ax=ax, color='#000', style='^', legend='dumb mark')
 
 # draw some random crap on our second plot
 df['rnd'] = np.random.normal(size=len(df))
-fplt.plot(df['time'], df['rnd'], ax=ax2, color='#992277', legend='stuff')
+fplt.plot(df['time'], df['rnd'], ax=ax2, color='#927', legend='stuff')
 fplt.set_y_range(ax2, -1.4, +1.7) # fix y-axis range
 
 # finally a volume bar chart in our third plot
-volume_src = fplt.PandasDataSource(df[['time','open','close','volume']])
-fplt.volume_ocv(volume_src, ax=ax3)
+volumes = fplt.PandasDataSource(df[['time','open','close','volume']])
+fplt.volume_ocv(volumes, ax=ax3)
 
 # we're done
 fplt.show()

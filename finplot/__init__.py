@@ -733,7 +733,7 @@ class ScatterLabelItem(FinPlotItem):
         return self.viewRect()
 
 
-def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True, yscale='linear'):
+def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=True, yscale='linear'):
     global windows, v_zoom_padding, last_ax
     if yscale == 'log':
         v_zoom_padding = 0.0
