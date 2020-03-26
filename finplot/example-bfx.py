@@ -35,25 +35,25 @@ def update():
     df['tdup'] = [('%i'%i if 0<i<10 else '') for i in tdup]
     df['tddn'] = [('%i'%i if 0<i<10 else '') for i in tddn]
 
-    # pick columns for our three data sources: candlesticks and the gree
-    datasrc0 = fplt.PandasDataSource(df['time open close high low'.split()])
-    datasrc1 = fplt.PandasDataSource(df['time high tdup'.split()])
-    datasrc2 = fplt.PandasDataSource(df['time low tddn'.split()])
+    # pick columns for our three data sources: candlesticks and TD sequencial labels for up/down
+    candlesticks = df['time open close high low'.split()]
+    td_up_labels = df['time high tdup'.split()]
+    td_dn_labels = df['time low tddn'.split()]
     if not plots:
         # first time we create the plots
-        plots.append(fplt.candlestick_ochl(datasrc0, ax=ax))
-        plots.append(fplt.labels_datasrc(datasrc1, color='#009900', ax=ax))
-        plots.append(fplt.labels_datasrc(datasrc2, color='#990000', ax=ax, anchor=(0.5,0)))
+        plots.append(fplt.candlestick_ochl(candlesticks))
+        plots.append(fplt.labels(td_up_labels, color='#009900'))
+        plots.append(fplt.labels(td_dn_labels, color='#990000', anchor=(0.5,0)))
     else:
         # every time after we just update the data sources on each plot
-        plots[0].update_datasrc(datasrc0)
-        plots[1].update_datasrc(datasrc1)
-        plots[2].update_datasrc(datasrc2)
+        plots[0].update_data(candlesticks)
+        plots[1].update_data(td_up_labels)
+        plots[2].update_data(td_dn_labels)
 
 
 plots = []
-ax = fplt.create_plot('Realtime Bitcoin/Dollar 1m (BitFinex)', init_zoom_periods=100, maximize=False)
+fplt.create_plot('Realtime Bitcoin/Dollar 1m (BitFinex)', init_zoom_periods=100, maximize=False)
 update()
-fplt.timer_callback(update, 20.0) # update every N seconds
+fplt.timer_callback(update, 5.0) # update (using synchronous rest call) every N seconds
 
 fplt.show()

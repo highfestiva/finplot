@@ -34,11 +34,10 @@ volume_bull_color = '#92d2cc'
 volume_bear_color = '#f7a9a7'
 odd_plot_background = '#f0f0f0'
 band_color = '#ddbbaa'
-cross_hair_color = '#000000aa'
+cross_hair_color = '#00000077'
 draw_line_color = '#000000'
 draw_done_color = '#555555'
 significant_decimals = 8
-significant_decimals_scinot = 2
 significant_eps = 1e-8
 v_zoom_padding = 0.03 # padded on top+bottom of plot
 max_zoom_points = 20 # number of visible candles at maximum zoom
@@ -53,6 +52,7 @@ timers = [] # no gc
 sounds = {} # no gc
 plotdf2df = {} # for pandas df.plot
 epoch_period2 = 1e30
+last_ax = None # always assume we want to plot in the last axis, unless explicitly specified
 
 
 
@@ -80,7 +80,7 @@ class PandasDataSource:
         self.cache_hilo_query = ''
         self.cache_hilo_answer = None
         self.renames = {}
-        self.standalone = not np.amin(np.diff(self.df[timecol].values)) > 0
+        self.standalone = _is_standalone(self.df[timecol])
 
     @property
     def period(self):
@@ -103,12 +103,13 @@ class PandasDataSource:
         return self.df[col]
 
     def calc_significant_decimals(self):
-        absdiff = (self.y - self.y.shift()).abs()
+        absdiff = self.y.diff().abs()
         absdiff[absdiff<1e-30] = 1e30
         smallest_diff = absdiff.min()
         s = '%.0e' % smallest_diff
         exp = -int(s.partition('e')[2])
-        return min(10, exp), smallest_diff
+        decimals = max(1, min(10, exp))
+        return decimals, smallest_diff
 
     def update_init_x(self, init_steps):
         self.init_x0 = self.get_time(offset_from_end=init_steps, period=-0.5)
@@ -252,8 +253,9 @@ class FinCrossHair:
         self.x = 0
         self.y = 0
         self.infos = []
-        self.vline = pg.InfiniteLine(angle=90, movable=False, pen=color)
-        self.hline = pg.InfiniteLine(angle=0, movable=False, pen=color)
+        pen = pen=pg.mkPen(color=color, style=QtCore.Qt.CustomDashLine, dash=[7, 7])
+        self.vline = pg.InfiniteLine(angle=90, movable=False, pen=pen)
+        self.hline = pg.InfiniteLine(angle=0, movable=False, pen=pen)
         self.xtext = pg.TextItem(color=color, anchor=(0,1))
         self.ytext = pg.TextItem(color=color, anchor=(0,0))
         self.vline.setZValue(50)
@@ -614,7 +616,7 @@ class FinPlotItem(pg.GraphicsObject):
 
 
 class CandlestickItem(FinPlotItem):
-    def __init__(self, ax, datasrc, draw_body=True, draw_shadow=True, candle_width=0.7):
+    def __init__(self, ax, datasrc, draw_body=True, draw_shadow=True, candle_width=0.6):
         self.ax = ax
         self.bull_color = candle_bull_color
         self.bull_frame_color = candle_bull_color
@@ -660,14 +662,15 @@ class CandlestickItem(FinPlotItem):
 
 
 class VolumeItem(FinPlotItem):
-    def __init__(self, ax, datasrc):
+    def __init__(self, ax, datasrc, candle_width=0.6):
         self.ax = ax
         self.bull_color = volume_bull_color
         self.bear_color = volume_bear_color
+        self.candle_width = candle_width
         super().__init__(datasrc)
 
     def generate_picture(self, boundingRect):
-        w = self.datasrc.period * 0.7
+        w = self.datasrc.period * self.candle_width
         w2 = w * 0.5
         left,right = boundingRect.left(), boundingRect.right()
         p = self.painter
@@ -731,7 +734,7 @@ class ScatterLabelItem(FinPlotItem):
 
 
 def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True, yscale='linear'):
-    global windows, v_zoom_padding
+    global windows, v_zoom_padding, last_ax
     if yscale == 'log':
         v_zoom_padding = 0.0
     pg.setConfigOptions(foreground=foreground, background=background)
@@ -754,53 +757,45 @@ def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True, yscal
         axs += [ax]
     win.proxy_mmove = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, win))
     win._last_mouse_evs = None
+    last_ax = axs[0]
     if len(axs) == 1:
         return axs[0]
     return axs
 
 
 def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6, ax=None):
-    if ax is None:
-        ax = create_plot(maximize=False)
-    if type(datasrc) == pd.DataFrame:
-        datasrc = PandasDataSource(datasrc)
+    ax = _create_plot(ax=ax, maximize=False)
+    datasrc = _create_datasrc(datasrc)
     datasrc.scale_cols = [3,4] # only hi+lo scales
     _set_datasrc(ax, datasrc)
     item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width)
     ax.significant_decimals,ax.significant_eps = datasrc.calc_significant_decimals()
     item.ax = ax
-    item.update_datasrc = partial(_update_datasrc, item)
+    item.update_data = partial(_update_data, item)
     ax.addItem(item)
     # item.setZValue(20)
     _pre_process_data(item)
     return item
 
 
-def volume_ocv(datasrc, ax=None):
-    if ax is None:
-        ax = create_plot(maximize=False)
-    if type(datasrc) == pd.DataFrame:
-        datasrc = PandasDataSource(datasrc)
+def volume_ocv(datasrc, candle_width=0.6, ax=None):
+    ax = _create_plot(ax=ax, maximize=False)
+    datasrc = _create_datasrc(datasrc)
     datasrc.scale_cols = [3] # only volume scales
     _set_datasrc(ax, datasrc)
-    item = VolumeItem(ax=ax, datasrc=datasrc)
+    item = VolumeItem(ax=ax, datasrc=datasrc, candle_width=candle_width)
     item.ax = ax
-    item.update_datasrc = partial(_update_datasrc, item)
+    item.update_data = partial(_update_data, item)
     ax.addItem(item)
     item.setZValue(-1)
     _pre_process_data(item)
     return item
 
 
-def plot(x, y, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True):
-    datasrc = _create_datasrc(x, y)
-    return plot_datasrc(datasrc, color=color, width=width, ax=ax, style=style, legend=legend, zoomscale=zoomscale)
-
-
-def plot_datasrc(datasrc, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True):
-    if ax is None:
-        ax = create_plot(maximize=False)
+def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True):
+    ax = _create_plot(ax=ax, maximize=False)
     used_color = color if color else _get_color(ax, style)
+    datasrc = _create_datasrc(x, y)
     if not zoomscale:
         datasrc.scale_cols = []
     _set_datasrc(ax, datasrc)
@@ -822,7 +817,7 @@ def plot_datasrc(datasrc, color=None, width=1, ax=None, style=None, legend=None,
     # check if no epsilon set yet
     if 0.99 < ax.significant_eps/significant_eps < 1.01:
         ax.significant_decimals,ax.significant_eps = datasrc.calc_significant_decimals()
-    item.update_datasrc = partial(_update_datasrc, item)
+    item.update_data = partial(_update_data, item)
     _pre_process_data(item)
     if ax.legend is not None:
         for _,label in ax.legend.items:
@@ -831,20 +826,15 @@ def plot_datasrc(datasrc, color=None, width=1, ax=None, style=None, legend=None,
     return item
 
 
-def labels(x, y, labels, color=None, ax=None, anchor=(0.5,1)):
-    datasrc = _create_datasrc(x, y, labels)
-    return labels_datasrc(datasrc, color=color, ax=ax, anchor=anchor)
-
-
-def labels_datasrc(datasrc, color=None, ax=None, anchor=(0.5,1)):
-    if ax is None:
-        ax = create_plot(maximize=False)
+def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
+    ax = _create_plot(ax=ax, maximize=False)
     color = color if color else '#000000'
+    datasrc = _create_datasrc(x, y, labels)
     datasrc.scale_cols = [] # don't use this for scaling
     _set_datasrc(ax, datasrc)
     item = ScatterLabelItem(datasrc=datasrc, color=color, anchor=anchor)
     item.ax = ax
-    item.update_datasrc = partial(_update_datasrc, item)
+    item.update_data = partial(_update_data, item)
     ax.addItem(item)
     _pre_process_data(item)
     return item
@@ -874,7 +864,8 @@ def add_band(ax, y0, y1, color=band_color):
     ax.addItem(lr)
 
 
-def add_line(ax, p0, p1, color=draw_line_color, interactive=False):
+def add_line(p0, p1, color=draw_line_color, interactive=False, ax=None):
+    ax = _create_plot(ax=ax, maximize=False)
     x_pts = _pdtime2epoch(pd.Series([p0[0], p1[0]]))
     pts = [(x_pts[0], p0[1]), (x_pts[1], p1[1])]
     if interactive:
@@ -887,7 +878,8 @@ def add_line(ax, p0, p1, color=draw_line_color, interactive=False):
     return line
 
 
-def remove_line(ax, line):
+def remove_line(line):
+    ax = line.ax
     ax.removeItem(line)
     if line in ax.vb.lines:
         ax.vb.lines.remove(line)
@@ -896,7 +888,8 @@ def remove_line(ax, line):
             ax.vb.removeItem(txt)
 
 
-def add_text(ax, pos, s, color=draw_line_color, anchor=(0,0)):
+def add_text(pos, s, color=draw_line_color, anchor=(0,0), ax=None):
+    ax = _create_plot(ax=ax, maximize=False)
     text = pg.TextItem(s, color=color, anchor=anchor)
     text.setPos(_pdtime2epoch(pd.Series([pos[0]]))[0], pos[1])
     text.setZValue(50)
@@ -905,12 +898,13 @@ def add_text(ax, pos, s, color=draw_line_color, anchor=(0,0)):
     return text
 
 
-def remove_text(ax, text):
-    ax.removeItem(text)
+def remove_text(text):
+    text.ax.removeItem(text)
 
 
-def set_time_inspector(ax, inspector):
+def set_time_inspector(inspector, ax=None):
     '''Callback when clicked like so: inspector().'''
+    ax = ax if ax else last_ax
     win = ax.vb.win
     win.proxy_click = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_time_clicked, ax, inspector))
 
@@ -948,6 +942,14 @@ def play_sound(filename):
 #################### INTERNALS ####################
 
 
+def _create_plot(ax=None, **kwargs):
+    if ax:
+        return ax
+    if last_ax:
+        return last_ax
+    return create_plot(**kwargs)
+
+
 def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
     if prev_ax is not None:
         prev_ax.hideAxis('bottom') # hide the whole previous axis
@@ -968,11 +970,25 @@ def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
     return ax
 
 
+def _is_standalone(timeser):
+    # more than N percent gaps or reversals probably means this is a standalone plot
+    return timeser.isnull().sum() + (timeser.diff()<=0).sum() > len(timeser)*0.1
+
+
 def _create_series(a):
     return a if isinstance(a, pd.Series) else pd.Series(a)
 
 
 def _create_datasrc(*args):
+    args = [a for a in args if a is not None]
+    if len(args) == 1 and type(args[0]) == PandasDataSource:
+        return args[0]
+    if len(args) == 1 and type(args[0]) in (list, tuple):
+        args = [np.array(args[0])]
+    if len(args) == 1 and type(args[0]) == np.ndarray:
+        args = [pd.DataFrame(args[0].T)]
+    if len(args) == 1 and type(args[0]) == pd.DataFrame:
+        return PandasDataSource(args[0])
     args = [_create_series(a) for a in args]
     return PandasDataSource(pd.concat(args, axis=1))
 
@@ -999,7 +1015,8 @@ def _set_datasrc(ax, datasrc):
             epoch_period2 = ep2
 
 
-def _update_datasrc(item, ds):
+def _update_data(item, ds):
+    ds = _create_datasrc(ds)
     item.datasrc.update(ds)
     if isinstance(item, FinPlotItem):
         item.dirty = True
@@ -1123,7 +1140,7 @@ def _pdtime2epoch(t):
         if isinstance(t.iloc[0], pd.Timestamp):
             return t.astype('int64') // int(1e9)
         if np.nanmax(t.values) > 1e10: # handle ms epochs
-            return t.astype('int64') // int(1e3)
+            return t.astype('float64') / 1e3
     return t
 
 

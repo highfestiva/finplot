@@ -37,14 +37,14 @@ def calc_bollinger_bands(df):
 
 def update_plot():
     calc_bollinger_bands(df)
-    datasrc0 = fplt.PandasDataSource(df['t o c h l'.split()])
-    datasrc1 = fplt.PandasDataSource(df['t bbh'.split()])
-    datasrc2 = fplt.PandasDataSource(df['t bbl'.split()])
+    candlesticks = df['t o c h l'.split()]
+    bollband_hi = df['t bbh'.split()]
+    bollband_lo = df['t bbl'.split()]
     if not plots:
-        candlestick_plot = fplt.candlestick_ochl(datasrc0, ax=ax)
+        candlestick_plot = fplt.candlestick_ochl(candlesticks)
         plots.append(candlestick_plot)
-        plots.append(fplt.plot_datasrc(datasrc1, color='#4e4ef1', ax=ax))
-        plots.append(fplt.plot_datasrc(datasrc2, color='#4e4ef1', ax=ax))
+        plots.append(fplt.plot(bollband_hi, color='#4e4ef1'))
+        plots.append(fplt.plot(bollband_lo, color='#4e4ef1'))
         # redraw using bitmex colors
         candlestick_plot.bull_color = '#388d53'
         candlestick_plot.bull_frame_color = '#205536'
@@ -54,9 +54,9 @@ def update_plot():
         candlestick_plot.bear_body_color = '#e8704f'
         candlestick_plot.repaint()
     else:
-        plots[0].update_datasrc(datasrc0)
-        plots[1].update_datasrc(datasrc1)
-        plots[2].update_datasrc(datasrc2)
+        plots[0].update_data(candlesticks)
+        plots[1].update_data(bollband_hi)
+        plots[2].update_data(bollband_lo)
 
 
 def update_candlestick_data(trade, interval_mins=1):
@@ -96,7 +96,7 @@ if __name__ == '__main__':
     thread = Thread(target=ws.run_forever)
     thread.daemon = True
     thread.start()
-    ax = fplt.create_plot('Realtime Bitcoin/Dollar 1m (BitMEX websocket)', init_zoom_periods=100, maximize=False)
+    fplt.create_plot('Realtime Bitcoin/Dollar 1m (BitMEX websocket)', init_zoom_periods=100, maximize=False)
     update_plot()
     fplt.timer_callback(update_plot, 1.0) # update every second
     fplt.show()
