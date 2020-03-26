@@ -432,16 +432,10 @@ class FinViewBox(pg.ViewBox):
             return
         if ev.button() != QtCore.Qt.LeftButton or ev.modifiers() != QtCore.Qt.ControlModifier:
             super().mouseDragEvent(ev, axis)
-            if ev.isFinish():
-                main_vb = self
-                if self.linkedView(0):
-                    self.force_range_update = 1 # main need to update only once to us
-                    main_vb = list(self.win.ci.items)[0].vb
-                main_vb.force_range_update = len(self.win.ci.items)-1 # update main as many times as there are other rows
-                self.update_range()
-                # refresh crosshair when done
-                _mouse_moved(self.win, None)
-            return
+            if ev.isFinish() or self.drawing:
+                self.refresh_all_y_zoom()
+            if not self.drawing:
+                return
         if self.draw_line and not self.drawing:
             self.set_draw_line_color(draw_done_color)
         p1 = ev.pos()
@@ -500,7 +494,7 @@ class FinViewBox(pg.ViewBox):
             return
         x0 = center.x() + (vr.left()-center.x()) * scale_fact
         x1 = center.x() + (vr.right()-center.x()) * scale_fact
-        self.update_range(x0, x1)
+        self.update_y_zoom(x0, x1)
 
     def pan_x(self, steps=None, percent=None):
         if steps is None:
@@ -516,9 +510,20 @@ class FinViewBox(pg.ViewBox):
         if x0 < startx:
             x0 = startx
             x1 = x0 + self.targetRect().width() - 1
-        self.update_range(x0, x1)
+        self.update_y_zoom(x0, x1)
 
-    def update_range(self, x0=None, x1=None):
+    def refresh_all_y_zoom(self):
+        '''This updates Y zoom on all views, such as when a mouse drag is completed.'''
+        main_vb = self
+        if self.linkedView(0):
+            self.force_range_update = 1 # main need to update only once to us
+            main_vb = list(self.win.ci.items)[0].vb
+        main_vb.force_range_update = len(self.win.ci.items)-1 # update main as many times as there are other rows
+        self.update_y_zoom()
+        # refresh crosshair when done
+        _mouse_moved(self.win, None)
+
+    def update_y_zoom(self, x0=None, x1=None):
         if x0 is None or x1 is None:
             tr = self.targetRect()
             x0 = tr.left()
@@ -748,7 +753,7 @@ def create_plot(title=None, rows=1, init_zoom_periods=1e10, maximize=True, yscal
             viewbox.setFocus()
         axs += [ax]
     win.proxy_mmove = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, win))
-    win._last_mouse_ev = None
+    win._last_mouse_evs = None
     if len(axs) == 1:
         return axs[0]
     return axs
@@ -847,6 +852,8 @@ def labels_datasrc(datasrc, color=None, ax=None, anchor=(0.5,1)):
 
 def dfplot(df, x=None, y=None, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True):
     legend = legend if legend else y
+    x = x if x else df.columns[0]
+    y = y if y else df.columns[1]
     return plot(df[x], df[y], color=color, width=width, ax=ax, style=style, legend=legend, zoomscale=zoomscale)
 
 
@@ -1075,13 +1082,13 @@ def _key_pressed(vb, ev):
     return True
 
 
-def _mouse_moved(win, ev):
-    if not ev:
-        ev = win._last_mouse_ev
-        if not ev:
+def _mouse_moved(win, evs):
+    if not evs:
+        evs = win._last_mouse_evs
+        if not evs:
             return
-    win._last_mouse_ev = ev
-    pos = ev[-1]
+    win._last_mouse_evs = evs
+    pos = evs[-1]
     for ax in win.ci.items:
         point = ax.vb.mapSceneToView(pos)
         if ax.crosshair:
