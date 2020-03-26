@@ -284,8 +284,9 @@ class FinCrossHair:
         if self.ax.vb.yscale == 'log':
             y = 10**y
         rng = self.ax.vb.y_max - self.ax.vb.y_min
+        rngmax = abs(self.ax.vb.y_min) + rng # any approximation is fine
         sd,se = (self.ax.significant_decimals,self.ax.significant_eps) if clamp_grid else (significant_decimals,significant_eps)
-        ytext = _round_to_significant(rng, y, sd, se)
+        ytext = _round_to_significant(rng, rngmax, y, sd, se)
         far_right = self.ax.viewRect().x() + self.ax.viewRect().width()*0.9
         far_bottom = self.ax.viewRect().y() + self.ax.viewRect().height()*0.1
         close2right = x > far_right
@@ -396,8 +397,8 @@ class FinViewBox(pg.ViewBox):
         super().__init__(*args, **kwargs)
         self.win = win
         self.yscale = yscale
-        self.y_max = True
-        self.y_min = True
+        self.y_max = None
+        self.y_min = None
         self.y_positive = True
         self.force_range_update = 0
         self.lines = []
@@ -808,6 +809,8 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
     else:
         symbol = {'v':'t', '^':'t1', '>':'t2', '<':'t3'}.get(style, style) # translate some similar styles
         item = ax.plot(datasrc.x, datasrc.y, pen=None, symbol=symbol, symbolPen=None, symbolSize=10, symbolBrush=pg.mkBrush(used_color), name=legend)
+        item.scatter._dopaint = item.scatter.paint
+        item.scatter.paint = partial(_paint_scatter, item.scatter)
         # optimize (when having large number of points) by ignoring scatter click detection
         _dummy_mouse_click = lambda ev: 0
         item.scatter.mouseClickEvent = _dummy_mouse_click
@@ -1069,6 +1072,11 @@ def _repaint_candles():
                     item.repaint()
 
 
+def _paint_scatter(item, p, *args):
+    with np.errstate(invalid='ignore'): # make pg's mask creation calls to numpy shut up
+        item._dopaint(p, *args)
+
+
 def _key_pressed(vb, ev):
     if ev.text() == 'g': # grid
         global clamp_grid
@@ -1151,11 +1159,15 @@ def _epoch2local(t):
         return ''
 
 
-def _round_to_significant(rng, x, significant_decimals, significant_eps):
-    is_highres = rng/significant_eps > 1e6
-    sd = max(significant_decimals//3, 2) if is_highres else significant_decimals
-    if is_highres and abs(x) > 10**sd:
-        fmt = '%%.%ig' % (sd+1)
+def _round_to_significant(rng, rngmax, x, significant_decimals, significant_eps):
+    is_highres = rng/significant_eps > 1e3 and (rngmax>1e5 or rngmax<1e-2)
+    sd = significant_decimals
+    if is_highres:
+        exp10 = floor(log10(abs(x)))
+        x = x / (10**exp10)
+        sd = min(5, sd+int(log10(rngmax)))
+        fmt = '%%%i.%ife%%i' % (sd, sd)
+        r = fmt % (x, exp10)
     else:
         eps = fmod(x, significant_eps)
         if abs(eps) >= significant_eps/2:
@@ -1163,7 +1175,7 @@ def _round_to_significant(rng, x, significant_decimals, significant_eps):
             eps -= np.sign(eps)*significant_eps
         x -= eps
         fmt = '%%%i.%if' % (sd, sd)
-    r = fmt % x
+        r = fmt % x
     return r
 
 
