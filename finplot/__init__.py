@@ -73,14 +73,20 @@ class PandasDataSource:
         if type(df.index) == pd.DatetimeIndex:
             df = df.reset_index()
         self.df = df.copy()
-        timecol = self.df.columns[0]
-        self.df[timecol] = _pdtime2epoch(df[timecol])
-        self.col_data_offset = 0 # no. of preceeding columns for other plots
-        self.scale_cols = [i for i in range(1,len(self.df.columns)) if self.df[self.df.columns[i]].dtype!=object]
+        # manage time column
+        if _has_timecol(self.df):
+            timecol = self.df.columns[0]
+            self.df[timecol] = _pdtime2epoch(df[timecol])
+            self.standalone = _is_standalone(self.df[timecol])
+            self.col_data_offset = 1 # no. of preceeding columns for other plots and time column
+        else:
+            self.standalone = False
+            self.col_data_offset = 0 # no. of preceeding columns for other plots and time column
+        # setup data for joining data sources and zooming
+        self.scale_cols = [i for i in range(self.col_data_offset,len(self.df.columns)) if self.df[self.df.columns[i]].dtype!=object]
         self.cache_hilo_query = ''
         self.cache_hilo_answer = None
         self.renames = {}
-        self.standalone = _is_standalone(self.df[timecol])
 
     @property
     def period(self):
@@ -94,12 +100,12 @@ class PandasDataSource:
 
     @property
     def y(self):
-        col = self.df.columns[1+self.col_data_offset]
+        col = self.df.columns[self.col_data_offset]
         return self.df[col]
 
     @property
     def z(self):
-        col = self.df.columns[2+self.col_data_offset]
+        col = self.df.columns[self.col_data_offset+1]
         return self.df[col]
 
     def calc_significant_decimals(self):
@@ -121,10 +127,15 @@ class PandasDataSource:
 
     def addcols(self, datasrc):
         self.scale_cols += [c+len(self.df.columns)-1 for c in datasrc.scale_cols]
-        timecol = self.df.columns[0]
-        df = self.df.set_index(timecol)
-        orig_col_data_cnt = len(df.columns)
-        newcols = datasrc.df.set_index(timecol)
+        orig_col_data_cnt = len(self.df.columns)
+        if _has_timecol(datasrc.df):
+            timecol = self.df.columns[0]
+            df = self.df.set_index(timecol)
+            timecol = timecol if timecol in datasrc.df.columns else datasrc.df.columns[0]
+            newcols = datasrc.df.set_index(timecol)
+        else:
+            df = self.df
+            newcols = datasrc.df
         cols = list(newcols.columns)
         for i,col in enumerate(cols):
             old_col = col
@@ -133,8 +144,9 @@ class PandasDataSource:
             if old_col != col:
                 datasrc.renames[old_col] = col
         newcols.columns = cols
-        df = pd.concat([df, newcols], axis=1)
-        self.df = df.reset_index()
+        self.df = pd.concat([df, newcols], axis=1)
+        if _has_timecol(datasrc.df):
+            self.df.reset_index(inplace=True)
         datasrc.df = self.df # they are the same now
         datasrc.col_data_offset = orig_col_data_cnt
         self.cache_hilo_query = ''
@@ -190,8 +202,8 @@ class PandasDataSource:
     def bear_rows(self, colcnt, x0, x1, yscale):
         df = self.df
         timecol = df.columns[0]
-        opencol = df.columns[1+self.col_data_offset]
-        closecol = df.columns[2+self.col_data_offset]
+        opencol = df.columns[self.col_data_offset]
+        closecol = df.columns[self.col_data_offset+1]
         in_timerange = (df[timecol]>=x0) & (df[timecol]<=x1)
         is_down = df[opencol] > df[closecol] # open higher than close = goes down
         df = df.loc[in_timerange&is_down]
@@ -200,8 +212,8 @@ class PandasDataSource:
     def bull_rows(self, colcnt, x0, x1, yscale):
         df = self.df
         timecol = df.columns[0]
-        opencol = df.columns[1+self.col_data_offset]
-        closecol = df.columns[2+self.col_data_offset]
+        opencol = df.columns[self.col_data_offset]
+        closecol = df.columns[self.col_data_offset+1]
         in_timerange = (df[timecol]>=x0) & (df[timecol]<=x1)
         is_up = df[opencol] <= df[closecol] # open lower than close = goes up
         df = df.loc[in_timerange&is_up]
@@ -218,7 +230,7 @@ class PandasDataSource:
         if len(df) > lod_candles:
             df = df.iloc[::len(df)//lod_candles]
         colcnt -= 1 # time is always implied
-        cols = list(df.columns[1+self.col_data_offset:1+self.col_data_offset+colcnt])
+        cols = list(df.columns[self.col_data_offset:self.col_data_offset+colcnt])
         cols = [df[c] for c in cols]
         if yscale == 'log':
             for i in range(len(cols)):
@@ -252,6 +264,8 @@ class FinCrossHair:
         self.ax = ax
         self.x = 0
         self.y = 0
+        self.clamp_x = 0
+        self.clamp_y = 0
         self.infos = []
         pen = pen=pg.mkPen(color=color, style=QtCore.Qt.CustomDashLine, dash=[7, 7])
         self.vline = pg.InfiniteLine(angle=90, movable=False, pen=pen)
@@ -269,18 +283,18 @@ class FinCrossHair:
 
     def update(self, point=None):
         if point is not None:
-            x,y = point.x(),point.y()
+            self.x,self.y = x,y = point.x(),point.y()
         else:
             x,y = self.x,self.y
         x,y = _clamp_xy(self.ax, x,y)
-        if x == self.x and y == self.y:
+        if x == self.clamp_x and y == self.clamp_y:
             return
-        self.x,self.y = x,y
+        self.clamp_x,self.clamp_y = x,y
         self.vline.setPos(x)
         self.hline.setPos(y)
         self.xtext.setPos(x, y)
         self.ytext.setPos(x, y)
-        xtext = _epoch2local(x)
+        xtext = _epoch2local(x, clamp_grid)
         if self.ax.vb.yscale == 'log':
             y = 10**y
         rng = self.ax.vb.y_max - self.ax.vb.y_min
@@ -758,6 +772,7 @@ def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=T
         axs += [ax]
     win.proxy_mmove = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, win))
     win._last_mouse_evs = None
+    win._last_mouse_y = 0
     last_ax = axs[0]
     if len(axs) == 1:
         return axs[0]
@@ -1018,6 +1033,10 @@ def _set_datasrc(ax, datasrc):
             epoch_period2 = ep2
 
 
+def _has_timecol(df):
+    return len(df.columns) >= 2
+
+
 def _update_data(item, ds):
     ds = _create_datasrc(ds)
     item.datasrc.update(ds)
@@ -1114,6 +1133,13 @@ def _mouse_moved(win, evs):
             return
     win._last_mouse_evs = evs
     pos = evs[-1]
+    # allow inter-pixel moves if moving mouse slowly
+    y = pos.y()
+    dy = y - win._last_mouse_y
+    if 0 < abs(dy) <= 1:
+        pos.setY(pos.y() - dy/2)
+    win._last_mouse_y = y
+    # apply to all crosshairs
     for ax in win.ci.items:
         point = ax.vb.mapSceneToView(pos)
         if ax.crosshair:
@@ -1152,9 +1178,10 @@ def _pdtime2epoch(t):
     return t
 
 
-def _epoch2local(t):
+def _epoch2local(t, strip_seconds=True):
     try:
-        return datetime.fromtimestamp(t).isoformat().replace('T',' ').rsplit(':',1)[0]
+        s = datetime.fromtimestamp(t).isoformat().replace('T',' ')
+        return s.rpartition(':' if strip_seconds else '.')[0]
     except:
         return ''
 
@@ -1254,12 +1281,14 @@ except:
 if False: # performance measurement code
     import time, sys
     def self_timecall(self, pname, fname, func, *args, **kwargs):
+        ## print('self_timecall', pname, fname)
         t0 = time.perf_counter()
         r = func(self, *args, **kwargs)
         t1 = time.perf_counter()
         print('%s.%s: %f' % (pname, fname, t1-t0))
         return r
     def timecall(fname, func, *args, **kwargs):
+        ## print('timecall', fname)
         t0 = time.perf_counter()
         r = func(*args, **kwargs)
         t1 = time.perf_counter()
