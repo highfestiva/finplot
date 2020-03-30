@@ -416,6 +416,11 @@ class FinLine(pg.GraphicsObject):
         return QtCore.QRectF(*self.points[0], *self.points[1])
 
 
+class FinEllipse(pg.EllipseROI):
+    def addRotateHandle(self, *args, **kwargs):
+        pass
+
+
 class FinViewBox(pg.ViewBox):
     def __init__(self, win, init_steps=300, yscale='linear', *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -425,7 +430,7 @@ class FinViewBox(pg.ViewBox):
         self.y_min = None
         self.y_positive = True
         self.force_range_update = 0
-        self.lines = []
+        self.rois = []
         self.draw_line = None
         self.drawing = False
         self.set_datasrc(None)
@@ -457,7 +462,13 @@ class FinViewBox(pg.ViewBox):
     def mouseDragEvent(self, ev, axis=None):
         if not self.datasrc:
             return
-        if ev.button() != QtCore.Qt.LeftButton or ev.modifiers() != QtCore.Qt.ControlModifier:
+        if ev.button() == QtCore.Qt.LeftButton:
+            self.mouseLeftDrag(ev, axis)
+        elif ev.button() == QtCore.Qt.MiddleButton:
+            self.mouseMiddleDrag(ev, axis)
+
+    def mouseLeftDrag(self, ev, axis):
+        if ev.modifiers() != QtCore.Qt.ControlModifier:
             super().mouseDragEvent(ev, axis)
             if ev.isFinish() or self.drawing:
                 self.refresh_all_y_zoom()
@@ -473,12 +484,39 @@ class FinViewBox(pg.ViewBox):
             p0 = _clamp_point(self.parent(), p0)
             self.draw_line = FinPolyLine(self, [p0, p1], closed=False, pen=pg.mkPen(draw_line_color), movable=False)
             self.draw_line.setZValue(40)
-            self.lines.append(self.draw_line)
+            self.rois.append(self.draw_line)
             self.addItem(self.draw_line)
             self.drawing = True
         else:
             # draw placed point at end of poly-line
             self.draw_line.movePoint(-1, p1)
+        if ev.isFinish():
+            self.drawing = False
+        ev.accept()
+
+    def mouseMiddleDrag(self, ev, axis):
+        if ev.modifiers() != QtCore.Qt.ControlModifier:
+            return super().mouseDragEvent(ev, axis)
+        p1 = self.mapToView(ev.pos())
+        p1 = _clamp_point(self.parent(), p1)
+        def nonzerosize(a, b):
+            c = b-a
+            return pg.Point(abs(c.x()) or 1, abs(c.y()) or 1)
+        if not self.drawing:
+            # add new line
+            p0 = self.mapToView(ev.lastPos())
+            p0 = _clamp_point(self.parent(), p0)
+            s = nonzerosize(p0, p1)
+            self.draw_ellipse = FinEllipse(p0, s, pen=pg.mkPen(draw_line_color), movable=True)
+            self.draw_ellipse.setZValue(80)
+            self.rois.append(self.draw_ellipse)
+            self.addItem(self.draw_ellipse)
+            self.drawing = True
+        else:
+            c = self.draw_ellipse.pos() + self.draw_ellipse.size()*0.5
+            s = nonzerosize(c, p1)
+            self.draw_ellipse.setSize(s*2, update=False)
+            self.draw_ellipse.setPos(c-s)
         if ev.isFinish():
             self.drawing = False
         ev.accept()
@@ -568,17 +606,25 @@ class FinViewBox(pg.ViewBox):
             y1 = np.log10(y1) if y1 > 0 else -1
         self.setRange(QtCore.QRectF(pg.Point(x0, y0), pg.Point(x1, y1)), padding=0)
 
-    def remove_last_line(self):
-        if self.lines:
-            h = self.lines[-1].handles[-1]['item']
-            self.lines[-1].removeHandle(h)
-            if not self.lines[-1].segments:
-                self.removeItem(self.lines[-1])
-                self.lines = self.lines[:-1]
-                self.draw_line = None
-            if self.lines:
-                self.draw_line = self.lines[-1]
-                self.set_draw_line_color(draw_line_color)
+    def remove_last_roi(self):
+        if self.rois:
+            if isinstance(self.rois[-1], pg.EllipseROI):
+                self.removeItem(self.rois[-1])
+                self.rois = self.rois[:-1]
+                self.draw_ellipse = None
+            else:
+                h = self.rois[-1].handles[-1]['item']
+                self.rois[-1].removeHandle(h)
+                if not self.rois[-1].segments:
+                    self.removeItem(self.rois[-1])
+                    self.rois = self.rois[:-1]
+                    self.draw_line = None
+            if self.rois:
+                if isinstance(self.rois[-1], pg.EllipseROI):
+                    self.draw_ellipse = self.rois[-1]
+                else:
+                    self.draw_line = self.rois[-1]
+                    self.set_draw_line_color(draw_line_color)
             return True
 
     def append_draw_segment(self, p):
@@ -895,7 +941,7 @@ def add_line(p0, p1, color=draw_line_color, interactive=False, ax=None):
     pts = [(x_pts[0], p0[1]), (x_pts[1], p1[1])]
     if interactive:
         line = FinPolyLine(ax.vb, pts, closed=False, pen=pg.mkPen(color), movable=False)
-        ax.vb.lines.append(line)
+        ax.vb.rois.append(line)
     else:
         line = FinLine(pts, pen=pg.mkPen(color))
     line.ax = ax
@@ -906,8 +952,8 @@ def add_line(p0, p1, color=draw_line_color, interactive=False, ax=None):
 def remove_line(line):
     ax = line.ax
     ax.removeItem(line)
-    if line in ax.vb.lines:
-        ax.vb.lines.remove(line)
+    if line in ax.vb.rois:
+        ax.vb.rois.remove(line)
     if hasattr(line, 'texts'):
         for txt in line.texts:
             ax.vb.removeItem(txt)
@@ -1114,7 +1160,7 @@ def _key_pressed(vb, ev):
         vb.set_draw_line_color(draw_done_color)
         vb.draw_line = None
     elif ev.text() in ('\x7f', '\b'): # del, backspace
-        if not vb.remove_last_line():
+        if not vb.remove_last_roi():
             return False
     elif ev.key() == QtCore.Qt.Key_Left:
         vb.pan_x(percent=-15)
@@ -1160,8 +1206,10 @@ def _wheel_event_wrapper(self, orig_func, ev):
     orig_func(self, ev)
 
 
-def _time_clicked(ax, inspector, ev):
-    pos = ev[0].scenePos()
+def _time_clicked(ax, inspector, evs):
+    if evs[-1].accepted:
+        return
+    pos = evs[-1].scenePos()
     point = ax.vb.mapSceneToView(pos)
     t = point.x() - epoch_period2
     t = ax.vb.datasrc.closest_time(t)
