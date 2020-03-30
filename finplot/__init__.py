@@ -390,6 +390,16 @@ class FinPolyLine(pg.PolyLineROI):
         super().movePoint(handle, pos, modifiers, finish, coords)
         self.update_texts()
 
+    def segmentClicked(self, segment, ev=None, pos=None):
+        pos = segment.mapToParent(ev.pos())
+        pos = _clamp_point(self.vb.parent(), pos)
+        super().segmentClicked(segment, pos=pos)
+        self.update_texts()
+
+    def addHandle(self, info, index=None):
+        handle = super().addHandle(info, index)
+        handle.movePoint = partial(_roihandle_move_snap, self.vb, handle.movePoint)
+        return handle
 
 
 class FinLine(pg.GraphicsObject):
@@ -434,7 +444,7 @@ class FinViewBox(pg.ViewBox):
     def wheelEvent(self, ev, axis=None):
         scale_fact = 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
         vr = self.targetRect()
-        center = pg.Point(pg.functions.invertQTransform(self.childGroup.transform()).map(ev.pos()))
+        center = self.mapToView(ev.pos())
         if (center.x()-vr.left())/vr.width() < 0.05: # zoom to far left => all the way left
             center = pg.Point(vr.left(), center.y())
         elif (center.x()-vr.left())/vr.width() > 0.95: # zoom to far right => all the way right
@@ -455,13 +465,11 @@ class FinViewBox(pg.ViewBox):
                 return
         if self.draw_line and not self.drawing:
             self.set_draw_line_color(draw_done_color)
-        p1 = ev.pos()
-        p1 = pg.Point(pg.functions.invertQTransform(self.childGroup.transform()).map(p1))
+        p1 = self.mapToView(ev.pos())
         p1 = _clamp_point(self.parent(), p1)
         if not self.drawing:
             # add new line
-            p0 = ev.lastPos()
-            p0 = pg.Point(pg.functions.invertQTransform(self.childGroup.transform()).map(p0))
+            p0 = self.mapToView(ev.lastPos())
             p0 = _clamp_point(self.parent(), p0)
             self.draw_line = FinPolyLine(self, [p0, p1], closed=False, pen=pg.mkPen(draw_line_color), movable=False)
             self.draw_line.setZValue(40)
@@ -479,8 +487,7 @@ class FinViewBox(pg.ViewBox):
         if ev.button() != QtCore.Qt.LeftButton or ev.modifiers() != QtCore.Qt.ControlModifier or not self.draw_line:
             return super().mouseClickEvent(ev)
         # add another segment to the currently drawn line
-        p = ev.pos()
-        p = pg.Point(pg.functions.invertQTransform(self.childGroup.transform()).map(p))
+        p = self.mapToView(ev.pos())
         p = _clamp_point(self.parent(), p)
         self.append_draw_segment(p)
         self.drawing = False
@@ -1204,6 +1211,13 @@ def _round_to_significant(rng, rngmax, x, significant_decimals, significant_eps)
         fmt = '%%%i.%if' % (sd, sd)
         r = fmt % x
     return r
+
+
+def _roihandle_move_snap(vb, orig_func, pos, modifiers=QtCore.Qt.KeyboardModifier(), finish=True):
+    pos = vb.mapDeviceToView(pos)
+    pos = _clamp_point(vb.parent(), pos)
+    pos = vb.mapViewToDevice(pos)
+    orig_func(pos, modifiers=modifiers, finish=finish)
 
 
 def _clamp_xy(ax, x, y):
