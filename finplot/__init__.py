@@ -10,11 +10,13 @@ where the Y-axis is auto-scaled to highest high and lowest low in the active
 region.
 '''
 
+from ast import literal_eval
 from datetime import datetime
 from decimal import Decimal
 from functools import partial, partialmethod
 from math import log10, floor, fmod
 import numpy as np
+import os.path
 import pandas as pd
 import pyqtgraph as pg
 from pyqtgraph import QtCore, QtGui
@@ -53,6 +55,7 @@ sounds = {} # no gc
 plotdf2df = {} # for pandas df.plot
 epoch_period2 = 1e30
 last_ax = None # always assume we want to plot in the last axis, unless explicitly specified
+viewrestore = False
 
 
 
@@ -256,6 +259,18 @@ class PlotDf(object):
         return plotdf2df[self].__getitem__(i)
     def __setitem__(self, i, v):
         return plotdf2df[self].__setitem__(i, v)
+
+
+
+class FinWindow(pg.GraphicsWindow):
+    def __init__(self, title):
+        self.title = title
+        super().__init__(title=title)
+
+    def closeEvent(self, *args, **kwargs):
+        if viewrestore:
+            _savewindata(self)
+        super().closeEvent(*args, **kwargs)
 
 
 
@@ -806,7 +821,7 @@ def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=T
     if yscale == 'log':
         v_zoom_padding = 0.0
     pg.setConfigOptions(foreground=foreground, background=background)
-    win = pg.GraphicsWindow(title=title)
+    win = FinWindow(title)
     windows.append(win)
     if maximize:
         win.showMaximized()
@@ -996,7 +1011,17 @@ def timer_callback(update_func, seconds, single_shot=False):
     timers.append(timer)
 
 
+def autoviewrestore(enable=True):
+    '''Restor functionality saves view zoom coordinates when closing a window, and
+       load them when creating the plot (with the same name) again.'''
+    global viewrestore
+    viewrestore = enable
+
+
 def show():
+    if viewrestore:
+        for win in windows:
+            _loadwindata(win)
     if windows:
         QtGui.QApplication.instance().exec_()
         windows.clear()
@@ -1011,6 +1036,38 @@ def play_sound(filename):
 
 
 #################### INTERNALS ####################
+
+
+def _loadwindata(win):
+    try: os.mkdir(os.path.expanduser('~/.finplot'))
+    except: pass
+    try:
+        f = os.path.expanduser('~/.finplot/'+win.title+'.ini')
+        settings = [(k.strip(),literal_eval(v.strip())) for line in open(f) for k,d,v in [line.partition('=')] if v]
+        kvs = {k:v for k,v in settings}
+        for ax in win.ci.items:
+            if kvs['min_x'] >= ax.vb.datasrc.x.iloc[0] and kvs['max_x'] <= ax.vb.datasrc.x.iloc[-1]:
+                ax.vb.update_y_zoom(kvs['min_x'], kvs['max_x'])
+    except:
+        pass
+
+
+def _savewindata(win):
+    try:
+        min_x = int(1e100)
+        max_x = int(-1e100)
+        for ax in win.ci.items:
+            min_x = np.nanmin([min_x, ax.vb.targetRect().left()])
+            max_x = np.nanmax([max_x, ax.vb.targetRect().right()])
+        if np.max(np.abs([min_x, max_x])) < 1e99:
+            s = 'min_x = %s\nmax_x = %s\n' % (min_x, max_x)
+            f = os.path.expanduser('~/.finplot/'+win.title+'.ini')
+            try: changed = open(f).read() != s
+            except: changed = True
+            if changed:
+                open(f, 'wt').write(s)
+    except Exception as e:
+        print('Error saving plot:', e)
 
 
 def _create_plot(ax=None, **kwargs):
