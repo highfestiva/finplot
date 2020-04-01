@@ -41,7 +41,6 @@ draw_line_color = '#000000'
 draw_done_color = '#555555'
 significant_decimals = 8
 significant_eps = 1e-8
-v_zoom_padding = 0.03 # padded on top+bottom of plot
 max_zoom_points = 20 # number of visible candles at maximum zoom
 top_graph_scale = 3
 clamp_grid = True
@@ -196,10 +195,6 @@ class PandasDataSource:
         valcols = df.columns[self.scale_cols]
         hi = df[valcols].max().max()
         lo = df[valcols].min().min()
-        pad = (hi-lo) * v_zoom_padding
-        pad = max(pad, 2e-7) # some very weird bug where too small scale stops rendering
-        hi = min(hi+pad, +1e99)
-        lo = max(lo-pad, -1e99)
         return t0,t1,hi,lo,len(df)
 
     def bear_rows(self, colcnt, x0, x1, yscale):
@@ -266,12 +261,12 @@ class FinWindow(pg.GraphicsWindow):
     def __init__(self, title):
         self.title = title
         super().__init__(title=title)
+        self.centralWidget.installEventFilter(self)
 
-    def closeEvent(self, *args, **kwargs):
-        if viewrestore:
+    def eventFilter(self, obj, ev):
+        if ev.type()== QtCore.QEvent.WindowDeactivate:
             _savewindata(self)
-        super().closeEvent(*args, **kwargs)
-
+        return False
 
 
 class FinCrossHair:
@@ -282,7 +277,7 @@ class FinCrossHair:
         self.clamp_x = 0
         self.clamp_y = 0
         self.infos = []
-        pen = pen=pg.mkPen(color=color, style=QtCore.Qt.CustomDashLine, dash=[7, 7])
+        pen = pg.mkPen(color=color, style=QtCore.Qt.CustomDashLine, dash=[7, 7])
         self.vline = pg.InfiniteLine(angle=90, movable=False, pen=pen)
         self.hline = pg.InfiniteLine(angle=0, movable=False, pen=pen)
         self.xtext = pg.TextItem(color=color, anchor=(0,1))
@@ -437,10 +432,11 @@ class FinEllipse(pg.EllipseROI):
 
 
 class FinViewBox(pg.ViewBox):
-    def __init__(self, win, init_steps=300, yscale='linear', *args, **kwargs):
+    def __init__(self, win, init_steps=300, yscale='linear', v_zoom_scale=1, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.win = win
         self.yscale = yscale
+        self.v_zoom_scale = v_zoom_scale
         self.y_max = None
         self.y_min = None
         self.y_positive = True
@@ -462,7 +458,11 @@ class FinViewBox(pg.ViewBox):
             self.set_range(x0, lo, x1, hi, pad=True)
 
     def wheelEvent(self, ev, axis=None):
-        scale_fact = 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
+        if ev.modifiers() == QtCore.Qt.ControlModifier:
+            scale_fact = 1
+            self.v_zoom_scale /= 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
+        else:
+            scale_fact = 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
         vr = self.targetRect()
         center = self.mapToView(ev.pos())
         if (center.x()-vr.left())/vr.width() < 0.05: # zoom to far left => all the way left
@@ -481,6 +481,8 @@ class FinViewBox(pg.ViewBox):
             self.mouseLeftDrag(ev, axis)
         elif ev.button() == QtCore.Qt.MiddleButton:
             self.mouseMiddleDrag(ev, axis)
+        else:
+            super().mouseDragEvent(ev, axis)
 
     def mouseLeftDrag(self, ev, axis):
         if ev.modifiers() != QtCore.Qt.ControlModifier:
@@ -608,6 +610,11 @@ class FinViewBox(pg.ViewBox):
         x0,x1,hi,lo,cnt = self.datasrc.hilo(x0, x1)
         if cnt < max_zoom_points:
             return
+        pad = (hi-lo)*0.5 / self.v_zoom_scale
+        pad = max(pad, 2e-7) # some very weird bug where too small scale stops rendering
+        mid = (hi+lo)*0.5
+        hi = mid+pad
+        lo = mid-pad
         self.set_range(x0, lo, x1, hi, pad=True)
 
     def set_range(self, x0, y0, x1, y1, pad=False):
@@ -817,9 +824,7 @@ class ScatterLabelItem(FinPlotItem):
 
 
 def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=True, yscale='linear'):
-    global windows, v_zoom_padding, last_ax
-    if yscale == 'log':
-        v_zoom_padding = 0.0
+    global windows, last_ax
     pg.setConfigOptions(foreground=foreground, background=background)
     win = FinWindow(title)
     windows.append(win)
@@ -832,7 +837,8 @@ def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=T
     axs = []
     prev_ax = None
     for n in range(rows):
-        viewbox = FinViewBox(win, init_steps=init_zoom_periods, yscale=yscale)
+        v_zoom_scale = 1 if yscale == 'log' else 0.97
+        viewbox = FinViewBox(win, init_steps=init_zoom_periods, yscale=yscale, v_zoom_scale=v_zoom_scale)
         ax = prev_ax = _add_timestamp_plot(win, prev_ax, viewbox=viewbox, index=n, yscale=yscale)
         _set_plot_x_axis_leader(ax)
         if n == 0:
@@ -1044,12 +1050,13 @@ def _loadwindata(win):
     try:
         f = os.path.expanduser('~/.finplot/'+win.title+'.ini')
         settings = [(k.strip(),literal_eval(v.strip())) for line in open(f) for k,d,v in [line.partition('=')] if v]
-        kvs = {k:v for k,v in settings}
-        for ax in win.ci.items:
-            if kvs['min_x'] >= ax.vb.datasrc.x.iloc[0] and kvs['max_x'] <= ax.vb.datasrc.x.iloc[-1]:
-                ax.vb.update_y_zoom(kvs['min_x'], kvs['max_x'])
     except:
-        pass
+        return
+    kvs = {k:v for k,v in settings}
+    for ax in win.ci.items:
+        p = ax.vb.datasrc.period
+        if kvs['min_x'] >= ax.vb.datasrc.x.iloc[0]-p and kvs['max_x'] <= ax.vb.datasrc.x.iloc[-1]+p:
+            ax.vb.update_y_zoom(kvs['min_x'], kvs['max_x'])
 
 
 def _savewindata(win):
@@ -1066,6 +1073,7 @@ def _savewindata(win):
             except: changed = True
             if changed:
                 open(f, 'wt').write(s)
+                ## print('%s saved' % win.title)
     except Exception as e:
         print('Error saving plot:', e)
 
