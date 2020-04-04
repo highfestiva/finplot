@@ -53,6 +53,7 @@ timers = [] # no gc
 sounds = {} # no gc
 plotdf2df = {} # for pandas df.plot
 epoch_period2 = 1e30
+epoch_offset = 0
 last_ax = None # always assume we want to plot in the last axis, unless explicitly specified
 viewrestore = False
 
@@ -128,7 +129,7 @@ class PandasDataSource:
         return t0
 
     def addcols(self, datasrc):
-        self.scale_cols += [c+len(self.df.columns)-1 for c in datasrc.scale_cols]
+        self.scale_cols += [c+len(self.df.columns)-datasrc.col_data_offset for c in datasrc.scale_cols]
         orig_col_data_cnt = len(self.df.columns)
         if _has_timecol(datasrc.df):
             timecol = self.df.columns[0]
@@ -262,6 +263,10 @@ class FinWindow(pg.GraphicsWindow):
         self.title = title
         super().__init__(title=title)
         self.centralWidget.installEventFilter(self)
+
+    def close(self):
+        _savewindata(self)
+        return super().close()
 
     def eventFilter(self, obj, ev):
         if ev.type()== QtCore.QEvent.WindowDeactivate:
@@ -864,7 +869,7 @@ def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6
     item.update_data = partial(_update_data, item)
     ax.addItem(item)
     # item.setZValue(20)
-    _pre_process_data(item)
+    _pre_process_data(item, True)
     return item
 
 
@@ -878,13 +883,13 @@ def volume_ocv(datasrc, candle_width=0.6, ax=None):
     item.update_data = partial(_update_data, item)
     ax.addItem(item)
     item.setZValue(-1)
-    _pre_process_data(item)
+    _pre_process_data(item, True)
     return item
 
 
 def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True):
     ax = _create_plot(ax=ax, maximize=False)
-    used_color = color if color else _get_color(ax, style)
+    used_color = _get_color(ax, style, color)
     datasrc = _create_datasrc(x, y)
     if not zoomscale:
         datasrc.scale_cols = []
@@ -908,9 +913,12 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
     item.datasrc = datasrc
     # check if no epsilon set yet
     if 0.99 < ax.significant_eps/significant_eps < 1.01:
-        ax.significant_decimals,ax.significant_eps = datasrc.calc_significant_decimals()
+        try:
+            ax.significant_decimals,ax.significant_eps = datasrc.calc_significant_decimals()
+        except:
+            pass # probably full av NaNs
     item.update_data = partial(_update_data, item)
-    _pre_process_data(item)
+    _pre_process_data(item, zoomscale)
     if ax.legend is not None:
         for _,label in ax.legend.items:
             label.setAttr('justify', 'left')
@@ -920,7 +928,7 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
 
 def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
     ax = _create_plot(ax=ax, maximize=False)
-    color = color if color else '#000000'
+    color = _get_color(ax, None, color) if color is not None else '#000000'
     datasrc = _create_datasrc(x, y, labels)
     datasrc.scale_cols = [] # don't use this for scaling
     _set_datasrc(ax, datasrc)
@@ -928,7 +936,7 @@ def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
     item.ax = ax
     item.update_data = partial(_update_data, item)
     ax.addItem(item)
-    _pre_process_data(item)
+    _pre_process_data(item, False)
     return item
 
 
@@ -1144,11 +1152,12 @@ def _set_datasrc(ax, datasrc):
     else:
         datasrc.update_init_x(viewbox.init_steps)
     # update period if this datasrc has higher resolution
-    global epoch_period2
+    global epoch_period2, epoch_offset
     if epoch_period2 > 1e10 or not datasrc.standalone:
         ep2 = datasrc.period / 2
         if ep2 < epoch_period2:
             epoch_period2 = ep2
+            epoch_offset = datasrc.x.iloc[0] % (ep2*2)
 
 
 def _has_timecol(df):
@@ -1176,11 +1185,12 @@ def _update_data(item, ds):
         ax.vb.update()
 
 
-def _pre_process_data(item):
-    item.ax.vb.y_max = np.nanmax(item.datasrc.y)
-    item.ax.vb.y_min = np.nanmin(item.datasrc.y)
-    if item.ax.vb.y_min <= 0:
-        item.ax.vb.y_positive = False
+def _pre_process_data(item, zoomscale):
+    if zoomscale:
+        item.ax.vb.y_max = np.nanmax(item.datasrc.y)
+        item.ax.vb.y_min = np.nanmin(item.datasrc.y)
+        if item.ax.vb.y_min <= 0:
+            item.ax.vb.y_positive = False
 
 
 def _set_plot_x_axis_leader(ax):
@@ -1281,11 +1291,16 @@ def _time_clicked(ax, inspector, evs):
     inspector(t, point.y())
 
 
-def _get_color(ax, style):
+def _get_color(ax, style, wanted_color):
+    if type(wanted_color) == str:
+        return wanted_color
+    index = wanted_color if type(wanted_color) == int else None
     if style is None or style=='-':
-        index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and not i.opts['symbol'] and not i.opts['handed_color']])
+        if index is None:
+            index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and not i.opts['symbol'] and not i.opts['handed_color']])
         return soft_colors[index%len(soft_colors)]
-    index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and i.opts['symbol'] and not i.opts['handed_color']])
+    if index is None:
+        index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and i.opts['symbol'] and not i.opts['handed_color']])
     return hard_colors[index%len(hard_colors)]
 
 
@@ -1335,7 +1350,7 @@ def _roihandle_move_snap(vb, orig_func, pos, modifiers=QtCore.Qt.KeyboardModifie
 
 def _clamp_xy(ax, x, y):
     if clamp_grid:
-        x -= fmod(x+epoch_period2, epoch_period2*2) - epoch_period2
+        x -= fmod(x-epoch_offset+epoch_period2, epoch_period2*2) - epoch_period2
         eps = ax.significant_eps
         y -= fmod(y+eps*0.5, eps) - eps*0.5
     return x, y
@@ -1379,12 +1394,8 @@ def _draw_line_extra_text(polyline, segment, pos0, pos1):
         if prev_text is not None and text.segment == segment:
             h0 = prev_text.segment.handles[0]['item']
             h1 = prev_text.segment.handles[1]['item']
-            if polyline.vb.y_positive:
-                prev_change = h1.pos().y() / h0.pos().y() - 1
-                this_change = pos1.y() / pos0.y() - 1
-            else:
-                prev_change = h1.pos().y() - h0.pos().y()
-                this_change = pos1.y() - pos0.y()
+            prev_change = h1.pos().y() - h0.pos().y()
+            this_change = pos1.y() - pos0.y()
             if not abs(prev_change) > 1e-8:
                 break
             change_part = abs(this_change / prev_change)
