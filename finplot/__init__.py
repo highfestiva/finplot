@@ -42,7 +42,7 @@ draw_done_color = '#555555'
 significant_decimals = 8
 significant_eps = 1e-8
 max_zoom_points = 20 # number of visible candles at maximum zoom
-top_graph_scale = 3
+top_graph_scale = 1.3
 clamp_grid = True
 lod_candles = 3000
 lod_labels = 700
@@ -86,7 +86,7 @@ class PandasDataSource:
             self.standalone = False
             self.col_data_offset = 0 # no. of preceeding columns for other plots and time column
         # setup data for joining data sources and zooming
-        self.scale_cols = [i for i in range(self.col_data_offset,len(self.df.columns)) if self.df[self.df.columns[i]].dtype!=object]
+        self.scale_cols = [i for i in range(self.col_data_offset,len(self.df.columns)) if self.df.iloc[:,i].dtype!=object]
         self.cache_hilo_query = ''
         self.cache_hilo_answer = None
         self.renames = {}
@@ -198,44 +198,25 @@ class PandasDataSource:
         lo = df[valcols].min().min()
         return t0,t1,hi,lo,len(df)
 
-    def bear_rows(self, colcnt, x0, x1, yscale):
-        df = self.df
-        timecol = df.columns[0]
-        opencol = df.columns[self.col_data_offset]
-        closecol = df.columns[self.col_data_offset+1]
-        in_timerange = (df[timecol]>=x0) & (df[timecol]<=x1)
-        is_down = df[opencol] > df[closecol] # open higher than close = goes down
-        df = df.loc[in_timerange&is_down]
-        return self._rows(df, colcnt, yscale=yscale)
-
-    def bull_rows(self, colcnt, x0, x1, yscale):
-        df = self.df
-        timecol = df.columns[0]
-        opencol = df.columns[self.col_data_offset]
-        closecol = df.columns[self.col_data_offset+1]
-        in_timerange = (df[timecol]>=x0) & (df[timecol]<=x1)
-        is_up = df[opencol] <= df[closecol] # open lower than close = goes up
-        df = df.loc[in_timerange&is_up]
-        return self._rows(df, colcnt, yscale=yscale)
-
-    def rows(self, colcnt, x0, x1, yscale):
+    def rows(self, colcnt, x0, x1, yscale, lod=True):
         df = self.df
         timecol = df.columns[0]
         in_timerange = (df[timecol]>=x0) & (df[timecol]<=x1)
         df = df.loc[in_timerange]
-        return self._rows(df, colcnt, yscale=yscale)
+        return self._rows(df, colcnt, yscale=yscale, lod=lod)
 
-    def _rows(self, df, colcnt, yscale):
-        if len(df) > lod_candles:
+    def _rows(self, df, colcnt, yscale, lod):
+        if lod and len(df) > lod_candles:
             df = df.iloc[::len(df)//lod_candles]
         colcnt -= 1 # time is always implied
-        cols = list(df.columns[self.col_data_offset:self.col_data_offset+colcnt])
-        cols = [df[c] for c in cols]
+        colidxs = [0] + list(range(self.col_data_offset, self.col_data_offset+colcnt))
+        dfr = df.iloc[:,colidxs]
         if yscale == 'log':
-            for i in range(len(cols)):
-                cols[i] = np.log10(cols[i])
-        cols = [df[df.columns[0]]] + cols
-        return zip(*cols)
+            dfr = dfr.copy()
+            for i in range(1, colcnt+1):
+                if dfr.iloc[:,i].dtype != object:
+                    dfr.iloc[:,i] = np.log10(dfr.iloc[:,i])
+        return dfr
 
     def __eq__(self, other):
         return id(self) == id(other) or id(self.df) == id(other.df)
@@ -442,9 +423,10 @@ class FinViewBox(pg.ViewBox):
         self.win = win
         self.yscale = yscale
         self.v_zoom_scale = v_zoom_scale
-        self.y_max = None
-        self.y_min = None
+        self.y_max = 1000
+        self.y_min = 0
         self.y_positive = True
+        self.y_zoom_offset = 0.5
         self.force_range_update = 0
         self.rois = []
         self.draw_line = None
@@ -458,9 +440,7 @@ class FinViewBox(pg.ViewBox):
         if not self.datasrc:
             return
         datasrc.update_init_x(self.init_steps)
-        x0,x1,hi,lo,cnt = self.datasrc.hilo(datasrc.init_x0, datasrc.init_x1)
-        if cnt >= max_zoom_points:
-            self.set_range(x0, lo, x1, hi, pad=True)
+        self.update_y_zoom(datasrc.init_x0, datasrc.init_x1)
 
     def wheelEvent(self, ev, axis=None):
         if ev.modifiers() == QtCore.Qt.ControlModifier:
@@ -570,8 +550,7 @@ class FinViewBox(pg.ViewBox):
             if is_dirty or abs(vr.left()-tr.left()) >= period or abs(vr.right()-tr.right()) >= period:
                 if is_dirty:
                     view.force_range_update -= 1
-                x0,x1,hi,lo,cnt = self.datasrc.hilo(vr.left(), vr.right())
-                self.set_range(vr.left(), lo, vr.right(), hi)
+                self.update_y_zoom(vr.left(), vr.right())
 
     def zoom_rect(self, vr, scale_fact, center):
         if not self.datasrc:
@@ -615,11 +594,11 @@ class FinViewBox(pg.ViewBox):
         x0,x1,hi,lo,cnt = self.datasrc.hilo(x0, x1)
         if cnt < max_zoom_points:
             return
-        pad = (hi-lo)*0.5 / self.v_zoom_scale
-        pad = max(pad, 2e-7) # some very weird bug where too small scale stops rendering
-        mid = (hi+lo)*0.5
-        hi = mid+pad
-        lo = mid-pad
+        rng = (hi-lo) / self.v_zoom_scale
+        rng = max(rng, 2e-7) # some very weird bug where too small scale stops rendering
+        base = (hi+lo)*self.y_zoom_offset
+        hi = base + rng*(1-self.y_zoom_offset)
+        lo = base - rng*self.y_zoom_offset
         self.set_range(x0, lo, x1, hi, pad=True)
 
     def set_range(self, x0, y0, x1, y1, pad=False):
@@ -673,15 +652,15 @@ class FinViewBox(pg.ViewBox):
 
 
 class FinPlotItem(pg.GraphicsObject):
-    def __init__(self, datasrc):
+    def __init__(self, ax, datasrc):
         super().__init__()
+        self.ax = ax
         self.datasrc = datasrc
         self.picture = QtGui.QPicture()
         self.painter = QtGui.QPainter()
         self.dirty = True
         # generate picture
         visibleRect = QtCore.QRectF(self.datasrc.init_x0, 0, self.datasrc.init_x1-self.datasrc.init_x0, 0)
-        self._generate_picture(visibleRect)
 
     def repaint(self):
         self.dirty = True
@@ -711,18 +690,24 @@ class FinPlotItem(pg.GraphicsObject):
 
 
 class CandlestickItem(FinPlotItem):
-    def __init__(self, ax, datasrc, draw_body=True, draw_shadow=True, candle_width=0.6):
-        self.ax = ax
-        self.bull_color = candle_bull_color
-        self.bull_frame_color = candle_bull_color
-        self.bull_body_color = hollow_brush_color
-        self.bear_color = candle_bear_color
-        self.bear_frame_color = candle_bear_color
-        self.bear_body_color = candle_bear_color
+    def __init__(self, ax, datasrc, draw_body, draw_shadow, candle_width, colorfunc):
+        self.colors = dict(bull_shadow      = candle_bull_color,
+                           bull_frame       = candle_bull_color,
+                           bull_body        = hollow_brush_color,
+                           bear_shadow      = candle_bear_color,
+                           bear_frame       = candle_bear_color,
+                           bear_body        = candle_bear_color,
+                           weak_bull_shadow = brighten(candle_bull_color, 1.2),
+                           weak_bull_frame  = brighten(candle_bull_color, 1.2),
+                           weak_bull_body   = brighten(candle_bull_color, 1.2),
+                           weak_bear_shadow = brighten(candle_bear_color, 1.5),
+                           weak_bear_frame  = brighten(candle_bear_color, 1.5),
+                           weak_bear_body   = brighten(candle_bear_color, 1.5))
         self.draw_body = draw_body
         self.draw_shadow = draw_shadow
         self.candle_width = candle_width
-        super().__init__(datasrc)
+        self.colorfunc = colorfunc
+        super().__init__(ax, datasrc)
 
     def generate_picture(self, boundingRect):
         w = self.datasrc.period * self.candle_width
@@ -730,69 +715,35 @@ class CandlestickItem(FinPlotItem):
         left,right = boundingRect.left(), boundingRect.right()
         p = self.painter
         p.begin(self.picture)
-        rows = list(self.datasrc.bear_rows(5, left, right, yscale=self.ax.vb.yscale))
-        if self.draw_shadow:
-            p.setPen(pg.mkPen(self.bear_color))
-            for t,open,close,high,low in rows:
-                if high > low:
-                    p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
-        if self.draw_body:
-            p.setPen(pg.mkPen(self.bear_frame_color))
-            p.setBrush(pg.mkBrush(self.bear_body_color))
-            for t,open,close,high,low in rows:
-                p.drawRect(QtCore.QRectF(t-w2, open, w, close-open))
-        rows = list(self.datasrc.bull_rows(5, left, right, yscale=self.ax.vb.yscale))
-        if self.draw_shadow:
-            p.setPen(pg.mkPen(self.bull_color))
-            for t,open,close,high,low in rows:
-                if high > low:
-                    p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
-        if self.draw_body:
-            p.setPen(pg.mkPen(self.bull_frame_color))
-            p.setBrush(pg.mkBrush(self.bull_body_color))
-            for t,open,close,high,low in rows:
-                p.drawRect(QtCore.QRectF(t-w2, open, w, close-open))
+        df = self.datasrc.rows(5, left, right, yscale=self.ax.vb.yscale)
+        for shadow,frame,body,df_rows in self.colorfunc(self, self.datasrc, df):
+            rows = df_rows.values
+            if self.draw_shadow:
+                p.setPen(pg.mkPen(shadow))
+                for t,open,close,high,low in rows:
+                    if high > low:
+                        p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
+            if self.draw_body:
+                p.setPen(pg.mkPen(frame))
+                p.setBrush(pg.mkBrush(body))
+                for t,open,close,high,low in rows:
+                    p.drawRect(QtCore.QRectF(t-w2, open, w, close-open))
         p.end()
 
-
-
-class VolumeItem(FinPlotItem):
-    def __init__(self, ax, datasrc, candle_width=0.6):
-        self.ax = ax
-        self.bull_color = volume_bull_color
-        self.bear_color = volume_bear_color
-        self.candle_width = candle_width
-        super().__init__(datasrc)
-
-    def generate_picture(self, boundingRect):
-        w = self.datasrc.period * self.candle_width
-        w2 = w * 0.5
-        left,right = boundingRect.left(), boundingRect.right()
-        p = self.painter
-        p.begin(self.picture)
-        p.setPen(pg.mkPen(self.bear_color))
-        p.setBrush(pg.mkBrush(self.bear_color))
-        for t,open,close,volume in self.datasrc.bear_rows(4, left, right, yscale=self.ax.vb.yscale):
-            p.drawRect(QtCore.QRectF(t-w2, 0, w, volume))
-        p.setPen(pg.mkPen(self.bull_color))
-        p.setBrush(pg.mkBrush(self.bull_color))
-        for t,open,close,volume in self.datasrc.bull_rows(4, left, right, yscale=self.ax.vb.yscale):
-            p.drawRect(QtCore.QRectF(t-w2, 0, w, volume))
-        p.end()
-
+    def rowcolors(self, prefix):
+        return [self.colors[prefix+'_shadow'], self.colors[prefix+'_frame'], self.colors[prefix+'_body']]
 
 
 class ScatterLabelItem(FinPlotItem):
-    def __init__(self, datasrc, color, anchor):
+    def __init__(self, ax, datasrc, color, anchor):
         self.color = color
         self.text_items = {}
         self.anchor = anchor
         self.show = False
-        super().__init__(datasrc)
+        super().__init__(ax, datasrc)
 
     def generate_picture(self, bounding_rect):
         rows = self.getrows(bounding_rect)
-        rows = [(t,y,txt) for t,y,txt in rows if txt]
         if len(rows) > lod_labels: # don't even generate when there's too many of them
             self.clear_items(list(self.text_items.keys()))
             return
@@ -821,7 +772,9 @@ class ScatterLabelItem(FinPlotItem):
 
     def getrows(self, bounding_rect):
         left,right = bounding_rect.left(), bounding_rect.right()
-        rows = [(t,y,txt) for t,y,txt in self.datasrc.rows(3, left, right, yscale='linear') if txt]
+        df = self.datasrc.rows(3, left, right, yscale=self.ax.vb.yscale, lod=False)
+        rows = df.dropna().values
+        rows = [(t,y,txt) for t,y,txt in rows if txt]
         return rows
 
     def boundingRect(self):
@@ -837,14 +790,16 @@ def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=T
         win.showMaximized()
     win.ci.setContentsMargins(0, 0, 0 ,0)
     win.ci.setSpacing(0)
-    # normally first graph is of higher significance, so enlarge
-    win.ci.layout.setRowStretchFactor(0, top_graph_scale)
     axs = []
     prev_ax = None
     for n in range(rows):
-        v_zoom_scale = 1 if yscale == 'log' else 0.97
-        viewbox = FinViewBox(win, init_steps=init_zoom_periods, yscale=yscale, v_zoom_scale=v_zoom_scale)
-        ax = prev_ax = _add_timestamp_plot(win, prev_ax, viewbox=viewbox, index=n, yscale=yscale)
+        # normally first graph is of higher significance, so enlarge
+        win.ci.layout.setRowStretchFactor(n, top_graph_scale*100 if n==0 else 100)
+        try: ysc = yscale[n]
+        except: ysc = yscale
+        v_zoom_scale = 1 if ysc == 'log' else 0.97
+        viewbox = FinViewBox(win, init_steps=init_zoom_periods, yscale=ysc, v_zoom_scale=v_zoom_scale)
+        ax = prev_ax = _add_timestamp_plot(win, prev_ax, viewbox=viewbox, index=n, yscale=ysc)
         _set_plot_x_axis_leader(ax)
         if n == 0:
             viewbox.setFocus()
@@ -858,14 +813,34 @@ def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=T
     return axs
 
 
-def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6, ax=None):
+def bullbear_colorfilter(item, datasrc, df):
+    opencol = df.columns[datasrc.col_data_offset]
+    closecol = df.columns[datasrc.col_data_offset+1]
+    is_up = df[opencol] <= df[closecol] # open lower than close = goes up
+    yield item.rowcolors('bull') + [df.loc[is_up, :]]
+    yield item.rowcolors('bear') + [df.loc[~is_up, :]]
+
+
+def strength_colorfilter(item, datasrc, df):
+    opencol = df.columns[datasrc.col_data_offset]
+    closecol = df.columns[datasrc.col_data_offset+1]
+    startcol = df.columns[datasrc.col_data_offset+2]
+    endcol = df.columns[datasrc.col_data_offset+3]
+    is_up = df[opencol] <= df[closecol] # open lower than close = goes up
+    is_strong = df[startcol] <= df[endcol]
+    yield item.rowcolors('bull') + [df.loc[is_up&is_strong, :]]
+    yield item.rowcolors('weak_bull') + [df.loc[is_up&(~is_strong), :]]
+    yield item.rowcolors('weak_bear') + [df.loc[(~is_up)&is_strong, :]]
+    yield item.rowcolors('bear') + [df.loc[(~is_up)&(~is_strong), :]]
+
+
+def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6, ax=None, colorfunc=bullbear_colorfilter):
     ax = _create_plot(ax=ax, maximize=False)
-    datasrc = _create_datasrc(datasrc)
+    datasrc = _create_datasrc(ax, datasrc)
     datasrc.scale_cols = [3,4] # only hi+lo scales
     _set_datasrc(ax, datasrc)
-    item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width)
+    item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width, colorfunc=colorfunc)
     ax.significant_decimals,ax.significant_eps = datasrc.calc_significant_decimals()
-    item.ax = ax
     item.update_data = partial(_update_data, item)
     ax.addItem(item)
     # item.setZValue(20)
@@ -873,13 +848,25 @@ def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6
     return item
 
 
-def volume_ocv(datasrc, candle_width=0.6, ax=None):
+def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=bullbear_colorfilter):
     ax = _create_plot(ax=ax, maximize=False)
-    datasrc = _create_datasrc(datasrc)
-    datasrc.scale_cols = [3] # only volume scales
+    datasrc = _create_datasrc(ax, datasrc)
+    if len(datasrc.df.columns) <= 4:
+        datasrc.df.insert(3, '_zero_', [0]*len(datasrc.df)) # base of candles is always zero
+    datasrc.df = datasrc.df.iloc[:,[0,3,4,1,2]] # re-arrange columns for rendering
+    datasrc.scale_cols = [2] # only volume scales Y-zoom
     _set_datasrc(ax, datasrc)
-    item = VolumeItem(ax=ax, datasrc=datasrc, candle_width=candle_width)
-    item.ax = ax
+    item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=True, draw_shadow=False, candle_width=candle_width, colorfunc=colorfunc)
+    item.colors['bull_body'] = item.colors['bull_frame']
+    if colorfunc == bullbear_colorfilter: # assume normal volume plot
+        item.colors['bull_frame'] = volume_bull_color
+        item.colors['bull_body']  = volume_bull_color
+        item.colors['bear_frame'] = volume_bear_color
+        item.colors['bear_body']  = volume_bear_color
+        ax.vb.y_zoom_offset = 0
+    else:
+        item.colors['weak_bull_frame'] = brighten(volume_bull_color, 1.2)
+        item.colors['weak_bull_body']  = brighten(volume_bull_color, 1.2)
     item.update_data = partial(_update_data, item)
     ax.addItem(item)
     item.setZValue(-1)
@@ -890,7 +877,7 @@ def volume_ocv(datasrc, candle_width=0.6, ax=None):
 def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True):
     ax = _create_plot(ax=ax, maximize=False)
     used_color = _get_color(ax, style, color)
-    datasrc = _create_datasrc(x, y)
+    datasrc = _create_datasrc(ax, x, y)
     if not zoomscale:
         datasrc.scale_cols = []
     _set_datasrc(ax, datasrc)
@@ -929,11 +916,10 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
 def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
     ax = _create_plot(ax=ax, maximize=False)
     color = _get_color(ax, None, color) if color is not None else '#000000'
-    datasrc = _create_datasrc(x, y, labels)
+    datasrc = _create_datasrc(ax, x, y, labels)
     datasrc.scale_cols = [] # don't use this for scaling
     _set_datasrc(ax, datasrc)
-    item = ScatterLabelItem(datasrc=datasrc, color=color, anchor=anchor)
-    item.ax = ax
+    item = ScatterLabelItem(ax=ax, datasrc=datasrc, color=color, anchor=anchor)
     item.update_data = partial(_update_data, item)
     ax.addItem(item)
     _pre_process_data(item, False)
@@ -1036,6 +1022,7 @@ def show():
     if viewrestore:
         for win in windows:
             _loadwindata(win)
+    _repaint_candles()
     if windows:
         QtGui.QApplication.instance().exec_()
         windows.clear()
@@ -1056,18 +1043,21 @@ def _loadwindata(win):
     try: os.mkdir(os.path.expanduser('~/.finplot'))
     except: pass
     try:
-        f = os.path.expanduser('~/.finplot/'+win.title+'.ini')
+        f = os.path.expanduser('~/.finplot/'+win.title.replace('/','-')+'.ini')
         settings = [(k.strip(),literal_eval(v.strip())) for line in open(f) for k,d,v in [line.partition('=')] if v]
     except:
         return
     kvs = {k:v for k,v in settings}
     for ax in win.ci.items:
-        p = ax.vb.datasrc.period
-        if kvs['min_x'] >= ax.vb.datasrc.x.iloc[0]-p and kvs['max_x'] <= ax.vb.datasrc.x.iloc[-1]+p:
-            ax.vb.update_y_zoom(kvs['min_x'], kvs['max_x'])
+        if ax.vb.datasrc:
+            p = ax.vb.datasrc.period
+            if kvs['min_x'] >= ax.vb.datasrc.x.iloc[0]-p and kvs['max_x'] <= ax.vb.datasrc.x.iloc[-1]+p:
+                ax.vb.update_y_zoom(kvs['min_x'], kvs['max_x'])
 
 
 def _savewindata(win):
+    if not viewrestore:
+        return
     try:
         min_x = int(1e100)
         max_x = int(-1e100)
@@ -1076,7 +1066,7 @@ def _savewindata(win):
             max_x = np.nanmax([max_x, ax.vb.targetRect().right()])
         if np.max(np.abs([min_x, max_x])) < 1e99:
             s = 'min_x = %s\nmax_x = %s\n' % (min_x, max_x)
-            f = os.path.expanduser('~/.finplot/'+win.title+'.ini')
+            f = os.path.expanduser('~/.finplot/'+win.title.replace('/','-')+'.ini')
             try: changed = open(f).read() != s
             except: changed = True
             if changed:
@@ -1123,18 +1113,30 @@ def _create_series(a):
     return a if isinstance(a, pd.Series) else pd.Series(a)
 
 
-def _create_datasrc(*args):
-    args = [a for a in args if a is not None]
-    if len(args) == 1 and type(args[0]) == PandasDataSource:
-        return args[0]
-    if len(args) == 1 and type(args[0]) in (list, tuple):
-        args = [np.array(args[0])]
-    if len(args) == 1 and type(args[0]) == np.ndarray:
-        args = [pd.DataFrame(args[0].T)]
-    if len(args) == 1 and type(args[0]) == pd.DataFrame:
-        return PandasDataSource(args[0])
-    args = [_create_series(a) for a in args]
-    return PandasDataSource(pd.concat(args, axis=1))
+def _create_datasrc(ax, *args):
+    def do_create(*args):
+        args = [a for a in args if a is not None]
+        if len(args) == 1 and type(args[0]) == PandasDataSource:
+            return args[0]
+        if len(args) == 1 and type(args[0]) in (list, tuple):
+            args = [np.array(args[0])]
+        if len(args) == 1 and type(args[0]) == np.ndarray:
+            args = [pd.DataFrame(args[0].T)]
+        if len(args) == 1 and type(args[0]) == pd.DataFrame:
+            return PandasDataSource(args[0])
+        args = [_create_series(a) for a in args]
+        return PandasDataSource(pd.concat(args, axis=1))
+    datasrc = do_create(*args)
+    # check if time column missing
+    if len(datasrc.df.columns) == 1:
+        # assume time data has already been added before
+        for a in ax.vb.win.ci.items:
+            if a.vb.datasrc and len(a.vb.datasrc.df.columns) >= 2:
+                col = a.vb.datasrc.df.columns[0]
+                datasrc.df.insert(0, col, a.vb.datasrc.df[col])
+                datasrc = PandasDataSource(datasrc.df)
+                break
+    return datasrc
 
 
 def _set_datasrc(ax, datasrc):
@@ -1165,7 +1167,7 @@ def _has_timecol(df):
 
 
 def _update_data(item, ds):
-    ds = _create_datasrc(ds)
+    ds = _create_datasrc(item.ax, ds)
     item.datasrc.update(ds)
     if isinstance(item, FinPlotItem):
         item.dirty = True
@@ -1180,7 +1182,7 @@ def _update_data(item, ds):
     if tr.right() >= x1-item.datasrc.period*5:
         for ax in item.ax.vb.win.ci.items:
             _,_,y0,y1,cnt = ax.vb.datasrc.hilo(x0, x1)
-            ax.vb.set_range(x0, y0, x1, y1, pad=False)
+            ax.vb.update_y_zoom(x0, y0, x1, y1, pad=False)
     for ax in item.ax.vb.win.ci.items:
         ax.vb.update()
 
@@ -1291,6 +1293,12 @@ def _time_clicked(ax, inspector, evs):
     inspector(t, point.y())
 
 
+def brighten(color, f):
+    if not color:
+        return color
+    return pg.mkColor(color).lighter(f*100)
+
+
 def _get_color(ax, style, wanted_color):
     if type(wanted_color) == str:
         return wanted_color
@@ -1349,10 +1357,14 @@ def _roihandle_move_snap(vb, orig_func, pos, modifiers=QtCore.Qt.KeyboardModifie
 
 
 def _clamp_xy(ax, x, y):
+    if ax.vb.yscale == 'log':
+        y = 10**y
     if clamp_grid:
         x -= fmod(x-epoch_offset+epoch_period2, epoch_period2*2) - epoch_period2
         eps = ax.significant_eps
         y -= fmod(y+eps*0.5, eps) - eps*0.5
+    if ax.vb.yscale == 'log':
+        y = np.log10(y)
     return x, y
 
 
