@@ -816,9 +816,17 @@ def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=T
     return axs
 
 
-def bullbear_colorfilter(item, datasrc, df):
+def price_colorfilter(item, datasrc, df):
     opencol = df.columns[datasrc.col_data_offset]
     closecol = df.columns[datasrc.col_data_offset+1]
+    is_up = df[opencol] <= df[closecol] # open lower than close = goes up
+    yield item.rowcolors('bull') + [df.loc[is_up, :]]
+    yield item.rowcolors('bear') + [df.loc[~is_up, :]]
+
+
+def volume_colorfilter(item, datasrc, df):
+    opencol = df.columns[datasrc.col_data_offset+2]
+    closecol = df.columns[datasrc.col_data_offset+3]
     is_up = df[opencol] <= df[closecol] # open lower than close = goes up
     yield item.rowcolors('bull') + [df.loc[is_up, :]]
     yield item.rowcolors('bear') + [df.loc[~is_up, :]]
@@ -837,7 +845,7 @@ def strength_colorfilter(item, datasrc, df):
     yield item.rowcolors('bear') + [df.loc[(~is_up)&(~is_strong), :]]
 
 
-def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6, ax=None, colorfunc=bullbear_colorfilter):
+def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6, ax=None, colorfunc=price_colorfilter):
     ax = _create_plot(ax=ax, maximize=False)
     datasrc = _create_datasrc(ax, datasrc)
     datasrc.scale_cols = [3,4] # only hi+lo scales
@@ -851,7 +859,7 @@ def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6
     return item
 
 
-def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=bullbear_colorfilter):
+def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter):
     ax = _create_plot(ax=ax, maximize=False)
     datasrc = _create_datasrc(ax, datasrc)
     if len(datasrc.df.columns) <= 4:
@@ -861,7 +869,7 @@ def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=bullbear_colorfilte
     _set_datasrc(ax, datasrc)
     item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=True, draw_shadow=False, candle_width=candle_width, colorfunc=colorfunc)
     item.colors['bull_body'] = item.colors['bull_frame']
-    if colorfunc == bullbear_colorfilter: # assume normal volume plot
+    if colorfunc == volume_colorfilter: # assume normal volume plot
         item.colors['bull_frame'] = volume_bull_color
         item.colors['bull_body']  = volume_bull_color
         item.colors['bear_frame'] = volume_bear_color
@@ -1190,8 +1198,7 @@ def _update_data(item, ds):
         ax.setLimits(xMin=x_min, xMax=x1)
     if tr.right() >= x1-item.datasrc.period*5:
         for ax in item.ax.vb.win.ci.items:
-            _,_,y0,y1,cnt = ax.vb.datasrc.hilo(x0, x1)
-            ax.vb.update_y_zoom(x0, y0, x1, y1, pad=False)
+            ax.vb.update_y_zoom(x0, x1)
     for ax in item.ax.vb.win.ci.items:
         ax.vb.update()
 
