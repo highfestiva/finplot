@@ -42,7 +42,7 @@ draw_done_color = '#555555'
 significant_decimals = 8
 significant_eps = 1e-8
 max_zoom_points = 20 # number of visible candles at maximum zoom
-top_graph_scale = 1.3
+top_graph_scale = 2
 clamp_grid = True
 lod_candles = 3000
 lod_labels = 700
@@ -319,8 +319,11 @@ class FinCrossHair:
                 xanchor = [1,2]
         self.xtext.setAnchor(xanchor)
         self.ytext.setAnchor(yanchor)
-        for info in self.infos:
-            rxtext,rytext = info(x,y,rxtext,rytext)
+        try:
+            for info in self.infos:
+                rxtext,rytext = info(self.ax,x,y,rxtext,rytext)
+        except Exception as e:
+            print(e)
         self.xtext.setText(rxtext)
         self.ytext.setText(rytext)
 
@@ -788,13 +791,13 @@ def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=T
     windows.append(win)
     if maximize:
         win.showMaximized()
+    # normally first graph is of higher significance, so enlarge
+    win.ci.layout.setRowStretchFactor(0, top_graph_scale)
     win.ci.setContentsMargins(0, 0, 0 ,0)
     win.ci.setSpacing(0)
     axs = []
     prev_ax = None
     for n in range(rows):
-        # normally first graph is of higher significance, so enlarge
-        win.ci.layout.setRowStretchFactor(n, top_graph_scale*100 if n==0 else 100)
         try: ysc = yscale[n]
         except: ysc = yscale
         v_zoom_scale = 1 if ysc == 'log' else 0.97
@@ -933,16 +936,19 @@ def dfplot(df, x=None, y=None, color=None, width=1, ax=None, style=None, legend=
     return plot(df[x], df[y], color=color, width=width, ax=ax, style=style, legend=legend, zoomscale=zoomscale)
 
 
-def set_y_range(ax, ymin, ymax):
+def set_y_range(ymin, ymax, ax=None):
+    ax = _create_plot(ax=ax, maximize=False)
     ax.setLimits(yMin=ymin, yMax=ymax)
 
 
-def set_yscale(ax, yscale='linear'):
+def set_yscale(yscale='linear', ax=None):
+    ax = _create_plot(ax=ax, maximize=False)
     ax.setLogMode(y=(yscale=='log'))
     ax.vb.yscale = yscale
 
 
-def add_band(ax, y0, y1, color=band_color):
+def add_band(y0, y1, color=band_color, ax=None):
+    ax = _create_plot(ax=ax, maximize=False)
     lr = pg.LinearRegionItem([y0,y1], orientation=pg.LinearRegionItem.Horizontal, brush=pg.mkBrush(color), movable=False)
     lr.lines[0].setPen(pg.mkPen(None))
     lr.lines[1].setPen(pg.mkPen(None))
@@ -995,10 +1001,11 @@ def set_time_inspector(inspector, ax=None):
     win.proxy_click = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_time_clicked, ax, inspector))
 
 
-def add_crosshair_info(ax, info):
+def add_crosshair_info(infofunc, ax=None):
     '''Callback when crosshair updated like so: info(x,y,xtext,ytext); the info()
        callback must return two values: xtext and ytext.'''
-    ax.crosshair.infos.append(info)
+    ax = _create_plot(ax=ax, maximize=False)
+    ax.crosshair.infos.append(infofunc)
 
 
 def timer_callback(update_func, seconds, single_shot=False):
@@ -1062,6 +1069,8 @@ def _savewindata(win):
         min_x = int(1e100)
         max_x = int(-1e100)
         for ax in win.ci.items:
+            if ax.vb.targetRect().left() < 1e4: # ignore the seventies
+                continue
             min_x = np.nanmin([min_x, ax.vb.targetRect().left()])
             max_x = np.nanmax([max_x, ax.vb.targetRect().right()])
         if np.max(np.abs([min_x, max_x])) < 1e99:
