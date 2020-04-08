@@ -1346,7 +1346,7 @@ def _epoch2local(t, strip_seconds=True):
 
 
 def _round_to_significant(rng, rngmax, x, significant_decimals, significant_eps):
-    is_highres = rng/significant_eps > 1e3 and (rngmax>1e5 or rngmax<1e-2)
+    is_highres = rng/significant_eps > 1e3 and (rngmax>1e7 or rngmax<1e-2)
     sd = significant_decimals
     if is_highres:
         exp10 = floor(log10(abs(x)))
