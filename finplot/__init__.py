@@ -291,6 +291,7 @@ class FinCrossHair:
         self.xtext.setPos(x, y)
         self.ytext.setPos(x, y)
         xtext = _epoch2local(x, clamp_grid)
+        linear_y = y
         if self.ax.vb.yscale == 'log':
             y = 10**y
         rng = self.ax.vb.y_max - self.ax.vb.y_min
@@ -300,7 +301,7 @@ class FinCrossHair:
         far_right = self.ax.viewRect().x() + self.ax.viewRect().width()*0.9
         far_bottom = self.ax.viewRect().y() + self.ax.viewRect().height()*0.1
         close2right = x > far_right
-        close2bottom = y < far_bottom
+        close2bottom = linear_y < far_bottom
         space = '      '
         if close2right:
             rxtext = xtext + space
@@ -817,26 +818,26 @@ def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=T
 
 
 def price_colorfilter(item, datasrc, df):
-    opencol = df.columns[datasrc.col_data_offset]
-    closecol = df.columns[datasrc.col_data_offset+1]
+    opencol = df.columns[1]
+    closecol = df.columns[2]
     is_up = df[opencol] <= df[closecol] # open lower than close = goes up
     yield item.rowcolors('bull') + [df.loc[is_up, :]]
     yield item.rowcolors('bear') + [df.loc[~is_up, :]]
 
 
 def volume_colorfilter(item, datasrc, df):
-    opencol = df.columns[datasrc.col_data_offset+2]
-    closecol = df.columns[datasrc.col_data_offset+3]
+    opencol = df.columns[2]
+    closecol = df.columns[3]
     is_up = df[opencol] <= df[closecol] # open lower than close = goes up
     yield item.rowcolors('bull') + [df.loc[is_up, :]]
     yield item.rowcolors('bear') + [df.loc[~is_up, :]]
 
 
 def strength_colorfilter(item, datasrc, df):
-    opencol = df.columns[datasrc.col_data_offset]
-    closecol = df.columns[datasrc.col_data_offset+1]
-    startcol = df.columns[datasrc.col_data_offset+2]
-    endcol = df.columns[datasrc.col_data_offset+3]
+    opencol = df.columns[1]
+    closecol = df.columns[2]
+    startcol = df.columns[3]
+    endcol = df.columns[4]
     is_up = df[opencol] <= df[closecol] # open lower than close = goes up
     is_strong = df[startcol] <= df[endcol]
     yield item.rowcolors('bull') + [df.loc[is_up&is_strong, :]]

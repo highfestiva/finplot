@@ -46,12 +46,13 @@ def update_plot():
         plots.append(fplt.plot(bollband_hi, color='#4e4ef1'))
         plots.append(fplt.plot(bollband_lo, color='#4e4ef1'))
         # redraw using bitmex colors
-        candlestick_plot.bull_color = '#388d53'
-        candlestick_plot.bull_frame_color = '#205536'
-        candlestick_plot.bull_body_color = '#52b370'
-        candlestick_plot.bear_color = '#d56161'
-        candlestick_plot.bear_frame_color = '#5c1a10'
-        candlestick_plot.bear_body_color = '#e8704f'
+        candlestick_plot.colors.update(dict(
+                bull_shadow = '#388d53',
+                bull_frame  = '#205536',
+                bull_body   = '#52b370',
+                bear_shadow = '#d56161',
+                bear_frame  = '#5c1a10',
+                bear_body   = '#e8704f'))
         candlestick_plot.repaint()
     else:
         plots[0].update_data(candlesticks)
