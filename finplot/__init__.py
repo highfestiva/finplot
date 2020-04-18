@@ -203,7 +203,8 @@ class PandasDataSource:
         timecol = df.columns[0]
         in_timerange = (df[timecol]>=x0) & (df[timecol]<=x1)
         df = df.loc[in_timerange]
-        return self._rows(df, colcnt, yscale=yscale, lod=lod)
+        origlen = len(df)
+        return self._rows(df, colcnt, yscale=yscale, lod=lod), origlen
 
     def _rows(self, df, colcnt, yscale, lod):
         if lod and len(df) > lod_candles:
@@ -719,7 +720,8 @@ class CandlestickItem(FinPlotItem):
         left,right = boundingRect.left(), boundingRect.right()
         p = self.painter
         p.begin(self.picture)
-        df = self.datasrc.rows(5, left, right, yscale=self.ax.vb.yscale)
+        df,origlen = self.datasrc.rows(5, left, right, yscale=self.ax.vb.yscale)
+        drawing_many_shadows = self.draw_shadow and origlen > lod_candles*2//3
         for shadow,frame,body,df_rows in self.colorfunc(self, self.datasrc, df):
             rows = df_rows.values
             if self.draw_shadow:
@@ -727,7 +729,7 @@ class CandlestickItem(FinPlotItem):
                 for t,open,close,high,low in rows:
                     if high > low:
                         p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
-            if self.draw_body:
+            if self.draw_body and not drawing_many_shadows: # settle with only drawing shadows if too much detail
                 p.setPen(pg.mkPen(frame))
                 p.setBrush(pg.mkBrush(body))
                 for t,open,close,high,low in rows:
@@ -776,7 +778,7 @@ class ScatterLabelItem(FinPlotItem):
 
     def getrows(self, bounding_rect):
         left,right = bounding_rect.left(), bounding_rect.right()
-        df = self.datasrc.rows(3, left, right, yscale=self.ax.vb.yscale, lod=False)
+        df,_ = self.datasrc.rows(3, left, right, yscale=self.ax.vb.yscale, lod=False)
         rows = df.dropna().values
         rows = [(t,y,txt) for t,y,txt in rows if txt]
         return rows
