@@ -59,7 +59,7 @@ fplt.plot(df['time'], df['marker'], ax=ax, color='#000', style='v', legend='dumb
 
 # draw some random crap on our second plot
 fplt.plot(df['time'], np.random.normal(size=len(df)), ax=ax2, color='#927', legend='stuff')
-fplt.set_y_range(ax2, -1.4, +1.7) # fix y-axis range
+fplt.set_y_range(-1.4, +3.7, ax=ax2) # hard-code y-axis range limitation
 
 # finally a volume bar chart in our third plot
 volumes = df[['time','open','close','volume']]

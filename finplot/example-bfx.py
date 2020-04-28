@@ -52,7 +52,7 @@ def update():
 
 
 plots = []
-fplt.create_plot('Realtime Bitcoin/Dollar 1m (BitFinex)', init_zoom_periods=100, maximize=False)
+fplt.create_plot('Realtime Bitcoin/Dollar 1m TD Sequential (BitFinex REST)', init_zoom_periods=100, maximize=False)
 update()
 fplt.timer_callback(update, 5.0) # update (using synchronous rest call) every N seconds
 

@@ -52,7 +52,7 @@ def plot_ema(df, ax):
     fplt.plot(df.time, df.close.ewm(span=9).mean(), ax=ax, legend='EMA')
 
 
-def plot_heikin_achi(df, ax):
+def plot_heikin_ashi(df, ax):
     df['h_close'] = (df.open+df.close+df.high+df.low) * 0.25
     df['h_open'] = (df.open.shift()+df.close.shift()) * 0.5
     df['h_high'] = df[['high','h_open','h_close']].max(axis=1)
@@ -61,7 +61,7 @@ def plot_heikin_achi(df, ax):
     fplt.candlestick_ochl(candles, ax=ax)
 
 
-def plot_heikin_achi_volume(df, ax):
+def plot_heikin_ashi_volume(df, ax):
     volume = df['time h_open h_close volume'.split()]
     fplt.volume_ocv(volume, ax=ax)
 
@@ -94,6 +94,8 @@ def plot_rsi(df, ax):
     rs = gains / losses
     df['rsi'] = pd.Series(100 - (100/(1+rs)))
     fplt.plot(df.time, df.rsi, ax=ax, legend='RSI')
+    fplt.set_y_range(0, 100, ax=ax)
+    fplt.add_band(30, 70, ax=ax)
 
 
 def plot_vma(df, ax):
@@ -103,15 +105,15 @@ def plot_vma(df, ax):
 symbol = 'XBTUSD'
 df = download_price_history(symbol=symbol)
 
-ax,axv,ax2,ax3,ax4 = fplt.create_plot('BitMEX %s price history' % symbol, rows=5)
+ax,axv,ax2,ax3,ax4 = fplt.create_plot('BitMEX %s heikin-ashi price history' % symbol, rows=5)
 
 # price chart
-plot_heikin_achi(df, ax)
+plot_heikin_ashi(df, ax)
 plot_bollinger_bands(df, ax)
 plot_ema(df, ax)
 
 # volume chart
-plot_heikin_achi_volume(df, axv)
+plot_heikin_ashi_volume(df, axv)
 plot_vma(df, ax=axv)
 
 # some more charts

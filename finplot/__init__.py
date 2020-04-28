@@ -52,19 +52,23 @@ windows = [] # no gc
 timers = [] # no gc
 sounds = {} # no gc
 plotdf2df = {} # for pandas df.plot
-epoch_period2 = 1e30
-epoch_offset = 0
+epoch_period = 1e30
 last_ax = None # always assume we want to plot in the last axis, unless explicitly specified
 viewrestore = False
 
 
 
+lerp = lambda t,a,b: t*b+(1-t)*a
+
+
+
 class EpochAxisItem(pg.AxisItem):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, vb, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.vb = vb
 
     def tickStrings(self, values, scale, spacing):
-        return [_epoch2local(value) for value in values]
+        return [_epoch2local(self.vb.datasrc, value) for value in values]
 
 
 
@@ -94,7 +98,11 @@ class PandasDataSource:
     @property
     def period(self):
         timecol = self.df.columns[0]
-        return self.df[timecol].iloc[-1] - self.df[timecol].iloc[-2]
+        return self.df[timecol].diff().median()
+
+    @property
+    def index(self):
+        return self.df.index
 
     @property
     def x(self):
@@ -121,12 +129,11 @@ class PandasDataSource:
         return decimals, smallest_diff
 
     def update_init_x(self, init_steps):
-        self.init_x0 = self.get_time(offset_from_end=init_steps, period=-0.5)
-        self.init_x1 = self.get_time(offset_from_end=0, period=+0.5)
+        self.init_x0 = max(len(self.df)-init_steps, 0) - 0.5
+        self.init_x1 = len(self.df) - 0.5
 
-    def closest_time(self, t):
-        t0,_,_,_,_ = self._hilo(t, t+self.period)
-        return t0
+    def closest_time(self, x):
+        return self.df.loc[int(x), 0]
 
     def addcols(self, datasrc):
         self.scale_cols += [c+len(self.df.columns)-datasrc.col_data_offset for c in datasrc.scale_cols]
@@ -151,6 +158,8 @@ class PandasDataSource:
         if _has_timecol(datasrc.df):
             self.df.reset_index(inplace=True)
         datasrc.df = self.df # they are the same now
+        datasrc.init_x0 = self.init_x0
+        datasrc.init_x1 = self.init_x1
         datasrc.col_data_offset = orig_col_data_cnt
         self.cache_hilo_query = ''
         self.cache_hilo_answer = None
@@ -166,31 +175,22 @@ class PandasDataSource:
                 data[col] = df[col]
         data = data.reset_index()
         self.df = data[orig_cols]
-
-    def get_time(self, offset_from_end=0, period=0):
-        '''Return timestamp of offset *from end*.'''
-        if offset_from_end >= len(self.df):
-            offset_from_end = len(self.df)-1
-        timecol = self.df.columns[0]
-        t = self.df[timecol].iloc[-1-offset_from_end]
-        if period:
-            t += period * self.period
-        return t
+        self.init_x1 = len(self.df) - 0.5
 
     def hilo(self, x0, x1):
         '''Return five values in time range: t0, t1, highest, lowest, number of rows.'''
-        query = '%.9g,%.9g' % (x0,x1)
+        x0,x1 = int(x0),int(x1)
+        query = '%i,%i' % (x0,x1)
         if query != self.cache_hilo_query:
             self.cache_hilo_query = query
             self.cache_hilo_answer = self._hilo(x0, x1)
         return self.cache_hilo_answer
 
     def _hilo(self, x0, x1):
-        df = self.df
-        timecol = df.columns[0]
-        df = df.loc[((df[timecol]>=x0)&(df[timecol]<=x1)), :]
+        df = self.df.loc[x0:x1, :]
         if not len(df):
             return 0,0,0,0,0
+        timecol = df.columns[0]
         t0 = df[timecol].iloc[0]
         t1 = df[timecol].iloc[-1]
         valcols = df.columns[self.scale_cols]
@@ -199,10 +199,7 @@ class PandasDataSource:
         return t0,t1,hi,lo,len(df)
 
     def rows(self, colcnt, x0, x1, yscale, lod=True):
-        df = self.df
-        timecol = df.columns[0]
-        in_timerange = (df[timecol]>=x0) & (df[timecol]<=x1)
-        df = df.loc[in_timerange]
+        df = self.df.loc[x0:x1, :]
         origlen = len(df)
         return self._rows(df, colcnt, yscale=yscale, lod=lod), origlen
 
@@ -291,7 +288,7 @@ class FinCrossHair:
         self.hline.setPos(y)
         self.xtext.setPos(x, y)
         self.ytext.setPos(x, y)
-        xtext = _epoch2local(x, clamp_grid)
+        xtext = _epoch2local(self.ax.vb.datasrc, x, clamp_grid)
         linear_y = y
         if self.ax.vb.yscale == 'log':
             y = 10**y
@@ -428,6 +425,7 @@ class FinViewBox(pg.ViewBox):
         self.win = win
         self.yscale = yscale
         self.v_zoom_scale = v_zoom_scale
+        self.v_autozoom = True
         self.y_max = 1000
         self.y_min = 0
         self.y_positive = True
@@ -550,9 +548,8 @@ class FinViewBox(pg.ViewBox):
         if view:
             tr = self.targetRect()
             vr = view.targetRect()
-            period = self.datasrc.period
             is_dirty = view.force_range_update > 0
-            if is_dirty or abs(vr.left()-tr.left()) >= period or abs(vr.right()-tr.right()) >= period:
+            if is_dirty or abs(vr.left()-tr.left()) >= 1 or abs(vr.right()-tr.right()) >= 1:
                 if is_dirty:
                     view.force_range_update -= 1
                 self.update_y_zoom(vr.left(), vr.right())
@@ -569,15 +566,14 @@ class FinViewBox(pg.ViewBox):
             steps = int(percent/100*self.targetRect().width())
         tr = self.targetRect()
         x1 = tr.right() + steps
-        xarr = _create_series(self.datasrc.x)
-        startx = xarr.iloc[0]
-        endx = xarr.iloc[-1]
+        startx = -0.5
+        endx = len(self.datasrc.x) - 0.5
         if x1 > endx:
             x1 = endx
-        x0 = x1 - self.targetRect().width() + 1
+        x0 = x1 - tr.width()
         if x0 < startx:
             x0 = startx
-            x1 = x0 + self.targetRect().width() - 1
+            x1 = x0 + tr.width()
         self.update_y_zoom(x0, x1)
 
     def refresh_all_y_zoom(self):
@@ -596,22 +592,39 @@ class FinViewBox(pg.ViewBox):
             tr = self.targetRect()
             x0 = tr.left()
             x1 = tr.right()
-        x0,x1,hi,lo,cnt = self.datasrc.hilo(x0, x1)
+        # make edges rigid
+        xl = max(round(x0-0.5)+0.5, -0.5)
+        xr = min(round(x1-0.5)+0.5, len(self.datasrc.df)-0.5)
+        dxl = xl-x0
+        dxr = xr-x1
+        if dxl > 0:
+            x1 += dxl
+        if dxr < 0:
+            x0 += dxr
+        x0 = max(round(x0-0.5)+0.5, -0.5)
+        x1 = min(round(x1-0.5)+0.5, len(self.datasrc.df)-0.5)
+        # fetch hi-lo and set range
+        t0,t1,hi,lo,cnt = self.datasrc.hilo(x0, x1)
         if cnt < max_zoom_points:
             return
+        if not self.v_autozoom:
+            tr = self.viewRect()
+            hi = tr.bottom()
+            lo = tr.top()
         rng = (hi-lo) / self.v_zoom_scale
         rng = max(rng, 2e-7) # some very weird bug where too small scale stops rendering
         base = (hi+lo)*self.y_zoom_offset
         hi = base + rng*(1-self.y_zoom_offset)
         lo = base - rng*self.y_zoom_offset
-        self.set_range(x0, lo, x1, hi, pad=True)
+        self.set_range(x0, lo, x1, hi)
 
-    def set_range(self, x0, y0, x1, y1, pad=False):
+    def set_range(self, x0, y0, x1, y1):
+        if x0 is None or x1 is None:
+            tr = self.targetRect()
+            x0 = tr.left()
+            x1 = tr.right()
         if np.isnan(y0) or np.isnan(y1):
             return
-        if pad:
-            x0 -= self.datasrc.period*0.5
-            x1 += self.datasrc.period*0.5
         if self.yscale == 'log':
             y0 = np.log10(y0) if y0 > 0 else -1
             y1 = np.log10(y1) if y1 > 0 else -1
@@ -664,8 +677,6 @@ class FinPlotItem(pg.GraphicsObject):
         self.picture = QtGui.QPicture()
         self.painter = QtGui.QPainter()
         self.dirty = True
-        # generate picture
-        visibleRect = QtCore.QRectF(self.datasrc.init_x0, 0, self.datasrc.init_x1-self.datasrc.init_x0, 0)
 
     def repaint(self):
         self.dirty = True
@@ -715,7 +726,7 @@ class CandlestickItem(FinPlotItem):
         super().__init__(ax, datasrc)
 
     def generate_picture(self, boundingRect):
-        w = self.datasrc.period * self.candle_width
+        w = self.candle_width
         w2 = w * 0.5
         left,right = boundingRect.left(), boundingRect.right()
         p = self.painter
@@ -723,17 +734,18 @@ class CandlestickItem(FinPlotItem):
         df,origlen = self.datasrc.rows(5, left, right, yscale=self.ax.vb.yscale)
         drawing_many_shadows = self.draw_shadow and origlen > lod_candles*2//3
         for shadow,frame,body,df_rows in self.colorfunc(self, self.datasrc, df):
+            idxs = df_rows.index
             rows = df_rows.values
             if self.draw_shadow:
                 p.setPen(pg.mkPen(shadow))
-                for t,open,close,high,low in rows:
+                for x,(t,open,close,high,low) in zip(idxs, rows):
                     if high > low:
-                        p.drawLine(QtCore.QPointF(t, low), QtCore.QPointF(t, high))
+                        p.drawLine(QtCore.QPointF(x, low), QtCore.QPointF(x, high))
             if self.draw_body and not drawing_many_shadows: # settle with only drawing shadows if too much detail
                 p.setPen(pg.mkPen(frame))
                 p.setBrush(pg.mkBrush(body))
-                for t,open,close,high,low in rows:
-                    p.drawRect(QtCore.QRectF(t-w2, open, w, close-open))
+                for x,(t,open,close,high,low) in zip(idxs, rows):
+                    p.drawRect(QtCore.QRectF(x-w2, open, w, close-open))
         p.end()
 
     def rowcolors(self, prefix):
@@ -755,16 +767,17 @@ class ScatterLabelItem(FinPlotItem):
             return
         drops = set(self.text_items.keys())
         created = 0
-        for t,y,txt in rows:
+        for x,t,y,txt in rows:
             txt = str(txt)
             key = '%s:%.8f' % (t, y)
             if key in self.text_items:
                 item = self.text_items[key]
                 item.setText(txt)
+                item.setPos(x, y)
                 drops.remove(key)
             else:
                 self.text_items[key] = item = pg.TextItem(txt, color=self.color, anchor=self.anchor)
-                item.setPos(t, y)
+                item.setPos(x, y)
                 item.setParentItem(self)
                 created += 1
         if created > 0 or self.dirty: # only reduce cache if we've added some new or updated
@@ -779,8 +792,10 @@ class ScatterLabelItem(FinPlotItem):
     def getrows(self, bounding_rect):
         left,right = bounding_rect.left(), bounding_rect.right()
         df,_ = self.datasrc.rows(3, left, right, yscale=self.ax.vb.yscale, lod=False)
-        rows = df.dropna().values
-        rows = [(t,y,txt) for t,y,txt in rows if txt]
+        rows = df.dropna()
+        idxs = rows.index
+        rows = rows.values
+        rows = [(i,t,y,txt) for i,(t,y,txt) in zip(idxs, rows) if txt]
         return rows
 
     def boundingRect(self):
@@ -828,8 +843,8 @@ def price_colorfilter(item, datasrc, df):
 
 
 def volume_colorfilter(item, datasrc, df):
-    opencol = df.columns[2]
-    closecol = df.columns[3]
+    opencol = df.columns[3]
+    closecol = df.columns[4]
     is_up = df[opencol] <= df[closecol] # open lower than close = goes up
     yield item.rowcolors('bull') + [df.loc[is_up, :]]
     yield item.rowcolors('bear') + [df.loc[~is_up, :]]
@@ -900,10 +915,11 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
         ax.legend.setParentItem(ax.vb)
     if style is None or style=='-':
         connect_dots = 'finite' # same as matplotlib; use datasrc.standalone=True if you want to keep separate intervals on a plot
-        item = ax.plot(datasrc.x, datasrc.y, pen=pg.mkPen(used_color, width=width), name=legend, connect=connect_dots)
+        item = ax.plot(datasrc.index, datasrc.y, pen=pg.mkPen(used_color, width=width), name=legend, connect=connect_dots)
     else:
         symbol = {'v':'t', '^':'t1', '>':'t2', '<':'t3'}.get(style, style) # translate some similar styles
-        item = ax.plot(datasrc.x, datasrc.y, pen=None, symbol=symbol, symbolPen=None, symbolSize=10, symbolBrush=pg.mkBrush(used_color), name=legend)
+        ser = datasrc.y.loc[datasrc.y.abs()>=0]
+        item = ax.plot(ser.index, ser.values, pen=None, symbol=symbol, symbolPen=None, symbolSize=10, symbolBrush=pg.mkBrush(used_color), name=legend)
         item.scatter._dopaint = item.scatter.paint
         item.scatter.paint = partial(_paint_scatter, item.scatter)
         # optimize (when having large number of points) by ignoring scatter click detection
@@ -950,6 +966,8 @@ def dfplot(df, x=None, y=None, color=None, width=1, ax=None, style=None, legend=
 def set_y_range(ymin, ymax, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
     ax.setLimits(yMin=ymin, yMax=ymax)
+    ax.vb.v_autozoom = False
+    ax.vb.set_range(None, ymin, None, ymax)
 
 
 def set_yscale(yscale='linear', ax=None):
@@ -969,7 +987,7 @@ def add_band(y0, y1, color=band_color, ax=None):
 
 def add_line(p0, p1, color=draw_line_color, interactive=False, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
-    x_pts = _pdtime2epoch(pd.Series([p0[0], p1[0]]))
+    x_pts = _pdtime2index(ax, pd.Series([p0[0], p1[0]]))
     pts = [(x_pts[0], p0[1]), (x_pts[1], p1[1])]
     if interactive:
         line = FinPolyLine(ax.vb, pts, closed=False, pen=pg.mkPen(color), movable=False)
@@ -994,7 +1012,7 @@ def remove_line(line):
 def add_text(pos, s, color=draw_line_color, anchor=(0,0), ax=None):
     ax = _create_plot(ax=ax, maximize=False)
     text = pg.TextItem(s, color=color, anchor=anchor)
-    text.setPos(_pdtime2epoch(pd.Series([pos[0]]))[0], pos[1])
+    text.setPos(_pdtime2index(ax, pd.Series([pos[0]]))[0], pos[1])
     text.setZValue(50)
     text.ax = ax
     ax.addItem(text, ignoreBounds=True)
@@ -1067,10 +1085,12 @@ def _loadwindata(win):
         return
     kvs = {k:v for k,v in settings}
     for ax in win.ci.items:
-        if ax.vb.datasrc:
-            p = ax.vb.datasrc.period
-            if kvs['min_x'] >= ax.vb.datasrc.x.iloc[0]-p and kvs['max_x'] <= ax.vb.datasrc.x.iloc[-1]+p:
-                ax.vb.update_y_zoom(kvs['min_x'], kvs['max_x'])
+        ds = ax.vb.datasrc
+        if ds:
+            period = ds.period
+            if kvs['min_x'] >= ds.x.iloc[0]-period and kvs['max_x'] <= ds.x.iloc[-1]+period:
+                x0,x1 = ds.x.loc[ds.x>=kvs['min_x']].index[0], ds.x.loc[ds.x<=kvs['max_x']].index[-1]
+                ax.vb.update_y_zoom(x0, x1)
 
 
 def _savewindata(win):
@@ -1080,10 +1100,11 @@ def _savewindata(win):
         min_x = int(1e100)
         max_x = int(-1e100)
         for ax in win.ci.items:
-            if ax.vb.targetRect().left() < 1e4: # ignore the seventies
+            if ax.vb.targetRect().right() < 4: # ignore empty plots
                 continue
-            min_x = np.nanmin([min_x, ax.vb.targetRect().left()])
-            max_x = np.nanmax([max_x, ax.vb.targetRect().right()])
+            t0,t1,_,_,_ = ax.vb.datasrc.hilo(ax.vb.targetRect().left(), ax.vb.targetRect().right())
+            min_x = np.nanmin([min_x, t0])
+            max_x = np.nanmax([max_x, t1])
         if np.max(np.abs([min_x, max_x])) < 1e99:
             s = 'min_x = %s\nmax_x = %s\n' % (min_x, max_x)
             f = os.path.expanduser('~/.finplot/'+win.title.replace('/','-')+'.ini')
@@ -1108,7 +1129,7 @@ def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
     if prev_ax is not None:
         prev_ax.hideAxis('bottom') # hide the whole previous axis
         win.nextRow()
-    ax = pg.PlotItem(viewBox=viewbox, axisItems={'bottom': EpochAxisItem(orientation='bottom')}, name='plot-%i'%index)
+    ax = pg.PlotItem(viewBox=viewbox, axisItems={'bottom': EpochAxisItem(vb=viewbox, orientation='bottom')}, name='plot-%i'%index)
     ax.axes['left']['item'].textWidth = y_label_width # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
     ax.axes['left']['item'].setStyle(tickLength=-5) # some bug, totally unexplicable (why setting the default value again would fix repaint width as axis scale down)
     ax.axes['left']['item'].setZValue(30) # put axis in front instead of behind data
@@ -1169,17 +1190,13 @@ def _set_datasrc(ax, datasrc):
             viewbox.datasrc.addcols(datasrc)
             _set_x_limits(ax, datasrc)
             viewbox.set_datasrc(viewbox.datasrc) # update zoom
-            datasrc.init_x0 = viewbox.datasrc.init_x0
-            datasrc.init_x1 = viewbox.datasrc.init_x1
     else:
         datasrc.update_init_x(viewbox.init_steps)
     # update period if this datasrc has higher resolution
-    global epoch_period2, epoch_offset
-    if epoch_period2 > 1e10 or not datasrc.standalone:
-        ep2 = datasrc.period / 2
-        if ep2 < epoch_period2:
-            epoch_period2 = ep2
-            epoch_offset = datasrc.x.iloc[0] % (ep2*2)
+    global epoch_period
+    if epoch_period > 1e10 or not datasrc.standalone:
+        ep = datasrc.period
+        epoch_period = ep if ep < epoch_period else epoch_period
 
 
 def _has_timecol(df):
@@ -1192,14 +1209,14 @@ def _update_data(item, ds):
     if isinstance(item, FinPlotItem):
         item.dirty = True
     else:
-        item.setData(item.datasrc.x, item.datasrc.y)
+        item.setData(item.datasrc.index, item.datasrc.y)
     x_min,x1 = _set_x_limits(item.ax, item.datasrc)
     # scroll all plots if we're at the far right
     tr = item.ax.vb.targetRect()
     x0 = x1 - tr.width()
     for ax in item.ax.vb.win.ci.items:
         ax.setLimits(xMin=x_min, xMax=x1)
-    if tr.right() >= x1-item.datasrc.period*5:
+    if tr.right() >= x1-5:
         for ax in item.ax.vb.win.ci.items:
             ax.vb.update_y_zoom(x0, x1)
     for ax in item.ax.vb.win.ci.items:
@@ -1225,10 +1242,9 @@ def _set_plot_x_axis_leader(ax):
 
 
 def _set_x_limits(ax, datasrc):
-    x0 = datasrc.get_time(1e20, period=-0.5)
-    x1 = datasrc.get_time(0, period=+0.5)
-    ax.setLimits(xMin=x0, xMax=x1)
-    return x0, x1
+    x0 = -0.5
+    ax.setLimits(xMin=x0, xMax=datasrc.init_x1)
+    return x0, datasrc.init_x1
 
 
 def _repaint_candles():
@@ -1307,7 +1323,7 @@ def _time_clicked(ax, inspector, evs):
         return
     pos = evs[-1].scenePos()
     point = ax.vb.mapSceneToView(pos)
-    t = point.x() - epoch_period2
+    t = point.x() - 0.5
     t = ax.vb.datasrc.closest_time(t)
     inspector(t, point.y())
 
@@ -1340,18 +1356,40 @@ def _pdtime2epoch(t):
     return t
 
 
-def _epoch2local(t, strip_seconds=True):
+def _pdtime2index(ax, ts):
+    if isinstance(ts.iloc[0], pd.Timestamp):
+        ts = ts.astype('int64') // int(1e9)
+    elif np.nanmax(ts.values) > 1e10: # handle ms epochs
+        ts = ts.astype('float64') / 1e3
+    r = []
+    for t in ts:
+        xs = ax.vb.datasrc.x
+        i1 = xs.loc[xs>t].index[0]
+        i0 = i1-1
+        t0,t1 = xs.loc[i0], xs.loc[i1]
+        dt = (t-t0) / (t1-t0)
+        r.append(lerp(dt, i0, i1))
+    return r
+
+
+def _epoch2local(datasrc, x, strip_seconds=True):
     try:
-        s = datetime.fromtimestamp(t).isoformat().replace('T',' ')
-        return s.rpartition(':' if strip_seconds else '.')[0]
+        x += 0.5
+        t,_,_,_,cnt = datasrc.hilo(x, x)
+        if cnt:
+            s = datetime.fromtimestamp(t).isoformat().replace('T',' ')
+            if epoch_period >= 24*60*60 and strip_seconds:
+                return s.partition(' ')[0] # might as well strip time as well
+            return s.rpartition(':' if strip_seconds or '.' not in s else '.')[0]
     except:
-        return ''
+        pass
+    return ''
 
 
 def _round_to_significant(rng, rngmax, x, significant_decimals, significant_eps):
-    is_highres = rng/significant_eps > 1e3 and (rngmax>1e7 or rngmax<1e-2)
+    is_highres = rng/significant_eps > 1e2 and (rngmax>1e7 or rngmax<1e-2)
     sd = significant_decimals
-    if is_highres:
+    if is_highres and abs(x)>0:
         exp10 = floor(log10(abs(x)))
         x = x / (10**exp10)
         sd = min(5, sd+int(log10(rngmax)))
@@ -1379,7 +1417,7 @@ def _clamp_xy(ax, x, y):
     if ax.vb.yscale == 'log':
         y = 10**y
     if clamp_grid:
-        x -= fmod(x-epoch_offset+epoch_period2, epoch_period2*2) - epoch_period2
+        x = round(x)
         eps = ax.significant_eps
         y -= fmod(y+eps*0.5, eps) - eps*0.5
     if ax.vb.yscale == 'log':
@@ -1396,7 +1434,7 @@ def _clamp_point(ax, p):
 
 def _draw_line_segment_text(polyline, segment, pos0, pos1):
     diff = pos1 - pos0
-    mins = int(abs(diff.x()) / 60)
+    mins = int(abs(diff.x()*epoch_period) // 60)
     hours = mins//60
     mins = mins%60
     if hours < 24:
@@ -1405,6 +1443,8 @@ def _draw_line_segment_text(polyline, segment, pos0, pos1):
         days = hours // 24
         hours %= 24
         ts = '%id %0.2i:%0.2i' % (days, hours, mins)
+        if ts.endswith(' 00:00'):
+            ts = ts.partition(' ')[0]
     if polyline.vb.y_positive:
         y0,y1 = (10**pos0.y(),10**pos1.y()) if polyline.vb.yscale == 'log' else (pos0.y(),pos1.y())
         value = '%+.2f %%' % (100 * y1 / y0 - 100)
