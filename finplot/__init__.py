@@ -14,7 +14,7 @@ from ast import literal_eval
 from datetime import datetime
 from decimal import Decimal
 from functools import partial, partialmethod
-from math import log10, floor, fmod
+from math import floor, fmod
 import numpy as np
 import os.path
 import pandas as pd
@@ -69,6 +69,36 @@ class EpochAxisItem(pg.AxisItem):
 
     def tickStrings(self, values, scale, spacing):
         return [_epoch2local(self.vb.datasrc, value) for value in values]
+
+
+
+class YAxisItem(pg.AxisItem):
+    def __init__(self, vb, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.vb = vb
+
+    def tickStrings(self, values, scale, spacing):
+        return ['%g'%(value*self.vb.yscale.scalef) for value in values]
+
+
+
+class YScale:
+    def __init__(self, scaletype, scalef):
+        self.scaletype = scaletype
+        self.scalef = scalef
+
+    def xform(self, y):
+        if self.scaletype == 'log':
+            y = 10**y
+        return y * self.scalef
+
+    def invxform(self, y, verify=False):
+        y /= self.scalef
+        if self.scaletype == 'log':
+            if verify and y <= 0:
+                return -1
+            y = np.log10(y)
+        return y
 
 
 
@@ -136,7 +166,8 @@ class PandasDataSource:
         return self.df.loc[int(x), 0]
 
     def addcols(self, datasrc):
-        self.scale_cols += [c+len(self.df.columns)-datasrc.col_data_offset for c in datasrc.scale_cols]
+        new_scale_cols = [c+len(self.df.columns)-datasrc.col_data_offset for c in datasrc.scale_cols]
+        self.scale_cols += new_scale_cols
         orig_col_data_cnt = len(self.df.columns)
         if _has_timecol(datasrc.df):
             timecol = self.df.columns[0]
@@ -161,6 +192,7 @@ class PandasDataSource:
         datasrc.init_x0 = self.init_x0
         datasrc.init_x1 = self.init_x1
         datasrc.col_data_offset = orig_col_data_cnt
+        datasrc.scale_cols = new_scale_cols
         self.cache_hilo_query = ''
         self.cache_hilo_answer = None
 
@@ -209,11 +241,11 @@ class PandasDataSource:
         colcnt -= 1 # time is always implied
         colidxs = [0] + list(range(self.col_data_offset, self.col_data_offset+colcnt))
         dfr = df.iloc[:,colidxs]
-        if yscale == 'log':
+        if yscale.scaletype == 'log' or yscale.scalef != 1:
             dfr = dfr.copy()
             for i in range(1, colcnt+1):
                 if dfr.iloc[:,i].dtype != object:
-                    dfr.iloc[:,i] = np.log10(dfr.iloc[:,i])
+                    dfr.iloc[:,i] = yscale.invxform(dfr.iloc[:,i], verify=False)
         return dfr
 
     def __eq__(self, other):
@@ -290,8 +322,7 @@ class FinCrossHair:
         self.ytext.setPos(x, y)
         xtext = _epoch2local(self.ax.vb.datasrc, x, clamp_grid)
         linear_y = y
-        if self.ax.vb.yscale == 'log':
-            y = 10**y
+        y = self.ax.vb.yscale.xform(y)
         rng = self.ax.vb.y_max - self.ax.vb.y_min
         rngmax = abs(self.ax.vb.y_min) + rng # any approximation is fine
         sd,se = (self.ax.significant_decimals,self.ax.significant_eps) if clamp_grid else (significant_decimals,significant_eps)
@@ -420,16 +451,16 @@ class FinEllipse(pg.EllipseROI):
 
 
 class FinViewBox(pg.ViewBox):
-    def __init__(self, win, init_steps=300, yscale='linear', v_zoom_scale=1, *args, **kwargs):
+    def __init__(self, win, init_steps=300, yscale=YScale('linear', 1), v_zoom_scale=1, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.win = win
         self.yscale = yscale
         self.v_zoom_scale = v_zoom_scale
+        self.v_zoom_baseline = 0.5
         self.v_autozoom = True
         self.y_max = 1000
         self.y_min = 0
         self.y_positive = True
-        self.y_zoom_offset = 0.5
         self.force_range_update = 0
         self.rois = []
         self.draw_line = None
@@ -443,7 +474,6 @@ class FinViewBox(pg.ViewBox):
         if not self.datasrc:
             return
         datasrc.update_init_x(self.init_steps)
-        self.update_y_zoom(datasrc.init_x0, datasrc.init_x1)
 
     def wheelEvent(self, ev, axis=None):
         if ev.modifiers() == QtCore.Qt.ControlModifier:
@@ -613,10 +643,10 @@ class FinViewBox(pg.ViewBox):
             lo = tr.top()
         rng = (hi-lo) / self.v_zoom_scale
         rng = max(rng, 2e-7) # some very weird bug where too small scale stops rendering
-        base = (hi+lo)*self.y_zoom_offset
-        hi = base + rng*(1-self.y_zoom_offset)
-        lo = base - rng*self.y_zoom_offset
-        self.set_range(x0, lo, x1, hi)
+        base = (hi+lo) * self.v_zoom_baseline
+        y0 = base - rng*self.v_zoom_baseline
+        y1 = base + rng*(1-self.v_zoom_baseline)
+        self.set_range(x0, y0, x1, y1)
 
     def set_range(self, x0, y0, x1, y1):
         if x0 is None or x1 is None:
@@ -625,9 +655,8 @@ class FinViewBox(pg.ViewBox):
             x1 = tr.right()
         if np.isnan(y0) or np.isnan(y1):
             return
-        if self.yscale == 'log':
-            y0 = np.log10(y0) if y0 > 0 else -1
-            y1 = np.log10(y1) if y1 > 0 else -1
+        y0 = self.yscale.invxform(y0, verify=True)
+        y1 = self.yscale.invxform(y1, verify=True)
         self.setRange(QtCore.QRectF(pg.Point(x0, y0), pg.Point(x1, y1)), padding=0)
 
     def remove_last_roi(self):
@@ -683,8 +712,7 @@ class FinPlotItem(pg.GraphicsObject):
         self.paint(self.painter)
 
     def paint(self, p, *args):
-        viewRect = self.viewRect()
-        self.update_dirty_picture(viewRect)
+        self.update_dirty_picture(self.viewRect())
         p.drawPicture(0, 0, self.picture)
 
     def update_dirty_picture(self, visibleRect):
@@ -816,9 +844,9 @@ def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=T
     axs = []
     prev_ax = None
     for n in range(rows):
-        try: ysc = yscale[n]
-        except: ysc = yscale
+        ysc = yscale[n] if type(yscale) in (list,tuple) else yscale
         v_zoom_scale = 1 if ysc == 'log' else 0.97
+        ysc = YScale(ysc, 1)
         viewbox = FinViewBox(win, init_steps=init_zoom_periods, yscale=ysc, v_zoom_scale=v_zoom_scale)
         ax = prev_ax = _add_timestamp_plot(win, prev_ax, viewbox=viewbox, index=n, yscale=ysc)
         _set_plot_x_axis_leader(ax)
@@ -872,8 +900,6 @@ def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6
     ax.significant_decimals,ax.significant_eps = datasrc.calc_significant_decimals()
     item.update_data = partial(_update_data, item)
     ax.addItem(item)
-    # item.setZValue(20)
-    _pre_process_data(item, True)
     return item
 
 
@@ -883,7 +909,7 @@ def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter)
     if len(datasrc.df.columns) <= 4:
         datasrc.df.insert(3, '_zero_', [0]*len(datasrc.df)) # base of candles is always zero
     datasrc.df = datasrc.df.iloc[:,[0,3,4,1,2]] # re-arrange columns for rendering
-    datasrc.scale_cols = [2] # only volume scales Y-zoom
+    datasrc.scale_cols = [1, 2] # scale by both baseline and volume
     _set_datasrc(ax, datasrc)
     item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=True, draw_shadow=False, candle_width=candle_width, colorfunc=colorfunc)
     item.colors['bull_body'] = item.colors['bull_frame']
@@ -892,14 +918,13 @@ def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter)
         item.colors['bull_body']  = volume_bull_color
         item.colors['bear_frame'] = volume_bear_color
         item.colors['bear_body']  = volume_bear_color
-        ax.vb.y_zoom_offset = 0
+        ax.vb.v_zoom_baseline = 0
     else:
         item.colors['weak_bull_frame'] = brighten(volume_bull_color, 1.2)
         item.colors['weak_bull_body']  = brighten(volume_bull_color, 1.2)
     item.update_data = partial(_update_data, item)
     ax.addItem(item)
     item.setZValue(-1)
-    _pre_process_data(item, True)
     return item
 
 
@@ -913,12 +938,13 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
     if legend is not None and ax.legend is None:
         ax.legend = FinLegendItem(border_color=legend_border_color, fill_color=legend_fill_color, size=None, offset=(3,2))
         ax.legend.setParentItem(ax.vb)
+    y = datasrc.y / ax.vb.yscale.scalef
     if style is None or style=='-':
         connect_dots = 'finite' # same as matplotlib; use datasrc.standalone=True if you want to keep separate intervals on a plot
-        item = ax.plot(datasrc.index, datasrc.y, pen=pg.mkPen(used_color, width=width), name=legend, connect=connect_dots)
+        item = ax.plot(datasrc.index, y, pen=pg.mkPen(used_color, width=width), name=legend, connect=connect_dots)
     else:
         symbol = {'v':'t', '^':'t1', '>':'t2', '<':'t3'}.get(style, style) # translate some similar styles
-        ser = datasrc.y.loc[datasrc.y.abs()>=0]
+        ser = y.loc[y.notnull()]
         item = ax.plot(ser.index, ser.values, pen=None, symbol=symbol, symbolPen=None, symbolSize=10, symbolBrush=pg.mkBrush(used_color), name=legend)
         item.scatter._dopaint = item.scatter.paint
         item.scatter.paint = partial(_paint_scatter, item.scatter)
@@ -935,7 +961,6 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
         except:
             pass # probably full av NaNs
     item.update_data = partial(_update_data, item)
-    _pre_process_data(item, zoomscale)
     if ax.legend is not None:
         for _,label in ax.legend.items:
             label.setAttr('justify', 'left')
@@ -952,7 +977,8 @@ def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
     item = ScatterLabelItem(ax=ax, datasrc=datasrc, color=color, anchor=anchor)
     item.update_data = partial(_update_data, item)
     ax.addItem(item)
-    _pre_process_data(item, False)
+    if ax.vb.v_zoom_scale > 0.9: # adjust to make hi/lo text fit
+        ax.vb.v_zoom_scale = 0.9
     return item
 
 
@@ -973,7 +999,7 @@ def set_y_range(ymin, ymax, ax=None):
 def set_yscale(yscale='linear', ax=None):
     ax = _create_plot(ax=ax, maximize=False)
     ax.setLogMode(y=(yscale=='log'))
-    ax.vb.yscale = yscale
+    ax.vb.yscale = YScale(yscale, ax.vb.yscale.scalef)
 
 
 def add_band(y0, y1, color=band_color, ax=None):
@@ -1055,9 +1081,17 @@ def autoviewrestore(enable=True):
 
 
 def show():
-    if viewrestore:
-        for win in windows:
-            _loadwindata(win)
+    for win in windows:
+        vbs = set(ax.vb for ax in win.ci.items)
+        for vb in vbs:
+            _pre_process_data(vb)
+        if viewrestore:
+            if _loadwindata(win):
+                continue
+        for vb in vbs:
+            if vb.datasrc:
+                vb.update_y_zoom(vb.datasrc.init_x0, vb.datasrc.init_x1)
+                break
     _repaint_candles()
     if windows:
         QtGui.QApplication.instance().exec_()
@@ -1084,13 +1118,15 @@ def _loadwindata(win):
     except:
         return
     kvs = {k:v for k,v in settings}
-    for ax in win.ci.items:
-        ds = ax.vb.datasrc
+    vbs = set(ax.vb for ax in win.ci.items)
+    for vb in vbs:
+        ds = vb.datasrc
         if ds:
             period = ds.period
             if kvs['min_x'] >= ds.x.iloc[0]-period and kvs['max_x'] <= ds.x.iloc[-1]+period:
                 x0,x1 = ds.x.loc[ds.x>=kvs['min_x']].index[0], ds.x.loc[ds.x<=kvs['max_x']].index[-1]
-                ax.vb.update_y_zoom(x0, x1)
+                vb.update_y_zoom(x0, x1)
+    return True
 
 
 def _savewindata(win):
@@ -1129,15 +1165,19 @@ def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
     if prev_ax is not None:
         prev_ax.hideAxis('bottom') # hide the whole previous axis
         win.nextRow()
-    ax = pg.PlotItem(viewBox=viewbox, axisItems={'bottom': EpochAxisItem(vb=viewbox, orientation='bottom')}, name='plot-%i'%index)
+    axes = {'bottom': EpochAxisItem(vb=viewbox, orientation='bottom'),
+            'left':   YAxisItem(vb=viewbox, orientation='left')}
+    ax = pg.PlotItem(viewBox=viewbox, axisItems=axes, name='plot-%i'%index)
     ax.axes['left']['item'].textWidth = y_label_width # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
     ax.axes['left']['item'].setStyle(tickLength=-5) # some bug, totally unexplicable (why setting the default value again would fix repaint width as axis scale down)
     ax.axes['left']['item'].setZValue(30) # put axis in front instead of behind data
     ax.axes['bottom']['item'].setZValue(30)
-    ax.setLogMode(y=(yscale=='log'))
+    ax.setLogMode(y=(yscale.scaletype=='log'))
     ax.significant_decimals = significant_decimals
     ax.significant_eps = significant_eps
     ax.crosshair = FinCrossHair(ax, color=cross_hair_color)
+    ax.hideButtons()
+    ax.overlay = partial(_overlay, ax)
     if index%2:
         viewbox.setBackgroundColor(odd_plot_background)
     viewbox.setParent(ax)
@@ -1145,8 +1185,27 @@ def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
     return ax
 
 
+def _overlay(ax, scale=0.25):
+    viewbox = FinViewBox(ax.vb.win, init_steps=ax.vb.init_steps, yscale=YScale('linear', 1))
+    viewbox.v_zoom_scale = scale
+    ax.vb.win.centralWidget.scene().addItem(viewbox)
+    viewbox.setXLink(ax.vb)
+    def updateView():
+        viewbox.setGeometry(ax.vb.sceneBoundingRect())
+    axo = pg.PlotItem()
+    axo.significant_decimals = significant_decimals
+    axo.significant_eps = significant_eps
+    axo.vb = viewbox
+    axo.hideAxis('left')
+    axo.hideAxis('bottom')
+    axo.hideButtons()
+    viewbox.addItem(axo)
+    ax.vb.sigResized.connect(updateView)
+    return axo
+
+
 def _is_standalone(timeser):
-    # more than N percent gaps or reversals probably means this is a standalone plot
+    # more than N percent gaps or time reversals probably means this is a standalone plot
     return timeser.isnull().sum() + (timeser.diff()<=0).sum() > len(timeser)*0.1
 
 
@@ -1177,6 +1236,9 @@ def _create_datasrc(ax, *args):
                 datasrc.df.insert(0, col, a.vb.datasrc.df[col])
                 datasrc = PandasDataSource(datasrc.df)
                 break
+    # FIX: stupid QT bug causes rectangles larger than 2G to flicker, so scale rendering down some
+    if datasrc.df.iloc[:, 1:].max().max() > 1e8: # too close to 2G for comfort
+        ax.vb.yscale.scalef = int(1e8)
     return datasrc
 
 
@@ -1223,12 +1285,13 @@ def _update_data(item, ds):
         ax.vb.update()
 
 
-def _pre_process_data(item, zoomscale):
-    if zoomscale:
-        item.ax.vb.y_max = np.nanmax(item.datasrc.y)
-        item.ax.vb.y_min = np.nanmin(item.datasrc.y)
-        if item.ax.vb.y_min <= 0:
-            item.ax.vb.y_positive = False
+def _pre_process_data(vb):
+    if vb.datasrc and vb.datasrc.scale_cols:
+        df = vb.datasrc.df.iloc[:, vb.datasrc.scale_cols]
+        vb.y_max = df.max().max()
+        vb.y_min = df.min().min()
+        if vb.y_min <= 0:
+            vb.y_positive = False
 
 
 def _set_plot_x_axis_leader(ax):
@@ -1390,9 +1453,9 @@ def _round_to_significant(rng, rngmax, x, significant_decimals, significant_eps)
     is_highres = rng/significant_eps > 1e2 and (rngmax>1e7 or rngmax<1e-2)
     sd = significant_decimals
     if is_highres and abs(x)>0:
-        exp10 = floor(log10(abs(x)))
+        exp10 = floor(np.log10(abs(x)))
         x = x / (10**exp10)
-        sd = min(5, sd+int(log10(rngmax)))
+        sd = min(5, sd+int(np.log10(rngmax)))
         fmt = '%%%i.%ife%%i' % (sd, sd)
         r = fmt % (x, exp10)
     else:
@@ -1414,14 +1477,12 @@ def _roihandle_move_snap(vb, orig_func, pos, modifiers=QtCore.Qt.KeyboardModifie
 
 
 def _clamp_xy(ax, x, y):
-    if ax.vb.yscale == 'log':
-        y = 10**y
+    y = ax.vb.yscale.xform(y)
     if clamp_grid:
         x = round(x)
         eps = ax.significant_eps
         y -= fmod(y+eps*0.5, eps) - eps*0.5
-    if ax.vb.yscale == 'log':
-        y = np.log10(y)
+    y = ax.vb.yscale.invxform(y, verify=True)
     return x, y
 
 
@@ -1445,11 +1506,12 @@ def _draw_line_segment_text(polyline, segment, pos0, pos1):
         ts = '%id %0.2i:%0.2i' % (days, hours, mins)
         if ts.endswith(' 00:00'):
             ts = ts.partition(' ')[0]
+    ysc = polyline.vb.yscale
     if polyline.vb.y_positive:
-        y0,y1 = (10**pos0.y(),10**pos1.y()) if polyline.vb.yscale == 'log' else (pos0.y(),pos1.y())
+        y0,y1 = ysc.xform(pos0.y()), ysc.xform(pos1.y())
         value = '%+.2f %%' % (100 * y1 / y0 - 100)
     else:
-        dy = diff.y()
+        dy = ysc.xform(diff.y())
         if dy and (abs(dy) >= 1e4 or abs(dy) <= 1e-2):
             value = '%+3.3g' % dy
         else:
@@ -1467,7 +1529,7 @@ def _draw_line_extra_text(polyline, segment, pos0, pos1):
             h1 = prev_text.segment.handles[1]['item']
             prev_change = h1.pos().y() - h0.pos().y()
             this_change = pos1.y() - pos0.y()
-            if not abs(prev_change) > 1e-8:
+            if not abs(prev_change) > 1e-14:
                 break
             change_part = abs(this_change / prev_change)
             return ' = 1:%.2f ' % change_part

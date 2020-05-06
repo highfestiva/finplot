@@ -10,7 +10,7 @@ from time import time
 # load data and convert date
 end_t = int(time()) 
 start_t = end_t - 12*30*24*60*60 # twelve months
-symbol = '^GSPC'
+symbol = 'SPY'
 interval = '1d'
 url = 'https://query1.finance.yahoo.com/v7/finance/download/%s?period1=%s&period2=%s&interval=%s&events=history' % (symbol, start_t, end_t, interval)
 r = requests.get(url)
@@ -19,7 +19,8 @@ df['Date'] = pd.to_datetime(df['Date'])
 
 # plot candles
 ax,ax2 = fplt.create_plot('S&P 500 MACD', rows=2)
-fplt.candlestick_ochl(df[['Date','Open','Close','High','Low']])
+fplt.candlestick_ochl(df[['Date','Open','Close','High','Low']], ax=ax)
+fplt.volume_ocv(df[['Date','Open','Close','Volume']], ax=ax.overlay())
 
 # plot macd
 macd = df.Close.ewm(span=12).mean() - df.Close.ewm(span=26).mean()
