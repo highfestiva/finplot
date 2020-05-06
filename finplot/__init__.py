@@ -211,7 +211,7 @@ class PandasDataSource:
 
     def hilo(self, x0, x1):
         '''Return five values in time range: t0, t1, highest, lowest, number of rows.'''
-        x0,x1 = int(x0),int(x1)
+        x0,x1 = int(x0+0.5),int(x1)
         query = '%i,%i' % (x0,x1)
         if query != self.cache_hilo_query:
             self.cache_hilo_query = query
@@ -982,6 +982,15 @@ def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
     return item
 
 
+def fill_between(plot0, plot1, color=None):
+    used_color = brighten(_get_color(plot0.ax, None, color), 1.3)
+    item = pg.FillBetweenItem(plot0, plot1, brush=pg.mkBrush(used_color))
+    item.ax = plot0.ax
+    plot0.ax.addItem(item)
+    ## item.datasrc = None
+    return item
+
+
 def dfplot(df, x=None, y=None, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True):
     legend = legend if legend else y
     x = x if x else df.columns[0]
@@ -1213,7 +1222,7 @@ def _create_series(a):
     return a if isinstance(a, pd.Series) else pd.Series(a)
 
 
-def _create_datasrc(ax, *args):
+def _create_datasrc(ax, *args, datacols=1):
     def do_create(*args):
         args = [a for a in args if a is not None]
         if len(args) == 1 and type(args[0]) == PandasDataSource:
@@ -1228,7 +1237,7 @@ def _create_datasrc(ax, *args):
         return PandasDataSource(pd.concat(args, axis=1))
     datasrc = do_create(*args)
     # check if time column missing
-    if len(datasrc.df.columns) == 1:
+    if len(datasrc.df.columns) == datacols:
         # assume time data has already been added before
         for a in ax.vb.win.ci.items:
             if a.vb.datasrc and len(a.vb.datasrc.df.columns) >= 2:

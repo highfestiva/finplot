@@ -45,6 +45,7 @@ def update_plot():
         plots.append(candlestick_plot)
         plots.append(fplt.plot(bollband_hi, color='#4e4ef1'))
         plots.append(fplt.plot(bollband_lo, color='#4e4ef1'))
+        fplt.fill_between(plots[1], plots[2], color='#9999fa')
         # redraw using bitmex colors
         candlestick_plot.colors.update(dict(
                 bull_shadow = '#388d53',
