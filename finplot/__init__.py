@@ -1561,6 +1561,12 @@ def _draw_line_extra_text(polyline, segment, pos0, pos1):
     return ''
 
 
+qtver = '%d.%d' % (QtCore.QT_VERSION//256//256, QtCore.QT_VERSION//256%256)
+if qtver not in ('5.9', '5.13'):
+    print('WARNING: your version of Qt may not plot curves containing NaNs and is not recommended.')
+    print('See https://github.com/pyqtgraph/pyqtgraph/issues/1057')
+
+
 # default to black-on-white
 pg.widgets.GraphicsView.GraphicsView.wheelEvent = partialmethod(_wheel_event_wrapper, pg.widgets.GraphicsView.GraphicsView.wheelEvent)
 # pick up win resolution
