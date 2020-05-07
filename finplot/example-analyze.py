@@ -15,12 +15,12 @@ def local2timestamp(s):
     return int(dateutil.parser.parse(s).timestamp())
 
 
-def download_price_history(symbol='XBTUSD', start_time='2020-03-10', end_time='2020-03-26', interval_mins=60):
+def download_price_history(symbol='XBTUSD', start_time='2020-01-10', end_time='2020-05-07', interval_mins=60):
     start_time = local2timestamp(start_time)
     end_time = local2timestamp(end_time)
     data = defaultdict(list)
-    for start_t in range(start_time, end_time, 10000*interval_mins):
-        end_t = start_t + 10000*interval_mins
+    for start_t in range(start_time, end_time, 10000*60*interval_mins):
+        end_t = start_t + 10000*60*interval_mins
         if end_t > end_time:
             end_t = end_time
         url = '%s/udf/history?symbol=%s&resolution=%s&from=%s&to=%s' % (baseurl, symbol, interval_mins, start_t, end_t)

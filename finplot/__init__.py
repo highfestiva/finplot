@@ -211,7 +211,10 @@ class PandasDataSource:
 
     def hilo(self, x0, x1):
         '''Return five values in time range: t0, t1, highest, lowest, number of rows.'''
-        x0,x1 = int(x0+0.5),int(x1)
+        if x0 == x1:
+            x0 = x1 = int(x1)
+        else:
+            x0,x1 = int(x0+0.5),int(x1)
         query = '%i,%i' % (x0,x1)
         if query != self.cache_hilo_query:
             self.cache_hilo_query = query
@@ -557,6 +560,9 @@ class FinViewBox(pg.ViewBox):
         ev.accept()
 
     def mouseClickEvent(self, ev):
+        if _mouse_clicked(self, ev):
+            ev.accept()
+            return
         if ev.button() != QtCore.Qt.LeftButton or ev.modifiers() != QtCore.Qt.ControlModifier or not self.draw_line:
             return super().mouseClickEvent(ev)
         # add another segment to the currently drawn line
@@ -569,8 +575,8 @@ class FinViewBox(pg.ViewBox):
     def keyPressEvent(self, ev):
         if _key_pressed(self, ev):
             ev.accept()
-        else:
-            super().keyPressEvent(ev)
+            return
+        super().keyPressEvent(ev)
 
     def linkedViewChanged(self, view, axis):
         if not self.datasrc:
@@ -987,7 +993,6 @@ def fill_between(plot0, plot1, color=None):
     item = pg.FillBetweenItem(plot0, plot1, brush=pg.mkBrush(used_color))
     item.ax = plot0.ax
     plot0.ax.addItem(item)
-    ## item.datasrc = None
     return item
 
 
@@ -1358,6 +1363,16 @@ def _key_pressed(vb, ev):
         _repaint_candles()
     elif ev.key() == QtCore.Qt.Key_Escape:
         vb.win.close()
+    else:
+        return False
+    return True
+
+
+def _mouse_clicked(vb, ev):
+    if ev.button() == 8: # back
+        vb.pan_x(percent=-30)
+    elif ev.button() == 16: # fwd
+        vb.pan_x(percent=+30)
     else:
         return False
     return True
