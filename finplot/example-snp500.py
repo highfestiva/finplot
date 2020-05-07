@@ -20,7 +20,9 @@ df['Date'] = pd.to_datetime(df['Date'])
 # plot candles
 ax,ax2 = fplt.create_plot('S&P 500 MACD', rows=2)
 fplt.candlestick_ochl(df[['Date','Open','Close','High','Low']], ax=ax)
-fplt.volume_ocv(df[['Date','Open','Close','Volume']], ax=ax.overlay())
+axo = ax.overlay()
+fplt.volume_ocv(df[['Date','Open','Close','Volume']], ax=axo)
+fplt.plot(df.Volume.ewm(span=24).mean(), ax=axo, color=1)
 
 # plot macd
 macd = df.Close.ewm(span=12).mean() - df.Close.ewm(span=26).mean()
