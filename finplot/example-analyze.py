@@ -44,8 +44,9 @@ def plot_bollinger_bands(df, ax):
     stddev = df.close.rolling(20).std()
     df['boll_hi'] = mean + 2.5*stddev
     df['boll_lo'] = mean - 2.5*stddev
-    fplt.plot(df.time, df.boll_hi, ax=ax, color='#808080', legend='BB')
-    fplt.plot(df.time, df.boll_lo, ax=ax, color='#808080')
+    p0 = fplt.plot(df.time, df.boll_hi, ax=ax, color='#808080', legend='BB')
+    p1 = fplt.plot(df.time, df.boll_lo, ax=ax, color='#808080')
+    fplt.fill_between(p0, p1, color='#bbb')
 
 
 def plot_ema(df, ax):
