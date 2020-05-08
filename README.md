@@ -100,6 +100,9 @@ fplt.plot(df['time'], df['marker'], ax=ax, color='#4a5', style='^', legend='dumb
 fplt.plot(df['time'], np.random.normal(size=len(df)), ax=ax2, color='#927', legend='stuff')
 fplt.set_y_range(-1.4, +3.7, ax=ax2) # hard-code y-axis range limitation
 
+# restore view (X-position and zoom) if we ever run this example again
+fplt.autoviewrestore()
+
 # we're done
 fplt.show()
 ```
