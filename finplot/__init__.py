@@ -128,7 +128,7 @@ class PandasDataSource:
     @property
     def period(self):
         timecol = self.df.columns[0]
-        return self.df[timecol].diff().median()
+        return self.df[timecol].diff().median() / 1000
 
     @property
     def index(self):
@@ -323,7 +323,7 @@ class FinCrossHair:
         self.hline.setPos(y)
         self.xtext.setPos(x, y)
         self.ytext.setPos(x, y)
-        xtext = _epoch2local(self.ax.vb.datasrc, x, clamp_grid)
+        xtext = _epoch2local(self.ax.vb.datasrc, x)
         linear_y = y
         y = self.ax.vb.yscale.xform(y)
         rng = self.ax.vb.y_max - self.ax.vb.y_min
@@ -1437,17 +1437,21 @@ def _get_color(ax, style, wanted_color):
 def _pdtime2epoch(t):
     if isinstance(t, pd.Series):
         if isinstance(t.iloc[0], pd.Timestamp):
-            return t.astype('int64') // int(1e9)
-        if np.nanmax(t.values) > 1e10: # handle ms epochs
+            return t.astype('int64') // int(1e6)
+        if np.nanmax(t.values) > 1e13: # handle ns epochs
             return t.astype('float64') / 1e3
+        if np.nanmax(t.values) < 1e10: # handle s epochs
+            return t.astype('float64') * 1e3
     return t
 
 
 def _pdtime2index(ax, ts):
     if isinstance(ts.iloc[0], pd.Timestamp):
-        ts = ts.astype('int64') // int(1e9)
-    elif np.nanmax(ts.values) > 1e10: # handle ms epochs
+        ts = ts.astype('int64') // int(1e6)
+    elif np.nanmax(ts.values) > 1e13: # handle ns epochs
         ts = ts.astype('float64') / 1e3
+    elif np.nanmax(ts.values) < 1e10: # handle s epochs
+        ts = ts.astype('float64') * 1e3
     r = []
     for t in ts:
         xs = ax.vb.datasrc.x
@@ -1459,17 +1463,28 @@ def _pdtime2index(ax, ts):
     return r
 
 
-def _epoch2local(datasrc, x, strip_seconds=True):
+def _epoch2local(datasrc, x):
     try:
         x += 0.5
         t,_,_,_,cnt = datasrc.hilo(x, x)
         if cnt:
-            s = datetime.fromtimestamp(t).isoformat().replace('T',' ')
-            if epoch_period >= 24*60*60 and strip_seconds:
-                return s.partition(' ')[0] # might as well strip time as well
-            return s.rpartition(':' if strip_seconds or '.' not in s else '.')[0]
-    except:
-        pass
+            s = datetime.fromtimestamp(t/1000).isoformat().replace('T',' ')
+            if epoch_period >= 24*60*60:
+                i = s.index(' ')
+            elif epoch_period >= 60*60:
+                i = s.index(':')
+            elif epoch_period >= 60:
+                i = s.rindex(':')
+            elif epoch_period >= 1:
+                i = s.index('.') if '.' in s else len(s)
+            elif epoch_period >= 0.001:
+                i = -3
+            else:
+                i = len(s)
+            return s[:i]
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
     return ''
 
 
@@ -1519,10 +1534,18 @@ def _clamp_point(ax, p):
 
 def _draw_line_segment_text(polyline, segment, pos0, pos1):
     diff = pos1 - pos0
-    mins = int(abs(diff.x()*epoch_period) // 60)
+    fsecs = abs(diff.x()*epoch_period)
+    secs = int(fsecs)
+    mins = secs//60
     hours = mins//60
     mins = mins%60
-    if hours < 24:
+    secs = secs%60
+    if hours==0 and mins==0 and secs < 60 and epoch_period < 1:
+        msecs = int((fsecs-int(fsecs))*1000)
+        ts = '%0.2i:%0.2i.%0.3i' % (mins, secs, msecs)
+    elif hours==0 and mins < 60 and epoch_period < 60:
+        ts = '%0.2i:%0.2i:%0.2i' % (hours, mins, secs)
+    elif hours < 24:
         ts = '%0.2i:%0.2i' % (hours, mins)
     else:
         days = hours // 24
