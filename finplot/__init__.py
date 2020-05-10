@@ -54,6 +54,7 @@ sounds = {} # no gc
 plotdf2df = {} # for pandas df.plot
 epoch_period = 1e30
 last_ax = None # always assume we want to plot in the last axis, unless explicitly specified
+overlay_axs = [] # for keeping track of candlesticks in overlays
 viewrestore = False
 
 
@@ -904,7 +905,7 @@ def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6
     _set_datasrc(ax, datasrc)
     item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width, colorfunc=colorfunc)
     ax.significant_decimals,ax.significant_eps = datasrc.calc_significant_decimals()
-    item.update_data = partial(_update_data, item)
+    item.update_data = partial(_update_data, None, item)
     ax.addItem(item)
     return item
 
@@ -912,10 +913,7 @@ def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6
 def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter):
     ax = _create_plot(ax=ax, maximize=False)
     datasrc = _create_datasrc(ax, datasrc)
-    if len(datasrc.df.columns) <= 4:
-        datasrc.df.insert(3, '_zero_', [0]*len(datasrc.df)) # base of candles is always zero
-    datasrc.df = datasrc.df.iloc[:,[0,3,4,1,2]] # re-arrange columns for rendering
-    datasrc.scale_cols = [1, 2] # scale by both baseline and volume
+    _adjust_volume_datasrc(datasrc)
     _set_datasrc(ax, datasrc)
     item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=True, draw_shadow=False, candle_width=candle_width, colorfunc=colorfunc)
     item.colors['bull_body'] = item.colors['bull_frame']
@@ -928,7 +926,7 @@ def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter)
     else:
         item.colors['weak_bull_frame'] = brighten(volume_bull_color, 1.2)
         item.colors['weak_bull_body']  = brighten(volume_bull_color, 1.2)
-    item.update_data = partial(_update_data, item)
+    item.update_data = partial(_update_data, _adjust_volume_datasrc, item)
     ax.addItem(item)
     item.setZValue(-1)
     return item
@@ -966,7 +964,7 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
             ax.significant_decimals,ax.significant_eps = datasrc.calc_significant_decimals()
         except:
             pass # probably full av NaNs
-    item.update_data = partial(_update_data, item)
+    item.update_data = partial(_update_data, None, item)
     if ax.legend is not None:
         for _,label in ax.legend.items:
             label.setAttr('justify', 'left')
@@ -981,7 +979,7 @@ def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
     datasrc.scale_cols = [] # don't use this for scaling
     _set_datasrc(ax, datasrc)
     item = ScatterLabelItem(ax=ax, datasrc=datasrc, color=color, anchor=anchor)
-    item.update_data = partial(_update_data, item)
+    item.update_data = partial(_update_data, None, item)
     ax.addItem(item)
     if ax.vb.v_zoom_scale > 0.9: # adjust to make hi/lo text fit
         ax.vb.v_zoom_scale = 0.9
@@ -1200,6 +1198,7 @@ def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
 
 
 def _overlay(ax, scale=0.25):
+    global overlay_axs
     viewbox = FinViewBox(ax.vb.win, init_steps=ax.vb.init_steps, yscale=YScale('linear', 1))
     viewbox.v_zoom_scale = scale
     ax.vb.win.centralWidget.scene().addItem(viewbox)
@@ -1215,6 +1214,7 @@ def _overlay(ax, scale=0.25):
     axo.hideButtons()
     viewbox.addItem(axo)
     ax.vb.sigResized.connect(updateView)
+    overlay_axs.append(axo)
     return axo
 
 
@@ -1279,8 +1279,17 @@ def _has_timecol(df):
     return len(df.columns) >= 2
 
 
-def _update_data(item, ds):
+def _adjust_volume_datasrc(datasrc):
+    if len(datasrc.df.columns) <= 4:
+        datasrc.df.insert(3, '_zero_', [0]*len(datasrc.df)) # base of candles is always zero
+    datasrc.df = datasrc.df.iloc[:,[0,3,4,1,2]] # re-arrange columns for rendering
+    datasrc.scale_cols = [1, 2] # scale by both baseline and volume
+
+
+def _update_data(adjustfunc, item, ds):
     ds = _create_datasrc(item.ax, ds)
+    if adjustfunc:
+        adjustfunc(ds)
     item.datasrc.update(ds)
     if isinstance(item, FinPlotItem):
         item.dirty = True
@@ -1326,11 +1335,12 @@ def _set_x_limits(ax, datasrc):
 
 def _repaint_candles():
     '''Candles are only partially drawn, and therefore needs manual dirty reminder whenever it goes off-screen.'''
-    for win in windows:
-        for ax in win.ci.items:
-            for item in ax.items:
-                if isinstance(item, FinPlotItem):
-                    item.repaint()
+    axs = [ax for win in windows for ax in win.ci.items] + overlay_axs
+    for ax in axs:
+        for item in ax.items:
+            if isinstance(item, FinPlotItem):
+                print('repainting', item)
+                item.repaint()
 
 
 def _paint_scatter(item, p, *args):
