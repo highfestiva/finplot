@@ -1339,7 +1339,6 @@ def _repaint_candles():
     for ax in axs:
         for item in ax.items:
             if isinstance(item, FinPlotItem):
-                print('repainting', item)
                 item.repaint()
 
 
