@@ -1473,6 +1473,8 @@ def _pdtime2index(ax, ts):
 
 
 def _epoch2local(datasrc, x):
+    if not datasrc:
+        return ''
     try:
         x += 0.5
         t,_,_,_,cnt = datasrc.hilo(x, x)
