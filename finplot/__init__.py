@@ -249,7 +249,7 @@ class PandasDataSource:
             dfr = dfr.copy()
             for i in range(1, colcnt+1):
                 if dfr.iloc[:,i].dtype != object:
-                    dfr.iloc[:,i] = yscale.invxform(dfr.iloc[:,i], verify=False)
+                    dfr.iloc[:,i] = yscale.invxform(dfr.iloc[:,i])
         return dfr
 
     def __eq__(self, other):
@@ -648,11 +648,18 @@ class FinViewBox(pg.ViewBox):
             tr = self.viewRect()
             hi = tr.bottom()
             lo = tr.top()
-        rng = (hi-lo) / self.v_zoom_scale
-        rng = max(rng, 2e-7) # some very weird bug where too small scale stops rendering
-        base = (hi+lo) * self.v_zoom_baseline
-        y0 = base - rng*self.v_zoom_baseline
-        y1 = base + rng*(1-self.v_zoom_baseline)
+        if self.yscale.scaletype == 'log':
+            rng = (hi / lo) ** (1/self.v_zoom_scale)
+            rng = min(rng, 1e50) # avoid float overflow
+            base = (hi*lo) ** self.v_zoom_baseline
+            y0 = base / rng**self.v_zoom_baseline
+            y1 = base * rng**(1-self.v_zoom_baseline)
+        else:
+            rng = (hi-lo) / self.v_zoom_scale
+            rng = max(rng, 2e-7) # some very weird bug where high/low exponents stops rendering
+            base = (hi+lo) * self.v_zoom_baseline
+            y0 = base - rng*self.v_zoom_baseline
+            y1 = base + rng*(1-self.v_zoom_baseline)
         self.set_range(x0, y0, x1, y1)
 
     def set_range(self, x0, y0, x1, y1):
@@ -662,9 +669,9 @@ class FinViewBox(pg.ViewBox):
             x1 = tr.right()
         if np.isnan(y0) or np.isnan(y1):
             return
-        y0 = self.yscale.invxform(y0, verify=True)
-        y1 = self.yscale.invxform(y1, verify=True)
-        self.setRange(QtCore.QRectF(pg.Point(x0, y0), pg.Point(x1, y1)), padding=0)
+        _y0 = self.yscale.invxform(y0)
+        _y1 = self.yscale.invxform(y1)
+        self.setRange(QtCore.QRectF(pg.Point(x0, _y0), pg.Point(x1, _y1)), padding=0)
 
     def remove_last_roi(self):
         if self.rois:
@@ -852,8 +859,8 @@ def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=T
     prev_ax = None
     for n in range(rows):
         ysc = yscale[n] if type(yscale) in (list,tuple) else yscale
-        v_zoom_scale = 1 if ysc == 'log' else 0.97
         ysc = YScale(ysc, 1)
+        v_zoom_scale = 0.97
         viewbox = FinViewBox(win, init_steps=init_zoom_periods, yscale=ysc, v_zoom_scale=v_zoom_scale)
         ax = prev_ax = _add_timestamp_plot(win, prev_ax, viewbox=viewbox, index=n, yscale=ysc)
         _set_plot_x_axis_leader(ax)
