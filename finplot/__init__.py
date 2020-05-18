@@ -79,7 +79,7 @@ class YAxisItem(pg.AxisItem):
         self.vb = vb
 
     def tickStrings(self, values, scale, spacing):
-        return ['%g'%(value*self.vb.yscale.scalef) for value in values]
+        return ['%g'%self.vb.yscale.xform(value) for value in values]
 
 
 
@@ -88,17 +88,21 @@ class YScale:
         self.scaletype = scaletype
         self.scalef = scalef
 
+    def set_scale(self, scale):
+        self.scalef = scale if self.scaletype != 'log' else 1
+
     def xform(self, y):
         if self.scaletype == 'log':
             y = 10**y
         return y * self.scalef
 
     def invxform(self, y, verify=False):
-        y /= self.scalef
         if self.scaletype == 'log':
             if verify and y <= 0:
                 return -1
             y = np.log10(y)
+        else:
+            y /= self.scalef
         return y
 
 
@@ -1259,7 +1263,7 @@ def _create_datasrc(ax, *args, datacols=1):
                 break
     # FIX: stupid QT bug causes rectangles larger than 2G to flicker, so scale rendering down some
     if datasrc.df.iloc[:, 1:].max().max() > 1e8: # too close to 2G for comfort
-        ax.vb.yscale.scalef = int(1e8)
+        ax.vb.yscale.set_scale(int(1e8))
     return datasrc
 
 
