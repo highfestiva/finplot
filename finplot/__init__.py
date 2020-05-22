@@ -1473,14 +1473,32 @@ def _pdtime2index(ax, ts):
     elif np.nanmax(ts.values) < 1e10: # handle s epochs
         ts = ts.astype('float64') * 1e3
     r = []
+    datasrc = _get_datasrc(ax)
     for t in ts:
-        xs = ax.vb.datasrc.x
-        i1 = xs.loc[xs>t].index[0]
+        xs = datasrc.x
+        xss = xs.loc[xs>t]
+        if len(xss) == 0:
+            t0 = xs.iloc[-1]
+            if t0 == t:
+                r.append(len(xs)-1)
+                continue
+            assert t <= t0, 'must plot this primitive in prior time-range'
+        i1 = xss.index[0]
         i0 = i1-1
         t0,t1 = xs.loc[i0], xs.loc[i1]
         dt = (t-t0) / (t1-t0)
         r.append(lerp(dt, i0, i1))
     return r
+
+
+def _get_datasrc(ax):
+    if ax.vb.datasrc is not None:
+        return ax.vb.datasrc
+    vbs = set(ax.vb for win in windows for ax in win.ci.items)
+    for vb in vbs:
+        if vb.datasrc:
+            return vb.datasrc
+    assert ax.vb.datasrc, 'not possible to plot this primitive without a prior time-range to compare to'
 
 
 def _epoch2local(datasrc, x):
