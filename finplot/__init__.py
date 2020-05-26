@@ -168,7 +168,8 @@ class PandasDataSource:
         self.init_x1 = len(self.df) - 0.5
 
     def closest_time(self, x):
-        return self.df.loc[int(x), 0]
+        timecol = self.df.columns[0]
+        return self.df.loc[int(x), timecol]
 
     def addcols(self, datasrc):
         new_scale_cols = [c+len(self.df.columns)-datasrc.col_data_offset for c in datasrc.scale_cols]
@@ -1430,7 +1431,7 @@ def _time_clicked(ax, inspector, evs):
         return
     pos = evs[-1].scenePos()
     point = ax.vb.mapSceneToView(pos)
-    t = point.x() - 0.5
+    t = point.x() + 0.5
     t = ax.vb.datasrc.closest_time(t)
     inspector(t, point.y())
 
