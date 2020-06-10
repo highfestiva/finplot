@@ -99,7 +99,7 @@ class YScale:
     def invxform(self, y, verify=False):
         if self.scaletype == 'log':
             if verify and y <= 0:
-                return -1
+                return -1e6
             y = np.log10(y)
         else:
             y /= self.scalef
@@ -654,6 +654,7 @@ class FinViewBox(pg.ViewBox):
             hi = tr.bottom()
             lo = tr.top()
         if self.yscale.scaletype == 'log':
+            lo = max(1e-100, lo)
             rng = (hi / lo) ** (1/self.v_zoom_scale)
             rng = min(rng, 1e50) # avoid float overflow
             base = (hi*lo) ** self.v_zoom_baseline
@@ -674,8 +675,8 @@ class FinViewBox(pg.ViewBox):
             x1 = tr.right()
         if np.isnan(y0) or np.isnan(y1):
             return
-        _y0 = self.yscale.invxform(y0)
-        _y1 = self.yscale.invxform(y1)
+        _y0 = self.yscale.invxform(y0, verify=True)
+        _y1 = self.yscale.invxform(y1, verify=True)
         self.setRange(QtCore.QRectF(pg.Point(x0, _y0), pg.Point(x1, _y1)), padding=0)
 
     def remove_last_roi(self):
