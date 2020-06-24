@@ -1264,7 +1264,7 @@ def _create_datasrc(ax, *args, datacols=1):
                 datasrc = PandasDataSource(datasrc.df)
                 break
     # FIX: stupid QT bug causes rectangles larger than 2G to flicker, so scale rendering down some
-    if datasrc.df.iloc[:, 1:].max().max() > 1e8: # too close to 2G for comfort
+    if datasrc.df.iloc[:, 1:].max(numeric_only=True).max() > 1e8: # too close to 2G for comfort
         ax.vb.yscale.set_scale(int(1e8))
     return datasrc
 
