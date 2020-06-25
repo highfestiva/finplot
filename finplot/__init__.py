@@ -771,6 +771,7 @@ class CandlestickItem(FinPlotItem):
         self.draw_shadow = draw_shadow
         self.candle_width = candle_width
         self.colorfunc = colorfunc
+        self.x_offset = 0
         super().__init__(ax, datasrc)
 
     def generate_picture(self, boundingRect):
@@ -784,6 +785,8 @@ class CandlestickItem(FinPlotItem):
         for shadow,frame,body,df_rows in self.colorfunc(self, self.datasrc, df):
             idxs = df_rows.index
             rows = df_rows.values
+            if self.x_offset:
+                idxs += self.x_offset
             if self.draw_shadow:
                 p.setPen(pg.mkPen(shadow))
                 for x,(t,open,close,high,low) in zip(idxs, rows):
@@ -917,7 +920,7 @@ def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6
     datasrc.scale_cols = [3,4] # only hi+lo scales
     _set_datasrc(ax, datasrc)
     item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width, colorfunc=colorfunc)
-    ax.significant_decimals,ax.significant_eps = datasrc.calc_significant_decimals()
+    _update_significants(ax, datasrc, force=True)
     item.update_data = partial(_update_data, None, item)
     ax.addItem(item)
     return item
@@ -929,6 +932,7 @@ def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter)
     _adjust_volume_datasrc(datasrc)
     _set_datasrc(ax, datasrc)
     item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=True, draw_shadow=False, candle_width=candle_width, colorfunc=colorfunc)
+    _update_significants(ax, datasrc, force=True)
     item.colors['bull_body'] = item.colors['bull_frame']
     if colorfunc == volume_colorfilter: # assume normal volume plot
         item.colors['bull_frame'] = volume_bull_color
@@ -971,12 +975,7 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
     item.opts['handed_color'] = color
     item.ax = ax
     item.datasrc = datasrc
-    # check if no epsilon set yet
-    if 0.99 < ax.significant_eps/significant_eps < 1.01:
-        try:
-            ax.significant_decimals,ax.significant_eps = datasrc.calc_significant_decimals()
-        except:
-            pass # probably full av NaNs
+    _update_significants(ax, datasrc, force=False)
     item.update_data = partial(_update_data, None, item)
     if ax.legend is not None:
         for _,label in ax.legend.items:
@@ -992,6 +991,7 @@ def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
     datasrc.scale_cols = [] # don't use this for scaling
     _set_datasrc(ax, datasrc)
     item = ScatterLabelItem(ax=ax, datasrc=datasrc, color=color, anchor=anchor)
+    _update_significants(ax, datasrc, force=False)
     item.update_data = partial(_update_data, None, item)
     ax.addItem(item)
     if ax.vb.v_zoom_scale > 0.9: # adjust to make hi/lo text fit
@@ -1229,6 +1229,21 @@ def _overlay(ax, scale=0.25):
     ax.vb.sigResized.connect(updateView)
     overlay_axs.append(axo)
     return axo
+
+
+def _update_significants(ax, datasrc, force):
+    # check if no epsilon set yet
+    default_dec = 0.99 < ax.significant_decimals/significant_decimals < 1.01
+    default_eps = 0.99 < ax.significant_eps/significant_eps < 1.01
+    if force or (default_dec and default_eps):
+        try:
+            sd,se = datasrc.calc_significant_decimals()
+            if default_dec or sd > ax.significant_decimals:
+                ax.significant_decimals = sd
+            if default_eps or se < ax.significant_eps:
+                ax.significant_eps = se
+        except:
+            pass # datasrc probably full av NaNs
 
 
 def _is_standalone(timeser):
