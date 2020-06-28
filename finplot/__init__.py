@@ -1577,7 +1577,8 @@ def _clamp_xy(ax, x, y):
     if clamp_grid:
         x = round(x)
         eps = ax.significant_eps
-        y -= fmod(y+eps*0.5, eps) - eps*0.5
+        eps2 = np.sign(y) * 0.5 * eps
+        y -= fmod(y+eps2, eps) - eps2
     y = ax.vb.yscale.invxform(y, verify=True)
     return x, y
 
