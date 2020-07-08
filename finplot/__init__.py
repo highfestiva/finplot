@@ -41,11 +41,13 @@ draw_line_color = '#000000'
 draw_done_color = '#555555'
 significant_decimals = 8
 significant_eps = 1e-8
-max_zoom_points = 20 # number of visible candles at maximum zoom
+max_zoom_points = 20 # number of visible candles when maximum zoomed in
 top_graph_scale = 2
 clamp_grid = True
+right_margin_candles = 5 # whitespace at the right-hand side
 lod_candles = 3000
 lod_labels = 700
+cache_candle_factor = 3 # factor extra candles rendered to buffer
 y_label_width = 65
 
 windows = [] # no gc
@@ -154,6 +156,10 @@ class PandasDataSource:
         col = self.df.columns[self.col_data_offset+1]
         return self.df[col]
 
+    @property
+    def xlen(self):
+        return len(self.df)+right_margin_candles
+
     def calc_significant_decimals(self):
         absdiff = self.y.diff().abs()
         absdiff[absdiff<1e-30] = 1e30
@@ -164,8 +170,8 @@ class PandasDataSource:
         return decimals, smallest_diff
 
     def update_init_x(self, init_steps):
-        self.init_x0 = max(len(self.df)-init_steps, 0) - 0.5
-        self.init_x1 = len(self.df) - 0.5
+        self.init_x0 = max(self.xlen-init_steps, 0) - 0.5
+        self.init_x1 = self.xlen - 0.5
 
     def closest_time(self, x):
         timecol = self.df.columns[0]
@@ -213,7 +219,7 @@ class PandasDataSource:
                 data[col] = df[col]
         data = data.reset_index()
         self.df = data[orig_cols]
-        self.init_x1 = len(self.df) - 0.5
+        self.init_x1 = self.xlen - 0.5
 
     def hilo(self, x0, x1):
         '''Return five values in time range: t0, t1, highest, lowest, number of rows.'''
@@ -609,7 +615,7 @@ class FinViewBox(pg.ViewBox):
         tr = self.targetRect()
         x1 = tr.right() + steps
         startx = -0.5
-        endx = len(self.datasrc.x) - 0.5
+        endx = self.datasrc.xlen - 0.5
         if x1 > endx:
             x1 = endx
         x0 = x1 - tr.width()
@@ -636,7 +642,7 @@ class FinViewBox(pg.ViewBox):
             x1 = tr.right()
         # make edges rigid
         xl = max(round(x0-0.5)+0.5, -0.5)
-        xr = min(round(x1-0.5)+0.5, len(self.datasrc.df)-0.5)
+        xr = min(round(x1-0.5)+0.5, self.datasrc.xlen-0.5)
         dxl = xl-x0
         dxr = xr-x1
         if dxl > 0:
@@ -644,7 +650,7 @@ class FinViewBox(pg.ViewBox):
         if dxr < 0:
             x0 += dxr
         x0 = max(round(x0-0.5)+0.5, -0.5)
-        x1 = min(round(x1-0.5)+0.5, len(self.datasrc.df)-0.5)
+        x1 = min(round(x1-0.5)+0.5, self.datasrc.xlen-0.5)
         # fetch hi-lo and set range
         t0,t1,hi,lo,cnt = self.datasrc.hilo(x0, x1)
         if cnt < max_zoom_points:
@@ -739,12 +745,12 @@ class FinPlotItem(pg.GraphicsObject):
         if self.dirty or \
             visibleRect.left() < self.cachedRect.left() or \
             visibleRect.right() > self.cachedRect.right() or \
-            visibleRect.width() < self.cachedRect.width() / 3: # optimize when zooming in
+            visibleRect.width() < self.cachedRect.width() / cache_candle_factor: # optimize when zooming in
             self._generate_picture(visibleRect)
 
     def _generate_picture(self, boundingRect):
         w = boundingRect.width()
-        self.cachedRect = QtCore.QRectF(boundingRect.left()-w, 0, 3*w, 0)
+        self.cachedRect = QtCore.QRectF(boundingRect.left()-w, 0, cache_candle_factor*w, 0)
         self.generate_picture(self.cachedRect)
         self.dirty = False
 
@@ -862,8 +868,8 @@ def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=T
         win.showMaximized()
     # normally first graph is of higher significance, so enlarge
     win.ci.layout.setRowStretchFactor(0, top_graph_scale)
-    win.ci.setContentsMargins(0, 0, 0 ,0)
-    win.ci.setSpacing(0)
+    win.ci.setContentsMargins(0, 0, 0, 0)
+    win.ci.setSpacing(-1)
     axs = []
     prev_ax = None
     for n in range(rows):
@@ -1150,6 +1156,8 @@ def _loadwindata(win):
             period = ds.period
             if kvs['min_x'] >= ds.x.iloc[0]-period and kvs['max_x'] <= ds.x.iloc[-1]+period:
                 x0,x1 = ds.x.loc[ds.x>=kvs['min_x']].index[0], ds.x.loc[ds.x<=kvs['max_x']].index[-1]
+                if x1 == len(ds.x)-1:
+                    x1 += right_margin_candles
                 vb.update_y_zoom(x0, x1)
     return True
 
@@ -1329,7 +1337,7 @@ def _update_data(adjustfunc, item, ds):
     x0 = x1 - tr.width()
     for ax in item.ax.vb.win.ci.items:
         ax.setLimits(xMin=x_min, xMax=x1)
-    if tr.right() >= x1-5:
+    if tr.right() >= x1 - 5 - 2*right_margin_candles:
         for ax in item.ax.vb.win.ci.items:
             ax.vb.update_y_zoom(x0, x1)
     for ax in item.ax.vb.win.ci.items:
@@ -1357,8 +1365,9 @@ def _set_plot_x_axis_leader(ax):
 
 def _set_x_limits(ax, datasrc):
     x0 = -0.5
-    ax.setLimits(xMin=x0, xMax=datasrc.init_x1)
-    return x0, datasrc.init_x1
+    x1 = datasrc.init_x1 + right_margin_candles # add another margin to get the "snap back" sensation
+    ax.setLimits(xMin=x0, xMax=x1)
+    return x0, x1
 
 
 def _repaint_candles():
