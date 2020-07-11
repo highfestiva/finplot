@@ -348,7 +348,7 @@ class FinCrossHair:
         close2bottom = linear_y < far_bottom
         try:
             for info in self.infos:
-                xtext,ytext = info(self.ax,x,y,xtext,ytext)
+                xtext,ytext = info(x,y,xtext,ytext)
         except Exception as e:
             print(e)
         space = '      '

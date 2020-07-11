@@ -40,7 +40,7 @@ def update_legend_text(x, y):
     rawtxt = '<span style="font-size:13px">%%s %%s</span> &nbsp; O%s C%s H%s L%s' % (fmt, fmt, fmt, fmt)
     hover_label.setText(rawtxt % (symbol, interval.upper(), row.Open, row.Close, row.High, row.Low))
 
-def update_crosshair_text(ax, x, y, xtext, ytext):
+def update_crosshair_text(x, y, xtext, ytext):
     ytext = '%s (Close%+.2f)' % (ytext, (y - df.iloc[x].Close))
     return xtext, ytext
 
