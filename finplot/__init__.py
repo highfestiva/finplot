@@ -114,7 +114,7 @@ class PandasDataSource:
        Volume bars: create with three columns: time, open, close, volume - in that order.
        For all other types, time needs to be first, usually followed by one or more Y-columns.'''
     def __init__(self, df):
-        if type(df.index) == pd.DatetimeIndex:
+        if type(df.index) == pd.DatetimeIndex or df.index[0]>1e10:
             df = df.reset_index()
         self.df = df.copy()
         # manage time column
@@ -962,9 +962,8 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
     if not zoomscale:
         datasrc.scale_cols = []
     _set_datasrc(ax, datasrc)
-    if legend is not None and ax.legend is None:
-        ax.legend = FinLegendItem(border_color=legend_border_color, fill_color=legend_fill_color, size=None, offset=(3,2))
-        ax.legend.setParentItem(ax.vb)
+    if legend is not None:
+        _create_legend(ax)
     y = datasrc.y / ax.vb.yscale.scalef
     if style is None or style=='-':
         connect_dots = 'finite' # same as matplotlib; use datasrc.standalone=True if you want to keep separate intervals on a plot
@@ -985,8 +984,9 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
     item.update_data = partial(_update_data, None, item)
     if ax.legend is not None:
         for _,label in ax.legend.items:
-            label.setAttr('justify', 'left')
-            label.setText(label.text, color=legend_text_color)
+            if label.text == legend:
+                label.setAttr('justify', 'left')
+                label.setText(label.text, color=legend_text_color)
     return item
 
 
@@ -1003,6 +1003,15 @@ def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
     if ax.vb.v_zoom_scale > 0.9: # adjust to make hi/lo text fit
         ax.vb.v_zoom_scale = 0.9
     return item
+
+
+def add_legend(text, ax=None):
+    ax = _create_plot(ax=ax, maximize=False)
+    _create_legend(ax)
+    row = ax.legend.layout.rowCount()
+    label = pg.LabelItem(text, color=legend_text_color, justify='left')
+    ax.legend.layout.addItem(label, row, 0, 1, 2)
+    return label
 
 
 def fill_between(plot0, plot1, color=None):
@@ -1080,11 +1089,14 @@ def remove_text(text):
     text.ax.removeItem(text)
 
 
-def set_time_inspector(inspector, ax=None):
-    '''Callback when clicked like so: inspector().'''
+def set_time_inspector(inspector, ax=None, when='click'):
+    '''Callback when clicked like so: inspector(x, y).'''
     ax = ax if ax else last_ax
     win = ax.vb.win
-    win.proxy_click = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_time_clicked, ax, inspector))
+    if when == 'hover':
+        win.proxy_hover = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=15, slot=partial(_inspect_pos, ax, inspector))
+    else:
+        win.proxy_click = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, inspector))
 
 
 def add_crosshair_info(infofunc, ax=None):
@@ -1237,6 +1249,12 @@ def _overlay(ax, scale=0.25):
     ax.vb.sigResized.connect(updateView)
     overlay_axs.append(axo)
     return axo
+
+
+def _create_legend(ax):
+    if ax.legend is None:
+        ax.legend = FinLegendItem(border_color=legend_border_color, fill_color=legend_fill_color, size=None, offset=(3,2))
+        ax.legend.setParentItem(ax.vb)
 
 
 def _update_significants(ax, datasrc, force):
@@ -1451,14 +1469,24 @@ def _wheel_event_wrapper(self, orig_func, ev):
     orig_func(self, ev)
 
 
-def _time_clicked(ax, inspector, evs):
+def _inspect_clicked(ax, inspector, evs):
     if evs[-1].accepted:
         return
     pos = evs[-1].scenePos()
-    point = ax.vb.mapSceneToView(pos)
+    return _inspect_pos(ax, inspector, (pos,))
+
+
+def _inspect_pos(ax, inspector, poss):
+    point = ax.vb.mapSceneToView(poss[-1])
     t = point.x() + 0.5
-    t = ax.vb.datasrc.closest_time(t)
-    inspector(t, point.y())
+    try:
+        t = ax.vb.datasrc.closest_time(t)
+    except KeyError: # when clicking beyond right_margin_candles
+        return
+    try:
+        inspector(t, point.y())
+    except Exception as e:
+        print(type(e), e)
 
 
 def brighten(color, f):
