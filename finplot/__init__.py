@@ -346,31 +346,31 @@ class FinCrossHair:
         far_bottom = self.ax.viewRect().y() + self.ax.viewRect().height()*0.1
         close2right = x > far_right
         close2bottom = linear_y < far_bottom
+        try:
+            for info in self.infos:
+                xtext,ytext = info(self.ax,x,y,xtext,ytext)
+        except Exception as e:
+            print(e)
         space = '      '
         if close2right:
-            rxtext = xtext + space
-            rytext = ytext + space
+            xtext = xtext + space
+            ytext = ytext + space
             xanchor = [1,1]
             yanchor = [1,0]
         else:
-            rxtext = space + xtext
-            rytext = space + ytext
+            xtext = space + xtext
+            ytext = space + ytext
             xanchor = [0,1]
             yanchor = [0,0]
         if close2bottom:
-            rytext = ytext + space
+            ytext = ytext + space
             yanchor = [1,1]
             if close2right:
                 xanchor = [1,2]
         self.xtext.setAnchor(xanchor)
         self.ytext.setAnchor(yanchor)
-        try:
-            for info in self.infos:
-                rxtext,rytext = info(self.ax,x,y,rxtext,rytext)
-        except Exception as e:
-            print(e)
-        self.xtext.setText(rxtext)
-        self.ytext.setText(rytext)
+        self.xtext.setText(xtext)
+        self.ytext.setText(ytext)
 
 
 

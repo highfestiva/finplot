@@ -33,18 +33,18 @@ fplt.volume_ocv(df[['Date','Open','Close','macd_diff']], ax=ax2, colorfunc=fplt.
 fplt.plot(macd, ax=ax2, legend='MACD')
 fplt.plot(signal, ax=ax2, legend='Signal')
 
-def hover(x, y):
+def update_legend_text(x, y):
     row = df.loc[df.Date==x]
     # format html with the candle and set legend
     fmt = '<span style="color:#%s">%%.2f</span>' % ('0b0' if (row.Open<row.Close).all() else 'a00')
     rawtxt = '<span style="font-size:13px">%%s %%s</span> &nbsp; O%s C%s H%s L%s' % (fmt, fmt, fmt, fmt)
     hover_label.setText(rawtxt % (symbol, interval.upper(), row.Open, row.Close, row.High, row.Low))
 
-def crosshair_text(ax, x, y, xtext, ytext):
-    ytext = '%s (%+.2f)' % (ytext, (y - df.iloc[x].Close))
+def update_crosshair_text(ax, x, y, xtext, ytext):
+    ytext = '%s (Close%+.2f)' % (ytext, (y - df.iloc[x].Close))
     return xtext, ytext
 
-fplt.set_time_inspector(hover, ax=ax, when='hover')
-fplt.add_crosshair_info(crosshair_text, ax=ax)
+fplt.set_time_inspector(update_legend_text, ax=ax, when='hover')
+fplt.add_crosshair_info(update_crosshair_text, ax=ax)
 
 fplt.show()
