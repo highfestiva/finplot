@@ -1100,7 +1100,7 @@ def set_time_inspector(inspector, ax=None, when='click'):
 
 
 def add_crosshair_info(infofunc, ax=None):
-    '''Callback when crosshair updated like so: info(x,y,xtext,ytext); the info()
+    '''Callback when crosshair updated like so: info(ax,x,y,xtext,ytext); the info()
        callback must return two values: xtext and ytext.'''
     ax = _create_plot(ax=ax, maximize=False)
     ax.crosshair.infos.append(infofunc)
