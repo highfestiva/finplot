@@ -1300,6 +1300,7 @@ def _create_datasrc(ax, *args, datacols=1):
         # assume time data has already been added before
         for a in ax.vb.win.ci.items:
             if a.vb.datasrc and len(a.vb.datasrc.df.columns) >= 2:
+                datasrc.df.columns = a.vb.datasrc.df.columns[1:len(datasrc.df.columns)+1]
                 col = a.vb.datasrc.df.columns[0]
                 datasrc.df.insert(0, col, a.vb.datasrc.df[col])
                 datasrc = PandasDataSource(datasrc.df)
