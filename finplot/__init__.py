@@ -1566,8 +1566,6 @@ def _epoch2local(datasrc, x):
             s = datetime.fromtimestamp(t/1000).isoformat().replace('T',' ')
             if epoch_period >= 24*60*60:
                 i = s.index(' ')
-            elif epoch_period >= 60*60:
-                i = s.index(':')
             elif epoch_period >= 60:
                 i = s.rindex(':')
             elif epoch_period >= 1:

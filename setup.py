@@ -6,7 +6,7 @@ with open('README.md', 'r') as fh:
 
 setuptools.setup(
     name='finplot',
-    version='0.8.0',
+    version='0.9.0',
     author='Jonas Byström',
     author_email='highfestiva@gmail.com',
     description='Finance plotting',
