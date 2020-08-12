@@ -27,6 +27,7 @@ legend_fill_color   = '#00000055'
 legend_text_color   = '#dddddd66'
 soft_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 hard_colors = ['#000000', '#772211', '#000066', '#555555', '#0022cc', '#ffcc00']
+cmap_clash = pg.ColorMap([0.0, 0.2, 0.6, 1.0], [[0.5,0.5,1.0,0.2], [0.0,0.0,0.5,0.2], [1.0,0.2,0.4,0.2], [1.0,0.7,0.3,0.2]])
 foreground = '#000000'
 background = '#ffffff'
 hollow_brush_color = background
@@ -725,13 +726,14 @@ class FinViewBox(pg.ViewBox):
 
 
 class FinPlotItem(pg.GraphicsObject):
-    def __init__(self, ax, datasrc):
+    def __init__(self, ax, datasrc, lod):
         super().__init__()
         self.ax = ax
         self.datasrc = datasrc
         self.picture = QtGui.QPicture()
         self.painter = QtGui.QPainter()
         self.dirty = True
+        self.lod = lod
 
     def repaint(self):
         self.dirty = True
@@ -743,9 +745,10 @@ class FinPlotItem(pg.GraphicsObject):
 
     def update_dirty_picture(self, visibleRect):
         if self.dirty or \
-            visibleRect.left() < self.cachedRect.left() or \
-            visibleRect.right() > self.cachedRect.right() or \
-            visibleRect.width() < self.cachedRect.width() / cache_candle_factor: # optimize when zooming in
+            (self.lod and # regenerate when zoom changes?
+                (visibleRect.left() < self.cachedRect.left() or \
+                 visibleRect.right() > self.cachedRect.right() or \
+                 visibleRect.width() < self.cachedRect.width() / cache_candle_factor)): # optimize when zooming in
             self._generate_picture(visibleRect)
 
     def _generate_picture(self, boundingRect):
@@ -778,7 +781,7 @@ class CandlestickItem(FinPlotItem):
         self.candle_width = candle_width
         self.colorfunc = colorfunc
         self.x_offset = 0
-        super().__init__(ax, datasrc)
+        super().__init__(ax, datasrc, lod=True)
 
     def generate_picture(self, boundingRect):
         w = self.candle_width
@@ -809,13 +812,47 @@ class CandlestickItem(FinPlotItem):
         return [self.colors[prefix+'_shadow'], self.colors[prefix+'_frame'], self.colors[prefix+'_body']]
 
 
+
+class HeatmapItem(FinPlotItem):
+    def __init__(self, ax, datasrc, rect_size=0.9, filter_limit=0, cmap=cmap_clash, whiteout=0.0, ccurve=lambda x:pow(x,4)):
+        self.rect_size = rect_size
+        self.filter_limit = filter_limit
+        self.cmap = cmap
+        self.whiteout = whiteout
+        self.ccurve = ccurve
+        self.col_data_end = len(datasrc.df.columns)
+        super().__init__(ax, datasrc, lod=False)
+
+    def generate_picture(self, boundingRect):
+        prices = self.datasrc.df.columns[self.datasrc.col_data_offset:self.col_data_end]
+        delta_price = (prices[0] - prices[1]) * self.rect_size
+        rect_size2 = 0.5 * self.rect_size
+        df = self.datasrc.df.iloc[:, self.datasrc.col_data_offset:self.col_data_end]
+        values = df.values
+        # normalize
+        values += np.nanmin(values)
+        values /= np.nanmax(values) / (1+self.whiteout) # overshoot for coloring
+        lim = self.filter_limit * (1+self.whiteout)
+        p = self.painter
+        p.begin(self.picture)
+        for t,row in enumerate(values):
+            for ci,price in enumerate(prices):
+                v = row[ci]
+                if v >= lim:
+                    v = 1 - self.ccurve(1 - (v-lim)/(1-lim))
+                    color = self.cmap.map(v, mode='qcolor')
+                    p.fillRect(QtCore.QRectF(t-rect_size2, price, self.rect_size, delta_price), color)
+        p.end()
+
+
+
 class ScatterLabelItem(FinPlotItem):
     def __init__(self, ax, datasrc, color, anchor):
         self.color = color
         self.text_items = {}
         self.anchor = anchor
         self.show = False
-        super().__init__(ax, datasrc)
+        super().__init__(ax, datasrc, lod=True)
 
     def generate_picture(self, bounding_rect):
         rows = self.getrows(bounding_rect)
@@ -857,6 +894,7 @@ class ScatterLabelItem(FinPlotItem):
 
     def boundingRect(self):
         return self.viewRect()
+
 
 
 def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=True, yscale='linear'):
@@ -952,6 +990,21 @@ def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter)
     item.update_data = partial(_update_data, _adjust_volume_datasrc, item)
     ax.addItem(item)
     item.setZValue(-1)
+    return item
+
+
+def heatmap(datasrc, ax=None, **kwargs):
+    '''Expensive function. Only use on small data sets. See HeatmapItem for kwargs.'''
+    ax = _create_plot(ax=ax, maximize=False)
+    if ax.vb.v_zoom_scale >= 0.9:
+        ax.vb.v_zoom_scale = 0.6
+    datasrc = _create_datasrc(ax, datasrc)
+    datasrc.scale_cols = [] # doesn't scale
+    _set_datasrc(ax, datasrc)
+    item = HeatmapItem(ax=ax, datasrc=datasrc, **kwargs)
+    item.update_data = partial(_update_data, None, item)
+    item.setZValue(-2)
+    ax.addItem(item)
     return item
 
 
