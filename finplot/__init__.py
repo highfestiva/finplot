@@ -35,8 +35,10 @@ candle_bull_color = '#26a69a'
 candle_bear_color = '#ef5350'
 volume_bull_color = '#92d2cc'
 volume_bear_color = '#f7a9a7'
+volume_neutral_color = '#b0b0b0'
+poc_color = '#000060'
 odd_plot_background = '#f0f0f0'
-band_color = '#ddbbaa'
+band_color = '#d2dfe6'
 cross_hair_color = '#00000077'
 draw_line_color = '#000000'
 draw_done_color = '#555555'
@@ -830,7 +832,7 @@ class HeatmapItem(FinPlotItem):
         df = self.datasrc.df.iloc[:, self.datasrc.col_data_offset:self.col_data_end]
         values = df.values
         # normalize
-        values += np.nanmin(values)
+        values -= np.nanmin(values)
         values /= np.nanmax(values) / (1+self.whiteout) # overshoot for coloring
         lim = self.filter_limit * (1+self.whiteout)
         p = self.painter
@@ -842,6 +844,82 @@ class HeatmapItem(FinPlotItem):
                     v = 1 - self.ccurve(1 - (v-lim)/(1-lim))
                     color = self.cmap.map(v, mode='qcolor')
                     p.fillRect(QtCore.QRectF(t-rect_size2, price, self.rect_size, delta_price), color)
+        p.end()
+
+
+
+class HorizontalTimeVolumeItem(FinPlotItem):
+    def __init__(self, ax, datasrc, rect_height=0.8, draw_va=0.7, draw_body=0.4, draw_poc=1.0):
+        self.rect_height = rect_height
+        self.draw_va = draw_va
+        self.draw_body = draw_body
+        self.draw_poc = draw_poc
+        self.col_data_end = len(datasrc.df.columns)
+        super().__init__(ax, datasrc, lod=False)
+
+    def generate_picture(self, boundingRect):
+        vals = self.datasrc.df.values.T
+        times = self.datasrc.df.iloc[:, 0]
+        prices = vals[self.datasrc.col_data_offset:self.col_data_end:2].T
+        volumes = vals[self.datasrc.col_data_offset+1:self.col_data_end:2]
+        # normalize
+        try:
+            f = self.datasrc.period / _get_datasrc(self.ax).period
+            times = _pdtime2index(self.ax, times)
+        except AssertionError:
+            f = 1
+            times = None
+        binc = len(volumes)
+        volumes = (volumes * f / np.nanmax(volumes, axis=0)).T
+        p = self.painter
+        p.begin(self.picture)
+        p.setPen(pg.mkPen(poc_color, width=1))
+        h = 1e-10
+        for i in self.datasrc.df.index:
+            prcr = prices[i]
+            prv = prcr[~np.isnan(prcr)]
+            if len(prv) > 1:
+                h = np.diff(prv).min()
+            t = times[i] if times else i
+            volr = np.nan_to_num(volumes[i])
+
+            # calc poc
+            pocidx = np.nanargmax(volr)
+
+            # draw value area
+            if self.draw_va:
+                volrs = volr / np.nansum(volr)
+                v = volrs[pocidx]
+                a = b = pocidx
+                while a>=0 or b<binc:
+                    if v >= self.draw_va:
+                        break
+                    aa = a - 1
+                    bb = b + 1
+                    va = volrs[aa] if aa>=0 else 0
+                    vb = volrs[bb] if bb<binc else 0
+                    if va >= vb: # NOTE both == is also ok
+                        a = max(0, aa)
+                        v += va
+                    if va <= vb: # NOTE both == is also ok
+                        b = min(binc-1, bb)
+                        v += vb
+                color = pg.mkColor(band_color)
+                p.fillRect(QtCore.QRectF(t, prcr[a], f, prcr[b]-prcr[a]+h), color)
+
+            # draw horizontal bars
+            if self.draw_body:
+                h0 = h * (1-self.rect_height)/2
+                h1 = h * self.rect_height
+                color = pg.mkColor(volume_neutral_color)
+                for w,y in zip(volr, prcr):
+                    if abs(w) > 0:
+                        p.fillRect(QtCore.QRectF(t, y+h0, w*self.draw_body, h1), color)
+
+            # draw poc line
+            if self.draw_poc:
+                y = prcr[pocidx] + h / 2
+                p.drawLine(QtCore.QPointF(t, y), QtCore.QPointF(t+f*self.draw_poc, y))
         p.end()
 
 
@@ -989,7 +1067,50 @@ def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter)
         item.colors['weak_bull_body']  = brighten(volume_bull_color, 1.2)
     item.update_data = partial(_update_data, _adjust_volume_datasrc, item)
     ax.addItem(item)
-    item.setZValue(-1)
+    item.setZValue(-20)
+    return item
+
+
+def horiz_time_volume(datasrc, ax=None, **kwargs):
+    '''Draws multiple fixed horizontal volumes. The input format is:
+       [[time0, [(price0,volume0),(price1,volume1),...]], ...]
+
+       This chart needs to be plot last, so it knows if it controls
+       what time periods are shown, or if its using time already in
+       place by another plot.'''
+    # update handling default if necessary
+    global max_zoom_points, right_margin_candles
+    if max_zoom_points > 15:
+        max_zoom_points = 4
+    if right_margin_candles > 3:
+        right_margin_candles = 1
+
+    ax = _create_plot(ax=ax, maximize=False)
+
+    # create a dataframe from the input array
+    times = [t for t,row in datasrc]
+    data = [[e for v in row for e in v] for t,row in datasrc]
+    maxcols = max(len(row) for row in data)
+    df = pd.DataFrame(columns=range(maxcols), data=data, index=times)
+    datasrc = _create_datasrc(ax, df)
+    # to be able to scale properly, move the last two values to the last two columns
+    values = datasrc.df.iloc[:, 1:].values
+    for i,orow in enumerate(data):
+        nrow = values[i]
+        if len(nrow) == len(orow) or len(orow) <= 2:
+            continue
+        nrow[-2:] = orow[-2:]
+        nrow[len(orow)-2:len(orow)] = np.nan
+    datasrc.df.iloc[:, 1:] = values
+
+    if ax.vb.datasrc is not None:
+        datasrc.standalone = True # only standalone if there is something on our charts already
+    datasrc.scale_cols = [datasrc.col_data_offset, len(datasrc.df.columns)-2] # first and last price columns
+    _set_datasrc(ax, datasrc)
+    item = HorizontalTimeVolumeItem(ax=ax, datasrc=datasrc, **kwargs)
+    ## item.update_data = partial(_update_data, None, item)
+    item.setZValue(-10)
+    ax.addItem(item)
     return item
 
 
@@ -1003,7 +1124,7 @@ def heatmap(datasrc, ax=None, **kwargs):
     _set_datasrc(ax, datasrc)
     item = HeatmapItem(ax=ax, datasrc=datasrc, **kwargs)
     item.update_data = partial(_update_data, None, item)
-    item.setZValue(-2)
+    item.setZValue(-30)
     ax.addItem(item)
     return item
 
@@ -1018,9 +1139,9 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
     if legend is not None:
         _create_legend(ax)
     y = datasrc.y / ax.vb.yscale.scalef
-    if style is None or style=='-':
+    if style is None or any(ch in style for ch in '-_.'):
         connect_dots = 'finite' # same as matplotlib; use datasrc.standalone=True if you want to keep separate intervals on a plot
-        item = ax.plot(datasrc.index, y, pen=pg.mkPen(used_color, width=width), name=legend, connect=connect_dots)
+        item = ax.plot(datasrc.index, y, pen=_makepen(color=used_color, style=style, width=width), name=legend, connect=connect_dots)
     else:
         symbol = {'v':'t', '^':'t1', '>':'t2', '<':'t3'}.get(style, style) # translate some similar styles
         ser = y.loc[y.notnull()]
@@ -1045,11 +1166,11 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
 
 def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
     ax = _create_plot(ax=ax, maximize=False)
-    color = _get_color(ax, None, color) if color is not None else '#000000'
+    used_color = _get_color(ax, '?', color)
     datasrc = _create_datasrc(ax, x, y, labels)
     datasrc.scale_cols = [] # don't use this for scaling
     _set_datasrc(ax, datasrc)
-    item = ScatterLabelItem(ax=ax, datasrc=datasrc, color=color, anchor=anchor)
+    item = ScatterLabelItem(ax=ax, datasrc=datasrc, color=used_color, anchor=anchor)
     _update_significants(ax, datasrc, force=False)
     item.update_data = partial(_update_data, None, item)
     ax.addItem(item)
@@ -1100,7 +1221,7 @@ def add_band(y0, y1, color=band_color, ax=None):
     lr = pg.LinearRegionItem([y0,y1], orientation=pg.LinearRegionItem.Horizontal, brush=pg.mkBrush(color), movable=False)
     lr.lines[0].setPen(pg.mkPen(None))
     lr.lines[1].setPen(pg.mkPen(None))
-    lr.setZValue(-10)
+    lr.setZValue(-50)
     ax.addItem(lr)
 
 
@@ -1553,7 +1674,7 @@ def _get_color(ax, style, wanted_color):
     if type(wanted_color) == str:
         return wanted_color
     index = wanted_color if type(wanted_color) == int else None
-    if style is None or style=='-':
+    if style is None or any(ch in style for ch in '-_.'):
         if index is None:
             index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and not i.opts['symbol'] and not i.opts['handed_color']])
         return soft_colors[index%len(soft_colors)]
@@ -1729,6 +1850,23 @@ def _draw_line_extra_text(polyline, segment, pos0, pos1):
             return ' = 1:%.2f ' % change_part
         prev_text = text
     return ''
+
+
+def _makepen(color, style=None, width=1):
+    if style is None or style == '-':
+        return pg.mkPen(color=color, width=width)
+    dash = []
+    for ch in style:
+        if ch == '-':
+            dash += [4,2]
+        elif ch == '_':
+            dash += [10,2]
+        elif ch == '.':
+            dash += [1,2]
+        elif ch == ' ':
+            if dash:
+                dash[-1] += 2
+    return pg.mkPen(color=color, style=QtCore.Qt.CustomDashLine, dash=dash, width=width)
 
 
 try:

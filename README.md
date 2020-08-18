@@ -13,7 +13,7 @@ And best of all: it can show hundreds of thousands of datapoints without batting
 * Works with both stocks as well as cryptocurrencies on any time resolution
 * Show as many charts as you want on the same time axis, zoom on all of them at once
 * Auto-reload position where you were looking last run
-* Overlays, fill between, value bands, symbols, labels, legend, heatmaps, etc.
+* Overlays, fill between, value bands, symbols, labels, legend, volume profile, heatmaps, etc.
 * Can show real-time updates.
 
 ![feature1](https://raw.githubusercontent.com/highfestiva/finplot/master/feature1.jpg)

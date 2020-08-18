@@ -20,6 +20,7 @@ df['Date'] = pd.to_datetime(df['Date']).astype('int64') // 1_000_000 # use finpl
 # plot candles
 ax,ax2 = fplt.create_plot('S&P 500 MACD', rows=2)
 fplt.candlestick_ochl(df[['Date','Open','Close','High','Low']], ax=ax)
+
 hover_label = fplt.add_legend('', ax=ax)
 axo = ax.overlay()
 fplt.volume_ocv(df[['Date','Open','Close','Volume']], ax=axo)
@@ -32,6 +33,9 @@ df['macd_diff'] = macd - signal
 fplt.volume_ocv(df[['Date','Open','Close','macd_diff']], ax=ax2, colorfunc=fplt.strength_colorfilter)
 fplt.plot(macd, ax=ax2, legend='MACD')
 fplt.plot(signal, ax=ax2, legend='Signal')
+
+#######################################################
+## update crosshair and legend when moving the mouse ##
 
 def update_legend_text(x, y):
     row = df.loc[df.Date==x]
