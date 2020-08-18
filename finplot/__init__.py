@@ -1676,10 +1676,10 @@ def _get_color(ax, style, wanted_color):
     index = wanted_color if type(wanted_color) == int else None
     if style is None or any(ch in style for ch in '-_.'):
         if index is None:
-            index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and not i.opts['symbol'] and not i.opts['handed_color']])
+            index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and not i.opts['handed_color']])
         return soft_colors[index%len(soft_colors)]
     if index is None:
-        index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and i.opts['symbol'] and not i.opts['handed_color']])
+        index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and not i.opts['handed_color']])
     return hard_colors[index%len(hard_colors)]
 
 
