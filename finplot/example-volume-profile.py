@@ -11,7 +11,7 @@ import requests
 utc2timestamp = lambda s: int(dateutil.parser.parse(s).replace(tzinfo=pytz.utc).timestamp() * 1000)
 
 
-def download_price_history(symbol='BTCUSDT', start_time='2020-06-22', end_time='2020-08-18', interval_mins=1):
+def download_price_history(symbol='BTCUSDT', start_time='2020-06-22', end_time='2020-08-19', interval_mins=1):
     interval_ms = 1000*60*interval_mins
     interval_str = '%sm'%interval_mins if interval_mins<60 else '%sh'%(interval_mins//60)
     start_time = utc2timestamp(start_time)
@@ -49,7 +49,7 @@ def calc_volume_profile(df, period, bins):
 
 
 def calc_vwap(period):
-    vwap = pd.Series()
+    vwap = pd.Series ([], dtype = 'float64')
     df['hlc3v'] = df['hlc3'] * df.volume
     for _,g in df.groupby(pd.Grouper(key='time', freq=period)):
         i0,i1 = g.index[0],g.index[-1]
