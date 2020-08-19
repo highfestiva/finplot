@@ -29,7 +29,7 @@ def download_price_history(symbol='BTCUSDT', start_time='2020-06-22', end_time='
     return df.astype({'time':'datetime64[ms]', 'open':float, 'high':float, 'low':float, 'close':float, 'volume':float})
 
 
-def calc_market_profile(df, period, bins):
+def calc_volume_profile(df, period, bins):
     '''Calculate a poor man's volume distribution/profile by "pinpointing" each kline volume to a certain
        price and placing them, into N buckets. (IRL volume would be something like "trade-bins" per candle.)
        The output format is a matrix, where each [period] time is a row index, and even columns contain
@@ -59,12 +59,12 @@ def calc_vwap(period):
 
 # download and calculate indicators
 df = download_price_history(interval_mins=30) # reduce to [15, 5, 1] minutes to increase accuracy
-time_market_profile = calc_market_profile(df, period='W', bins=100) # try fewer/more horizontal bars (graphical resolution only)
+time_volume_profile = calc_volume_profile(df, period='W', bins=100) # try fewer/more horizontal bars (graphical resolution only)
 vwap = calc_vwap(period='W') # try period='D'
 
 # plot
-fplt.create_plot('Binance BTC futures weekly market profile')
+fplt.create_plot('Binance BTC futures weekly volume profile')
 fplt.plot(df.time, df.close, legend='Price')
 fplt.plot(df.time, vwap, style='--', legend='VWAP')
-fplt.horiz_time_volume(time_market_profile)
+fplt.horiz_time_volume(time_volume_profile)
 fplt.show()
