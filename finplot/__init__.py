@@ -96,7 +96,8 @@ class EpochAxisItem(pg.AxisItem):
         maxVal = min(datasrc.df.index[-1], maxVal)
         y0 = int(_x2utc(datasrc, minVal)[:4])
         y1 = int(_x2utc(datasrc, maxVal)[:4])
-        years = pd.Series(pd.to_datetime(['%s'%y for y in range(y0,y1+1)]))
+        step = (y1-y0)//12 or 1
+        years = pd.Series(pd.to_datetime(['%s'%y for y in range(y0,y1+1,step)]))
         years_indices = [ceil(yi) for yi in _pdtime2index(ax, years)]
         return [(0,years_indices)]
 
@@ -1216,7 +1217,7 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
     else:
         symbol = {'v':'t', '^':'t1', '>':'t2', '<':'t3'}.get(style, style) # translate some similar styles
         ser = y.loc[y.notnull()]
-        item = ax.plot(ser.index, ser.values, pen=None, symbol=symbol, symbolPen=None, symbolSize=10, symbolBrush=pg.mkBrush(used_color), name=legend)
+        item = ax.plot(ser.index, ser.values, pen=None, symbol=symbol, symbolPen=None, symbolSize=5*width, symbolBrush=pg.mkBrush(used_color), name=legend)
         item.scatter._dopaint = item.scatter.paint
         item.scatter.paint = partial(_paint_scatter, item.scatter)
         # optimize (when having large number of points) by ignoring scatter click detection
