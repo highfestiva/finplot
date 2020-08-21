@@ -11,10 +11,11 @@ region.
 '''
 
 from ast import literal_eval
+from collections import OrderedDict
 from datetime import datetime
 from decimal import Decimal
 from functools import partial, partialmethod
-from math import floor, fmod
+from math import ceil, floor, fmod
 import numpy as np
 import os.path
 import pandas as pd
@@ -52,6 +53,8 @@ lod_candles = 3000
 lod_labels = 700
 cache_candle_factor = 3 # factor extra candles rendered to buffer
 y_label_width = 65
+long_time = 2*365*24*60*60*1000
+winx,winy = 400,300
 
 windows = [] # no gc
 timers = [] # no gc
@@ -74,7 +77,28 @@ class EpochAxisItem(pg.AxisItem):
         self.vb = vb
 
     def tickStrings(self, values, scale, spacing):
-        return [_epoch2local(self.vb.datasrc, value) for value in values]
+        conv = _x2year if self.mode=='year' else _x2local_t
+        return [conv(self.vb.datasrc, value) for value in values]
+
+    def tickValues(self, minVal, maxVal, size):
+        self.mode = 'num'
+        ax = self.vb.parent()
+        datasrc = _get_datasrc(ax)
+        if datasrc is None or not datasrc.istime():
+            return super().tickValues(minVal, maxVal, size)
+        # see if we have time
+        self.mode = 'time'
+        t0,t1,_,_,_ = datasrc.hilo(minVal, maxVal)
+        if t1-t0 <= long_time:
+            return super().tickValues(minVal, maxVal, size)
+        # year index calculation
+        self.mode = 'year'
+        maxVal = min(datasrc.df.index[-1], maxVal)
+        y0 = int(_x2utc(datasrc, minVal)[:4])
+        y1 = int(_x2utc(datasrc, maxVal)[:4])
+        years = pd.Series(pd.to_datetime(['%s'%y for y in range(y0,y1+1)]))
+        years_indices = [ceil(yi) for yi in _pdtime2index(ax, years)]
+        return [(0,years_indices)]
 
 
 
@@ -117,13 +141,16 @@ class PandasDataSource:
        Volume bars: create with three columns: time, open, close, volume - in that order.
        For all other types, time needs to be first, usually followed by one or more Y-columns.'''
     def __init__(self, df):
-        if type(df.index) == pd.DatetimeIndex or df.index[0]>1e10:
+        if type(df.index) == pd.DatetimeIndex or df.index[-1]>1e7 or '.RangeIndex' not in str(type(df.index)):
             df = df.reset_index()
         self.df = df.copy()
         # manage time column
         if _has_timecol(self.df):
             timecol = self.df.columns[0]
-            self.df[timecol] = _pdtime2epoch(df[timecol])
+            dtype = str(df[timecol].dtype)
+            isnum = ('int' in dtype or 'float' in dtype) and df[timecol].iloc[-1] < 1e7
+            if not isnum:
+                self.df[timecol] = _pdtime2epoch(df[timecol])
             self.standalone = _is_standalone(self.df[timecol])
             self.col_data_offset = 1 # no. of preceeding columns for other plots and time column
         else:
@@ -131,8 +158,7 @@ class PandasDataSource:
             self.col_data_offset = 0 # no. of preceeding columns for other plots and time column
         # setup data for joining data sources and zooming
         self.scale_cols = [i for i in range(self.col_data_offset,len(self.df.columns)) if self.df.iloc[:,i].dtype!=object]
-        self.cache_hilo_query = ''
-        self.cache_hilo_answer = None
+        self.cache_hilo = OrderedDict()
         self.renames = {}
 
     @property
@@ -164,7 +190,7 @@ class PandasDataSource:
         return len(self.df)+right_margin_candles
 
     def calc_significant_decimals(self):
-        absdiff = self.y.diff().abs()
+        absdiff = (self.z if len(self.scale_cols)>1 else self.y).diff().abs()
         absdiff[absdiff<1e-30] = 1e30
         smallest_diff = absdiff.min()
         s = '%.0e' % smallest_diff
@@ -179,6 +205,9 @@ class PandasDataSource:
     def closest_time(self, x):
         timecol = self.df.columns[0]
         return self.df.loc[int(x), timecol]
+
+    def istime(self):
+        return self.df.iloc[-1,0] > 1e7
 
     def addcols(self, datasrc):
         new_scale_cols = [c+len(self.df.columns)-datasrc.col_data_offset for c in datasrc.scale_cols]
@@ -208,8 +237,7 @@ class PandasDataSource:
         datasrc.init_x1 = self.init_x1
         datasrc.col_data_offset = orig_col_data_cnt
         datasrc.scale_cols = new_scale_cols
-        self.cache_hilo_query = ''
-        self.cache_hilo_answer = None
+        self.cache_hilo_query = OrderedDict()
 
     def update(self, datasrc):
         orig_cols = list(self.df.columns)
@@ -231,10 +259,14 @@ class PandasDataSource:
         else:
             x0,x1 = int(x0+0.5),int(x1)
         query = '%i,%i' % (x0,x1)
-        if query != self.cache_hilo_query:
-            self.cache_hilo_query = query
-            self.cache_hilo_answer = self._hilo(x0, x1)
-        return self.cache_hilo_answer
+        if query not in self.cache_hilo:
+            v = self.cache_hilo[query] = self._hilo(x0, x1)
+        else:
+            # re-insert to raise prio
+            v = self.cache_hilo[query] = self.cache_hilo.pop(query)
+        if len(self.cache_hilo) > 100: # drop if too many
+            del self.cache_hilo[next(iter(self.cache_hilo))]
+        return v
 
     def _hilo(self, x0, x1):
         df = self.df.loc[x0:x1, :]
@@ -287,10 +319,17 @@ class PlotDf(object):
 
 
 
-class FinWindow(pg.GraphicsWindow):
-    def __init__(self, title):
+class FinWindow(pg.GraphicsLayoutWidget):
+    def __init__(self, title, **kwargs):
+        global winx, winy
         self.title = title
-        super().__init__(title=title)
+        pg.mkQApp()
+        super().__init__(**kwargs)
+        self.setWindowTitle(title)
+        self.setGeometry(winx, winy, 800, 400)
+        winx += 40
+        winy += 40
+        self.show()
         self.centralWidget.installEventFilter(self)
 
     def close(self):
@@ -338,7 +377,7 @@ class FinCrossHair:
         self.hline.setPos(y)
         self.xtext.setPos(x, y)
         self.ytext.setPos(x, y)
-        xtext = _epoch2local(self.ax.vb.datasrc, x)
+        xtext = _x2local_t(self.ax.vb.datasrc, x)
         linear_y = y
         y = self.ax.vb.yscale.xform(y)
         rng = self.ax.vb.y_max - self.ax.vb.y_min
@@ -613,6 +652,8 @@ class FinViewBox(pg.ViewBox):
         self.update_y_zoom(x0, x1)
 
     def pan_x(self, steps=None, percent=None):
+        if self.datasrc is None:
+            return
         if steps is None:
             steps = int(percent/100*self.targetRect().width())
         tr = self.targetRect()
@@ -656,12 +697,12 @@ class FinViewBox(pg.ViewBox):
         x1 = min(round(x1-0.5)+0.5, self.datasrc.xlen-0.5)
         # fetch hi-lo and set range
         t0,t1,hi,lo,cnt = self.datasrc.hilo(x0, x1)
-        if cnt < max_zoom_points:
+        vr = self.viewRect()
+        if cnt < vr.width() and cnt < max_zoom_points:
             return
         if not self.v_autozoom:
-            tr = self.viewRect()
-            hi = tr.bottom()
-            lo = tr.top()
+            hi = vr.bottom()
+            lo = vr.top()
         if self.yscale.scaletype == 'log':
             lo = max(1e-100, lo)
             rng = (hi / lo) ** (1/self.v_zoom_scale)
@@ -1129,6 +1170,36 @@ def heatmap(datasrc, ax=None, **kwargs):
     return item
 
 
+def bar(x, y=None, ax=None):
+    '''Use volume_ocv() if you want a bar plot which relates to other time plots.'''
+    global right_margin_candles, max_zoom_points
+    right_margin_candles = 0
+    max_zoom_points = min(max_zoom_points, 8)
+    ax = _create_plot(ax=ax, maximize=False)
+    datasrc = _create_datasrc(ax, x, y)
+    _adjust_bar_datasrc(datasrc, order_cols=False) # don't rearrange columns, done for us in volume_ocv()
+    ax.setXLink(None)
+    if ax.prev_ax:
+        ax.prev_ax.showAxis('bottom')
+    item = volume_ocv(datasrc, ax=ax, colorfunc=strength_colorfilter)
+    item.update_data = partial(_update_data, _adjust_bar_datasrc, item)
+    _pre_process_data(ax.vb)
+    if ax.vb.y_min >= 0:
+        ax.vb.v_zoom_baseline = 0
+    ax.vb.update_y_zoom(0, len(datasrc.df))
+    return item
+
+
+def hist(x, bins, ax=None):
+    hist_data = pd.cut(x, bins=bins).value_counts()
+    data = [(i.mid,0,hist_data.loc[i],hist_data.loc[i]) for i in sorted(hist_data.index)]
+    df = pd.DataFrame(data, columns=['x','_op_','_cl_','bin'])
+    df.set_index('x', inplace=True)
+    item = bar(df, ax=ax)
+    del item.update_data
+    return item
+
+
 def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True):
     ax = _create_plot(ax=ax, maximize=False)
     used_color = _get_color(ax, style, color)
@@ -1397,6 +1468,7 @@ def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
     ax.crosshair = FinCrossHair(ax, color=cross_hair_color)
     ax.hideButtons()
     ax.overlay = partial(_overlay, ax)
+    ax.prev_ax = prev_ax
     if index%2:
         viewbox.setBackgroundColor(odd_plot_background)
     viewbox.setParent(ax)
@@ -1499,7 +1571,7 @@ def _set_datasrc(ax, datasrc):
         datasrc.update_init_x(viewbox.init_steps)
     # update period if this datasrc has higher resolution
     global epoch_period
-    if epoch_period > 1e10 or not datasrc.standalone:
+    if epoch_period > 1e7 or not datasrc.standalone:
         ep = datasrc.period
         epoch_period = ep if ep < epoch_period else epoch_period
 
@@ -1512,6 +1584,17 @@ def _adjust_volume_datasrc(datasrc):
     if len(datasrc.df.columns) <= 4:
         datasrc.df.insert(3, '_zero_', [0]*len(datasrc.df)) # base of candles is always zero
     datasrc.df = datasrc.df.iloc[:,[0,3,4,1,2]] # re-arrange columns for rendering
+    datasrc.scale_cols = [1, 2] # scale by both baseline and volume
+
+
+def _adjust_bar_datasrc(datasrc, order_cols=True):
+    if len(datasrc.df.columns) <= 2:
+        datasrc.df.insert(1, '_base_', [0]*len(datasrc.df)) # base
+    if len(datasrc.df.columns) <= 4:
+        datasrc.df.insert(1, '_open_',  [0]*len(datasrc.df)) # "open" for color
+        datasrc.df.insert(2, '_close_', datasrc.df.iloc[:, 3]) # "close" (actual bar value) for color
+    if order_cols:
+        datasrc.df = datasrc.df.iloc[:,[0,3,4,1,2]] # re-arrange columns for rendering
     datasrc.scale_cols = [1, 2] # scale by both baseline and volume
 
 
@@ -1703,7 +1786,7 @@ def _pdtime2index(ax, ts):
         ts = ts.astype('float64') * 1e3
     r = []
     datasrc = _get_datasrc(ax)
-    for t in ts:
+    for i,t in enumerate(ts):
         xs = datasrc.x
         xss = xs.loc[xs>t]
         if len(xss) == 0:
@@ -1711,9 +1794,13 @@ def _pdtime2index(ax, ts):
             if t0 == t:
                 r.append(len(xs)-1)
                 continue
+            if i > 0:
+                continue
             assert t <= t0, 'must plot this primitive in prior time-range'
         i1 = xss.index[0]
         i0 = i1-1
+        if i0 < 0:
+            i0,i1 = 0,1
         t0,t1 = xs.loc[i0], xs.loc[i1]
         dt = (t-t0) / (t1-t0)
         r.append(lerp(dt, i0, i1))
@@ -1730,14 +1817,24 @@ def _get_datasrc(ax):
     assert ax.vb.datasrc, 'not possible to plot this primitive without a prior time-range to compare to'
 
 
-def _epoch2local(datasrc, x):
+def _x2local_t(datasrc, x):
+    return _x2t(datasrc, x, lambda t: datetime.fromtimestamp(t/1000).isoformat().replace('T',' '))
+
+
+def _x2utc(datasrc, x):
+    return _x2t(datasrc, x, lambda t: datetime.utcfromtimestamp(t/1000).isoformat().replace('T',' '))
+
+
+def _x2t(datasrc, x, ts2str):
     if not datasrc:
         return ''
     try:
         x += 0.5
         t,_,_,_,cnt = datasrc.hilo(x, x)
         if cnt:
-            s = datetime.fromtimestamp(t/1000).isoformat().replace('T',' ')
+            if not datasrc.istime():
+                return '%g' % t
+            s = ts2str(t)
             if epoch_period >= 24*60*60:
                 i = s.index(' ')
             elif epoch_period >= 60:
@@ -1753,6 +1850,10 @@ def _epoch2local(datasrc, x):
         import traceback
         traceback.print_exc()
     return ''
+
+
+def _x2year(datasrc, x):
+    return _x2local_t(datasrc, x)[:4]
 
 
 def _round_to_significant(rng, rngmax, x, significant_decimals, significant_eps):
