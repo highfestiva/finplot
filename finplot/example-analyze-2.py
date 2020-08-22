@@ -28,13 +28,13 @@ months = btc['Adj Close'].resample('M').last().pct_change().ffill().dropna().to_
 months.index = mnames = months.index.month_name().to_list()
 mnames = mnames[mnames.index('January'):][:12]
 mrets = [months.loc[mname].mean()[0] for mname in mnames]
-hmap = pd.DataFrame(columns=[2,1,0], data=np.array(mrets).reshape((3,4)).T).reset_index()
+hmap = pd.DataFrame(columns=[2,1,0], data=np.array(mrets).reshape((3,4)).T)
+hmap = hmap.reset_index() # use the range index as X-coordinates (if no DateTimeIndex is found, the first column is used as X)
 fplt.heatmap(hmap, rect_size=1, colcurve=lambda x: x, ax=ax5)
 for j,mrow in enumerate(np.array(mnames).reshape((3,4))):
     for i,month in enumerate(mrow):
         s = month+' %+.2f%%'%hmap.loc[i,2-j]
         fplt.add_text((i, 2.5-j), s, anchor=(0.5,0.5), ax=ax5)
-ax5.set_visible(crosshair=False, xaxis=False, yaxis=False)
-
+ax5.set_visible(crosshair=False, xaxis=False, yaxis=False) # hide junk for a more pleasing look
 
 fplt.show()
