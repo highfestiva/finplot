@@ -23,8 +23,8 @@ fplt.hist(daily_ret, bins=60, ax=ax3)
 fplt.add_legend('Yearly returns in %', ax=ax4)
 fplt.bar(btc.Close.resample('Y').last().pct_change().dropna(), ax=ax4)
 
-# calculate montly returns, display as a 4x3 heatmap
-months = btc['Adj Close'].resample('M').last().pct_change().ffill().dropna().to_frame() * 100
+# calculate monthly returns, display as a 4x3 heatmap
+months = btc['Adj Close'].resample('M').last().pct_change().dropna().to_frame() * 100
 months.index = mnames = months.index.month_name().to_list()
 mnames = mnames[mnames.index('January'):][:12]
 mrets = [months.loc[mname].mean()[0] for mname in mnames]
