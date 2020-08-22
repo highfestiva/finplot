@@ -83,8 +83,8 @@ class EpochAxisItem(pg.AxisItem):
     def tickValues(self, minVal, maxVal, size):
         self.mode = 'num'
         ax = self.vb.parent()
-        datasrc = _get_datasrc(ax)
-        if datasrc is None or not datasrc.istime():
+        datasrc = _get_datasrc(ax, require=False)
+        if datasrc is None or not datasrc.timebased():
             return super().tickValues(minVal, maxVal, size)
         # see if we have time
         self.mode = 'time'
@@ -107,8 +107,11 @@ class YAxisItem(pg.AxisItem):
     def __init__(self, vb, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.vb = vb
+        self.hide_strings = False
 
     def tickStrings(self, values, scale, spacing):
+        if self.hide_strings:
+            return []
         return ['%g'%self.vb.yscale.xform(value) for value in values]
 
 
@@ -207,7 +210,7 @@ class PandasDataSource:
         timecol = self.df.columns[0]
         return self.df.loc[int(x), timecol]
 
-    def istime(self):
+    def timebased(self):
         return self.df.iloc[-1,0] > 1e7
 
     def addcols(self, datasrc):
@@ -414,6 +417,12 @@ class FinCrossHair:
         self.ytext.setAnchor(yanchor)
         self.xtext.setText(xtext)
         self.ytext.setText(ytext)
+
+    def hide(self):
+        self.ax.removeItem(self.xtext)
+        self.ax.removeItem(self.ytext)
+        self.ax.removeItem(self.vline)
+        self.ax.removeItem(self.hline)
 
 
 
@@ -858,18 +867,19 @@ class CandlestickItem(FinPlotItem):
 
 
 class HeatmapItem(FinPlotItem):
-    def __init__(self, ax, datasrc, rect_size=0.9, filter_limit=0, cmap=cmap_clash, whiteout=0.0, ccurve=lambda x:pow(x,4)):
+    def __init__(self, ax, datasrc, rect_size=0.9, filter_limit=0, cmap=cmap_clash, whiteout=0.0, colcurve=lambda x:pow(x,4)):
         self.rect_size = rect_size
         self.filter_limit = filter_limit
         self.cmap = cmap
         self.whiteout = whiteout
-        self.ccurve = ccurve
+        self.colcurve = colcurve
         self.col_data_end = len(datasrc.df.columns)
         super().__init__(ax, datasrc, lod=False)
 
     def generate_picture(self, boundingRect):
         prices = self.datasrc.df.columns[self.datasrc.col_data_offset:self.col_data_end]
-        delta_price = (prices[0] - prices[1]) * self.rect_size
+        h0 = (prices[0] - prices[1]) * (1-self.rect_size)
+        h1 = (prices[0] - prices[1]) * (1-(1-self.rect_size)*2)
         rect_size2 = 0.5 * self.rect_size
         df = self.datasrc.df.iloc[:, self.datasrc.col_data_offset:self.col_data_end]
         values = df.values
@@ -883,9 +893,9 @@ class HeatmapItem(FinPlotItem):
             for ci,price in enumerate(prices):
                 v = row[ci]
                 if v >= lim:
-                    v = 1 - self.ccurve(1 - (v-lim)/(1-lim))
+                    v = 1 - self.colcurve(1 - (v-lim)/(1-lim))
                     color = self.cmap.map(v, mode='qcolor')
-                    p.fillRect(QtCore.QRectF(t-rect_size2, price, self.rect_size, delta_price), color)
+                    p.fillRect(QtCore.QRectF(t-rect_size2, price+h0, self.rect_size, h1), color)
         p.end()
 
 
@@ -1168,6 +1178,14 @@ def heatmap(datasrc, ax=None, **kwargs):
     item.update_data = partial(_update_data, None, item)
     item.setZValue(-30)
     ax.addItem(item)
+    if ax.vb.datasrc is not None and not ax.vb.datasrc.timebased(): # manual zoom update
+        ax.setXLink(None)
+        if ax.prev_ax:
+            ax.prev_ax.showAxis('bottom')
+        df = ax.vb.datasrc.df
+        prices = df.columns[ax.vb.datasrc.col_data_offset:item.col_data_end]
+        delta_price = abs(prices[0] - prices[1])
+        ax.vb.set_range(0, min(df.columns[1:]), len(df), max(df.columns[1:])+delta_price)
     return item
 
 
@@ -1187,7 +1205,7 @@ def bar(x, y=None, ax=None):
     _pre_process_data(ax.vb)
     if ax.vb.y_min >= 0:
         ax.vb.v_zoom_baseline = 0
-    ax.vb.update_y_zoom(0, len(datasrc.df))
+    ax.vb.update_y_zoom(0, len(datasrc.df)) # manual zoom update required due to different timescale
     return item
 
 
@@ -1324,7 +1342,10 @@ def remove_line(line):
 def add_text(pos, s, color=draw_line_color, anchor=(0,0), ax=None):
     ax = _create_plot(ax=ax, maximize=False)
     text = pg.TextItem(s, color=color, anchor=anchor)
-    text.setPos(_pdtime2index(ax, pd.Series([pos[0]]))[0], pos[1])
+    x = pos[0]
+    if ax.vb.datasrc is not None and ax.vb.datasrc.timebased():
+        x = _pdtime2index(ax, pd.Series([pos[0]]))[0]
+    text.setPos(x, pos[1])
     text.setZValue(50)
     text.ax = ax
     ax.addItem(text, ignoreBounds=True)
@@ -1469,6 +1490,7 @@ def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
     ax.crosshair = FinCrossHair(ax, color=cross_hair_color)
     ax.hideButtons()
     ax.overlay = partial(_overlay, ax)
+    ax.set_visible = partial(_ax_set_visible, ax)
     ax.prev_ax = prev_ax
     if index%2:
         viewbox.setBackgroundColor(odd_plot_background)
@@ -1496,6 +1518,13 @@ def _overlay(ax, scale=0.25):
     ax.vb.sigResized.connect(updateView)
     overlay_axs.append(axo)
     return axo
+
+
+def _ax_set_visible(ax, crosshair=True, xaxis=True, yaxis=True):
+    if not crosshair:
+        ax.crosshair.hide()
+    ax.axes['left']['item'].hide_strings = not yaxis
+    (ax.showAxis if xaxis else ax.hideAxis)('bottom')
 
 
 def _create_legend(ax):
@@ -1808,14 +1837,15 @@ def _pdtime2index(ax, ts):
     return r
 
 
-def _get_datasrc(ax):
+def _get_datasrc(ax, require=True):
     if ax.vb.datasrc is not None:
         return ax.vb.datasrc
     vbs = set(ax.vb for win in windows for ax in win.ci.items)
     for vb in vbs:
         if vb.datasrc:
             return vb.datasrc
-    assert ax.vb.datasrc, 'not possible to plot this primitive without a prior time-range to compare to'
+    if require:
+        assert ax.vb.datasrc, 'not possible to plot this primitive without a prior time-range to compare to'
 
 
 def _x2local_t(datasrc, x):
@@ -1833,7 +1863,7 @@ def _x2t(datasrc, x, ts2str):
         x += 0.5
         t,_,_,_,cnt = datasrc.hilo(x, x)
         if cnt:
-            if not datasrc.istime():
+            if not datasrc.timebased():
                 return '%g' % t
             s = ts2str(t)
             if epoch_period >= 24*60*60:
