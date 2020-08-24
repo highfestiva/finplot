@@ -54,7 +54,7 @@ lod_labels = 700
 cache_candle_factor = 3 # factor extra candles rendered to buffer
 y_label_width = 65
 long_time = 2*365*24*60*60*1000
-winx,winy = 400,300
+winx,winy,winw,winh = 400,300,800,400
 
 windows = [] # no gc
 timers = [] # no gc
@@ -330,7 +330,7 @@ class FinWindow(pg.GraphicsLayoutWidget):
         pg.mkQApp()
         super().__init__(**kwargs)
         self.setWindowTitle(title)
-        self.setGeometry(winx, winy, 800, 400)
+        self.setGeometry(winx, winy, winw, winh)
         winx += 40
         winy += 40
         self.show()
@@ -1282,7 +1282,8 @@ def fill_between(plot0, plot1, color=None):
     used_color = brighten(_get_color(plot0.ax, None, color), 1.3)
     item = pg.FillBetweenItem(plot0, plot1, brush=pg.mkBrush(used_color))
     item.ax = plot0.ax
-    plot0.ax.addItem(item)
+    item.setZValue(-40)
+    item.ax.addItem(item)
     return item
 
 
