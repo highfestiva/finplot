@@ -1100,6 +1100,27 @@ def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6
     return item
 
 
+def renko(x, y=None, yres=None, step=None, ax=None, colorfunc=price_colorfilter):
+    ax = _create_plot(ax=ax, maximize=False)
+    datasrc = _create_datasrc(ax, x, y)
+    origdf = datasrc.df
+    if not yres and not step:
+        yres = 50
+    if yres:
+        step = (datasrc.y.max()-datasrc.y.min()) / yres
+    step_adjust_renko_datasrc = partial(_adjust_renko_datasrc, step)
+    step_adjust_renko_datasrc(datasrc)
+    ax.setXLink(None)
+    if ax.prev_ax:
+        ax.prev_ax.showAxis('bottom')
+    item = candlestick_ochl(datasrc, draw_shadow=False, candle_width=1, ax=ax, colorfunc=colorfunc)
+    item.colors['bull_body'] = item.colors['bull_frame']
+    item.update_data = partial(_update_data, step_adjust_renko_datasrc, item)
+    global epoch_period
+    epoch_period = (origdf.iloc[1,0] - origdf.iloc[0,0]) // 1000
+    return item
+
+
 def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter):
     ax = _create_plot(ax=ax, maximize=False)
     datasrc = _create_datasrc(ax, datasrc)
@@ -1609,6 +1630,32 @@ def _set_datasrc(ax, datasrc):
 
 def _has_timecol(df):
     return len(df.columns) >= 2
+
+
+def _adjust_renko_datasrc(step, datasrc):
+    bricks = datasrc.y.diff() / step
+    bricks = (datasrc.y[bricks.isnull() | (bricks.abs()>=0.5)] / step).round().astype(int)
+    ts = datasrc.x[bricks.index]
+    up = bricks.iloc[0] + 1
+    dn = up - 2
+    data = []
+    for t,brick in zip(ts, bricks):
+        s = 0
+        if brick >= up:
+            x0,x1,s = up-1,brick,+1
+            up = brick+1
+            dn = brick-2
+        elif brick <= dn:
+            x0,x1,s = dn,brick-1,-1
+            up = brick+2
+            dn = brick-1
+        if s:
+            for x in range(x0, x1, s):
+                td = abs(x1-x)-1
+                ds = 0 if s>0 else step
+                y = x*step
+                data.append([t-td, y+ds, y+step-ds, y+step, y])
+    datasrc.df = pd.DataFrame(data, columns='time open close high low'.split())
 
 
 def _adjust_volume_datasrc(datasrc):
