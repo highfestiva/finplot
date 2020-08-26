@@ -1100,14 +1100,14 @@ def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6
     return item
 
 
-def renko(x, y=None, yres=None, step=None, ax=None, colorfunc=price_colorfilter):
+def renko(x, y=None, bins=None, step=None, ax=None, colorfunc=price_colorfilter):
     ax = _create_plot(ax=ax, maximize=False)
     datasrc = _create_datasrc(ax, x, y)
     origdf = datasrc.df
-    if not yres and not step:
-        yres = 50
-    if yres:
-        step = (datasrc.y.max()-datasrc.y.min()) / yres
+    if not bins and not step:
+        bins = 50
+    if bins:
+        step = (datasrc.y.max()-datasrc.y.min()) / bins
     step_adjust_renko_datasrc = partial(_adjust_renko_datasrc, step)
     step_adjust_renko_datasrc(datasrc)
     ax.setXLink(None)
