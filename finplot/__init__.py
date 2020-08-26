@@ -1226,7 +1226,6 @@ def bar(x, y=None, ax=None):
     _pre_process_data(ax.vb)
     if ax.vb.y_min >= 0:
         ax.vb.v_zoom_baseline = 0
-    ax.vb.update_y_zoom(0, len(datasrc.df)) # manual zoom update required due to different timescale
     return item
 
 
@@ -1414,16 +1413,15 @@ def autoviewrestore(enable=True):
 
 def show():
     for win in windows:
-        vbs = set(ax.vb for ax in win.ci.items)
+        vbs = [ax.vb for ax in win.ci.items]
         for vb in vbs:
             _pre_process_data(vb)
         if viewrestore:
             if _loadwindata(win):
                 continue
         for vb in vbs:
-            if vb.datasrc:
+            if vb.datasrc and vb.linkedView(0) is None:
                 vb.update_y_zoom(vb.datasrc.init_x0, vb.datasrc.init_x1)
-                break
     _repaint_candles()
     if windows:
         QtGui.QApplication.instance().exec_()
