@@ -1108,7 +1108,8 @@ def renko(x, y=None, bins=None, step=None, ax=None, colorfunc=price_colorfilter)
         bins = 50
     if bins:
         step = (datasrc.y.max()-datasrc.y.min()) / bins
-    step_adjust_renko_datasrc = partial(_adjust_renko_datasrc, step)
+    adj = _adjust_renko_log_datasrc if ax.vb.yscale.scaletype == 'log' else _adjust_renko_datasrc
+    step_adjust_renko_datasrc = partial(adj, step)
     step_adjust_renko_datasrc(datasrc)
     ax.setXLink(None)
     if ax.prev_ax:
@@ -1615,6 +1616,9 @@ def _set_datasrc(ax, datasrc):
             _set_x_limits(ax, datasrc)
         else:
             viewbox.datasrc.addcols(datasrc)
+            for item in ax.items:
+                if isinstance(item, FinPlotItem):
+                    item.datasrc.df = viewbox.datasrc.df # every plot here now has the same time-frame
             _set_x_limits(ax, datasrc)
             viewbox.set_datasrc(viewbox.datasrc) # update zoom
     else:
@@ -1654,6 +1658,14 @@ def _adjust_renko_datasrc(step, datasrc):
                 y = x*step
                 data.append([t-td, y+ds, y+step-ds, y+step, y])
     datasrc.df = pd.DataFrame(data, columns='time open close high low'.split())
+
+
+def _adjust_renko_log_datasrc(step, datasrc):
+    bins = (datasrc.y.max()-datasrc.y.min()) / step
+    datasrc.df.iloc[:,1] = np.log10(datasrc.df.iloc[:,1])
+    step = (datasrc.y.max()-datasrc.y.min()) / bins
+    _adjust_renko_datasrc(step, datasrc)
+    datasrc.df.iloc[:,1:5] = 10**datasrc.df.iloc[:,1:5]
 
 
 def _adjust_volume_datasrc(datasrc):
@@ -1717,7 +1729,7 @@ def _set_plot_x_axis_leader(ax):
 
 def _set_x_limits(ax, datasrc):
     x0 = -0.5
-    x1 = datasrc.init_x1 + right_margin_candles # add another margin to get the "snap back" sensation
+    x1 = datasrc.xlen - 0.5 + right_margin_candles # add another margin to get the "snap back" sensation
     ax.setLimits(xMin=x0, xMax=x1)
     return x0, x1
 
