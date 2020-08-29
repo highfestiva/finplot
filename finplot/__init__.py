@@ -164,9 +164,12 @@ class PandasDataSource:
         self.scale_cols = [i for i in range(self.col_data_offset,len(self.df.columns)) if self.df.iloc[:,i].dtype!=object]
         self.cache_hilo = OrderedDict()
         self.renames = {}
+        self.pre_update = lambda df: df
 
     @property
     def period(self):
+        if len(self.df) <= 1:
+            return 1
         timecol = self.df.columns[0]
         return self.df[timecol].diff().median() / 1000
 
@@ -241,20 +244,22 @@ class PandasDataSource:
         datasrc.init_x1 = self.init_x1
         datasrc.col_data_offset = orig_col_data_cnt
         datasrc.scale_cols = new_scale_cols
-        self.cache_hilo_query = OrderedDict()
+        self.cache_hilo = OrderedDict()
 
     def update(self, datasrc):
-        orig_cols = list(self.df.columns)
-        timecol = orig_cols[0]
-        df = self.df.set_index(timecol)
-        data = datasrc.df.set_index(timecol)
+        df = self.pre_update(self.df)
+        orig_cols = list(df.columns)
+        timecol,orig_cols = orig_cols[0],orig_cols[1:]
+        df = df.set_index(timecol)
+        data = datasrc.df.set_index(datasrc.df.columns[0])
         data.columns = [self.renames.get(col, col) for col in data.columns]
         for col in df.columns:
             if col not in data.columns:
                 data[col] = df[col]
         data = data.reset_index()
-        self.df = data[orig_cols]
+        self.df = data[[data.columns[0]]+orig_cols] if orig_cols else data
         self.init_x1 = self.xlen - 0.5
+        self.cache_hilo = OrderedDict()
 
     def hilo(self, x0, x1):
         '''Return five values in time range: t0, t1, highest, lowest, number of rows.'''
@@ -690,6 +695,8 @@ class FinViewBox(pg.ViewBox):
         _mouse_moved(self.win, None)
 
     def update_y_zoom(self, x0=None, x1=None):
+        if self.datasrc is None:
+            return
         if x0 is None or x1 is None:
             tr = self.targetRect()
             x0 = tr.left()
@@ -900,29 +907,42 @@ class HeatmapItem(FinPlotItem):
 
 
 
-class HorizontalTimeVolumeItem(FinPlotItem):
-    def __init__(self, ax, datasrc, rect_height=0.8, draw_va=0.7, draw_body=0.4, draw_poc=1.0):
-        self.rect_height = rect_height
+class HorizontalTimeVolumeItem(CandlestickItem):
+    def __init__(self, ax, datasrc, candle_width=0.8, draw_va=0.0, draw_body=0.4, draw_poc=0.0, colorfunc=None):
+        '''A negative draw_body does not mean that the candle is drawn in the opposite direction (use negative volume for that),
+           but instead that screen scale will be used instead of interval-relative scale.'''
         self.draw_va = draw_va
-        self.draw_body = draw_body
         self.draw_poc = draw_poc
-        self.col_data_end = len(datasrc.df.columns)
-        super().__init__(ax, datasrc, lod=False)
+        ## self.col_data_end = len(datasrc.df.columns)
+        colorfunc = colorfunc or horizvol_colorfilter() # resolve function lower down in source code
+        super().__init__(ax, datasrc, draw_shadow=False, candle_width=candle_width, draw_body=draw_body, colorfunc=colorfunc)
+        self.lod = False
+        self.colors.update(dict(neutral_shadow  = volume_neutral_color,
+                                neutral_frame   = volume_neutral_color,
+                                neutral_body    = volume_neutral_color,
+                                bull_body       = candle_bull_color))
 
     def generate_picture(self, boundingRect):
-        vals = self.datasrc.df.values.T
         times = self.datasrc.df.iloc[:, 0]
-        prices = vals[self.datasrc.col_data_offset:self.col_data_end:2].T
-        volumes = vals[self.datasrc.col_data_offset+1:self.col_data_end:2]
+        vals = self.datasrc.df.values
+        prices = vals[:, self.datasrc.col_data_offset::2]
+        volumes = vals[:, self.datasrc.col_data_offset+1::2].T
         # normalize
         try:
             f = self.datasrc.period / _get_datasrc(self.ax).period
             times = _pdtime2index(self.ax, times)
         except AssertionError:
             f = 1
-            times = None
+        draw_body = self.draw_body
+        if draw_body < 0:
+            f *= -draw_body * self.ax.vb.targetRect().width()
+            draw_body = 1
         binc = len(volumes)
-        volumes = (volumes * f / np.nanmax(volumes, axis=0)).T
+        if not binc:
+            return
+        divvol = np.nanmax(np.abs(volumes), axis=0)
+        divvol[divvol==0] = 1
+        volumes = (volumes * f / divvol).T
         p = self.painter
         p.begin(self.picture)
         p.setPen(pg.mkPen(poc_color, width=1))
@@ -932,7 +952,7 @@ class HorizontalTimeVolumeItem(FinPlotItem):
             prv = prcr[~np.isnan(prcr)]
             if len(prv) > 1:
                 h = np.diff(prv).min()
-            t = times[i] if times else i
+            t = times[i]
             volr = np.nan_to_num(volumes[i])
 
             # calc poc
@@ -960,13 +980,16 @@ class HorizontalTimeVolumeItem(FinPlotItem):
                 p.fillRect(QtCore.QRectF(t, prcr[a], f, prcr[b]-prcr[a]+h), color)
 
             # draw horizontal bars
-            if self.draw_body:
-                h0 = h * (1-self.rect_height)/2
-                h1 = h * self.rect_height
-                color = pg.mkColor(volume_neutral_color)
-                for w,y in zip(volr, prcr):
-                    if abs(w) > 0:
-                        p.fillRect(QtCore.QRectF(t, y+h0, w*self.draw_body, h1), color)
+            if draw_body:
+                h0 = h * (1-self.candle_width)/2
+                h1 = h * self.candle_width
+                for shadow,frame,body,data in self.colorfunc(self, self.datasrc, np.array([prcr, volr])):
+                    p.setPen(pg.mkPen(frame))
+                    p.setBrush(pg.mkBrush(body))
+                    prcr_,volr_ = data
+                    for w,y in zip(volr_, prcr_):
+                        if abs(w) > 1e-3:
+                            p.drawRect(QtCore.QRectF(t, y+h0, w*draw_body, h1))
 
             # draw poc line
             if self.draw_poc:
@@ -1088,6 +1111,17 @@ def strength_colorfilter(item, datasrc, df):
     yield item.rowcolors('bear') + [df.loc[(~is_up)&(~is_strong), :]]
 
 
+def horizvol_colorfilter(sections=[]):
+    '''The sections argument is a (starting_index, color_name) array.'''
+    def _colorfilter(sections, item, datasrc, data):
+        if not sections:
+            yield item.rowcolors('neutral') + [data]
+        for (i0,colname),(i1,_) in zip(sections, sections[1:]+[(None,'neutral')]):
+            rows = data[:, i0:i1]
+            yield item.rowcolors(colname) + [rows]
+    return partial(_colorfilter, sections)
+
+
 def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6, ax=None, colorfunc=price_colorfilter):
     ax = _create_plot(ax=ax, maximize=False)
     datasrc = _create_datasrc(ax, datasrc)
@@ -1095,7 +1129,7 @@ def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6
     _set_datasrc(ax, datasrc)
     item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width, colorfunc=colorfunc)
     _update_significants(ax, datasrc, force=True)
-    item.update_data = partial(_update_data, None, item)
+    item.update_data = partial(_update_data, None, None, item)
     ax.addItem(item)
     return item
 
@@ -1116,7 +1150,7 @@ def renko(x, y=None, bins=None, step=None, ax=None, colorfunc=price_colorfilter)
         ax.prev_ax.showAxis('bottom')
     item = candlestick_ochl(datasrc, draw_shadow=False, candle_width=1, ax=ax, colorfunc=colorfunc)
     item.colors['bull_body'] = item.colors['bull_frame']
-    item.update_data = partial(_update_data, step_adjust_renko_datasrc, item)
+    item.update_data = partial(_update_data, None, step_adjust_renko_datasrc, item)
     global epoch_period
     epoch_period = (origdf.iloc[1,0] - origdf.iloc[0,0]) // 1000
     return item
@@ -1139,7 +1173,7 @@ def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter)
     else:
         item.colors['weak_bull_frame'] = brighten(volume_bull_color, 1.2)
         item.colors['weak_bull_body']  = brighten(volume_bull_color, 1.2)
-    item.update_data = partial(_update_data, _adjust_volume_datasrc, item)
+    item.update_data = partial(_update_data, None, _adjust_volume_datasrc, item)
     ax.addItem(item)
     item.setZValue(-20)
     return item
@@ -1160,36 +1194,25 @@ def horiz_time_volume(datasrc, ax=None, **kwargs):
         right_margin_candles = 1
 
     ax = _create_plot(ax=ax, maximize=False)
-
-    # create a dataframe from the input array
-    times = [t for t,row in datasrc]
-    data = [[e for v in row for e in v] for t,row in datasrc]
-    maxcols = max(len(row) for row in data)
-    df = pd.DataFrame(columns=range(maxcols), data=data, index=times)
-    datasrc = _create_datasrc(ax, df)
-    # to be able to scale properly, move the last two values to the last two columns
-    values = datasrc.df.iloc[:, 1:].values
-    for i,orow in enumerate(data):
-        nrow = values[i]
-        if len(nrow) == len(orow) or len(orow) <= 2:
-            continue
-        nrow[-2:] = orow[-2:]
-        nrow[len(orow)-2:len(orow)] = np.nan
-    datasrc.df.iloc[:, 1:] = values
-
+    datasrc = _preadjust_horiz_datasrc(datasrc)
+    datasrc = _create_datasrc(ax, datasrc)
+    _adjust_horiz_datasrc(datasrc)
     if ax.vb.datasrc is not None:
-        datasrc.standalone = True # only standalone if there is something on our charts already
+        datasrc.standalone = True # only force standalone if there is something on our charts already
     datasrc.scale_cols = [datasrc.col_data_offset, len(datasrc.df.columns)-2] # first and last price columns
+    datasrc.pre_update = lambda df: df.loc[:, :df.columns[0]] # throw away previous data
     _set_datasrc(ax, datasrc)
     item = HorizontalTimeVolumeItem(ax=ax, datasrc=datasrc, **kwargs)
-    ## item.update_data = partial(_update_data, None, item)
+    item.update_data = partial(_update_data, _preadjust_horiz_datasrc, _adjust_horiz_datasrc, item)
     item.setZValue(-10)
     ax.addItem(item)
     return item
 
 
 def heatmap(datasrc, ax=None, **kwargs):
-    '''Expensive function. Only use on small data sets. See HeatmapItem for kwargs.'''
+    '''Expensive function. Only use on small data sets. See HeatmapItem for kwargs. Input datasrc
+       has x (time) in index or first column, y (price) as column names, and intensity (color) as
+       cell values.'''
     ax = _create_plot(ax=ax, maximize=False)
     if ax.vb.v_zoom_scale >= 0.9:
         ax.vb.v_zoom_scale = 0.6
@@ -1197,7 +1220,7 @@ def heatmap(datasrc, ax=None, **kwargs):
     datasrc.scale_cols = [] # doesn't scale
     _set_datasrc(ax, datasrc)
     item = HeatmapItem(ax=ax, datasrc=datasrc, **kwargs)
-    item.update_data = partial(_update_data, None, item)
+    item.update_data = partial(_update_data, None, None, item)
     item.setZValue(-30)
     ax.addItem(item)
     if ax.vb.datasrc is not None and not ax.vb.datasrc.timebased(): # manual zoom update
@@ -1211,7 +1234,7 @@ def heatmap(datasrc, ax=None, **kwargs):
     return item
 
 
-def bar(x, y=None, ax=None):
+def bar(x, y=None, width=0.8, ax=None, colorfunc=strength_colorfilter):
     '''Use volume_ocv() if you want a bar plot which relates to other time plots.'''
     global right_margin_candles, max_zoom_points
     right_margin_candles = 0
@@ -1222,8 +1245,8 @@ def bar(x, y=None, ax=None):
     ax.setXLink(None)
     if ax.prev_ax:
         ax.prev_ax.showAxis('bottom')
-    item = volume_ocv(datasrc, ax=ax, colorfunc=strength_colorfilter)
-    item.update_data = partial(_update_data, _adjust_bar_datasrc, item)
+    item = volume_ocv(datasrc, candle_width=width, ax=ax, colorfunc=colorfunc)
+    item.update_data = partial(_update_data, None, _adjust_bar_datasrc, item)
     _pre_process_data(ax.vb)
     if ax.vb.y_min >= 0:
         ax.vb.v_zoom_baseline = 0
@@ -1266,7 +1289,7 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
     item.ax = ax
     item.datasrc = datasrc
     _update_significants(ax, datasrc, force=False)
-    item.update_data = partial(_update_data, None, item)
+    item.update_data = partial(_update_data, None, None, item)
     if ax.legend is not None:
         for _,label in ax.legend.items:
             if label.text == legend:
@@ -1283,7 +1306,7 @@ def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
     _set_datasrc(ax, datasrc)
     item = ScatterLabelItem(ax=ax, datasrc=datasrc, color=used_color, anchor=anchor)
     _update_significants(ax, datasrc, force=False)
-    item.update_data = partial(_update_data, None, item)
+    item.update_data = partial(_update_data, None, None, item)
     ax.addItem(item)
     if ax.vb.v_zoom_scale > 0.9: # adjust to make hi/lo text fit
         ax.vb.v_zoom_scale = 0.9
@@ -1675,6 +1698,30 @@ def _adjust_volume_datasrc(datasrc):
     datasrc.scale_cols = [1, 2] # scale by both baseline and volume
 
 
+def _preadjust_horiz_datasrc(datasrc):
+    arrayify = lambda d: d.values if type(d) == pd.DataFrame else d
+    # create a dataframe from the input array
+    times = [t for t,row in datasrc]
+    if len(times) == 1: # add an empty time slot
+        times = [times[0], times[0]+1]
+        datasrc = datasrc + [[times[1], [(p,0) for p,v in arrayify(datasrc[0][1])]]]
+    data = [[e for v in arrayify(row) for e in v] for t,row in datasrc]
+    maxcols = max(len(row) for row in data)
+    return pd.DataFrame(columns=range(maxcols), data=data, index=times)
+
+
+def _adjust_horiz_datasrc(datasrc):
+    # to be able to scale properly, move the last two values to the last two columns
+    values = datasrc.df.iloc[:, 1:].values
+    for i,nrow in enumerate(values):
+        orow = nrow[~np.isnan(nrow)]
+        if len(nrow) == len(orow) or len(orow) <= 2:
+            continue
+        nrow[-2:] = orow[-2:]
+        nrow[len(orow)-2:len(orow)] = np.nan
+    datasrc.df.iloc[:, 1:] = values
+
+
 def _adjust_bar_datasrc(datasrc, order_cols=True):
     if len(datasrc.df.columns) <= 2:
         datasrc.df.insert(1, '_base_', [0]*len(datasrc.df)) # base
@@ -1686,7 +1733,9 @@ def _adjust_bar_datasrc(datasrc, order_cols=True):
     datasrc.scale_cols = [1, 2] # scale by both baseline and volume
 
 
-def _update_data(adjustfunc, item, ds):
+def _update_data(preadjustfunc, adjustfunc, item, ds):
+    if preadjustfunc:
+        ds = preadjustfunc(ds)
     ds = _create_datasrc(item.ax, ds)
     if adjustfunc:
         adjustfunc(ds)
@@ -1695,15 +1744,16 @@ def _update_data(adjustfunc, item, ds):
         item.dirty = True
     else:
         item.setData(item.datasrc.index, item.datasrc.y)
-    x_min,x1 = _set_x_limits(item.ax, item.datasrc)
-    # scroll all plots if we're at the far right
-    tr = item.ax.vb.targetRect()
-    x0 = x1 - tr.width()
-    for ax in item.ax.vb.win.ci.items:
-        ax.setLimits(xMin=x_min, xMax=x1)
-    if tr.right() >= x1 - 5 - 2*right_margin_candles:
-        for ax in item.ax.vb.win.ci.items:
-            ax.vb.update_y_zoom(x0, x1)
+    if not item.datasrc.standalone:
+        # new limits when extending/reducing amount of data
+        x_min,x1 = _set_x_limits(item.ax, item.datasrc)
+        # scroll all plots if we're at the far right
+        tr = item.ax.vb.targetRect()
+        x0 = x1 - tr.width()
+        if tr.right() >= x1 - 5 - 2*right_margin_candles:
+            item.ax.vb.update_y_zoom(x0, x1)
+        item.ax.axes['bottom']['item'].hide()
+        item.ax.axes['bottom']['item'].show()
     for ax in item.ax.vb.win.ci.items:
         ax.vb.update()
 
@@ -1846,12 +1896,15 @@ def _get_color(ax, style, wanted_color):
         return wanted_color
     index = wanted_color if type(wanted_color) == int else None
     if style is None or any(ch in style for ch in '-_.'):
-        if index is None:
-            index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and not i.opts['handed_color']])
-        return soft_colors[index%len(soft_colors)]
+        colors = soft_colors
+    else:
+        colors = hard_colors
     if index is None:
-        index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and not i.opts['handed_color']])
-    return hard_colors[index%len(hard_colors)]
+        avoid = set(i.opts['handed_color'] for i in ax.items if isinstance(i,pg.PlotDataItem) and i.opts['handed_color'] is not None)
+        index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and i.opts['handed_color'] is None])
+        while index in avoid:
+            index += 1
+    return colors[index%len(colors)]
 
 
 def _pdtime2epoch(t):
@@ -1868,10 +1921,14 @@ def _pdtime2epoch(t):
 def _pdtime2index(ax, ts):
     if isinstance(ts.iloc[0], pd.Timestamp):
         ts = ts.astype('int64') // int(1e6)
-    elif np.nanmax(ts.values) > 1e13: # handle ns epochs
-        ts = ts.astype('float64') / 1e3
-    elif np.nanmax(ts.values) < 1e10: # handle s epochs
-        ts = ts.astype('float64') * 1e3
+    else:
+        h = np.nanmax(ts.values)
+        if h < 1e7:
+            assert False, 'not a time series'
+        if h > 1e13: # handle ns epochs
+            ts = ts.astype('float64') / 1e3
+        elif h < 1e10: # handle s epochs
+            ts = ts.astype('float64') * 1e3
     r = []
     datasrc = _get_datasrc(ax)
     for i,t in enumerate(ts):

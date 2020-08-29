@@ -66,5 +66,5 @@ vwap = calc_vwap(period='W') # try period='D'
 fplt.create_plot('Binance BTC futures weekly volume profile')
 fplt.plot(df.time, df.close, legend='Price')
 fplt.plot(df.time, vwap, style='--', legend='VWAP')
-fplt.horiz_time_volume(time_volume_profile)
+fplt.horiz_time_volume(time_volume_profile, draw_va=0.7, draw_poc=1.0)
 fplt.show()

@@ -14,6 +14,7 @@ from time import time
 
 baseurl = 'https://www.bitmex.com/api'
 plots = []
+orderbook = None
 
 
 def price_history(load_periods=500, interval_mins=1):
@@ -36,29 +37,39 @@ def calc_bollinger_bands(df):
 
 
 def update_plot():
+    global orderbook
     calc_bollinger_bands(df)
     candlesticks = df['t o c h l'.split()]
     bollband_hi = df['t bbh'.split()]
     bollband_lo = df['t bbl'.split()]
-    if not plots:
+    if not plots: # 1st time
         candlestick_plot = fplt.candlestick_ochl(candlesticks)
         plots.append(candlestick_plot)
         plots.append(fplt.plot(bollband_hi, color='#4e4ef1'))
         plots.append(fplt.plot(bollband_lo, color='#4e4ef1'))
         fplt.fill_between(plots[1], plots[2], color='#9999fa')
-        # redraw using bitmex colors
-        candlestick_plot.colors.update(dict(
+        # generate dummy orderbook plot, which we update next time
+        x = len(candlesticks)+0.5
+        y = candlesticks.c.iloc[-1]
+        orderbook = [[x,[(y,1)]]]
+        orderbook_colorfunc = fplt.horizvol_colorfilter([(0,'bull'),(10,'bear')])
+        orderbook_plot = fplt.horiz_time_volume(orderbook, candle_width=1, draw_body=10, colorfunc=orderbook_colorfunc)
+        plots.append(orderbook_plot)
+        # use bitmex colors
+        colors = dict(
                 bull_shadow = '#388d53',
                 bull_frame  = '#205536',
                 bull_body   = '#52b370',
                 bear_shadow = '#d56161',
                 bear_frame  = '#5c1a10',
-                bear_body   = '#e8704f'))
-        candlestick_plot.repaint()
-    else:
+                bear_body   = '#e8704f')
+        candlestick_plot.colors.update(colors)
+        orderbook_plot.colors.update(colors)
+    else: # update
         plots[0].update_data(candlesticks)
         plots[1].update_data(bollband_hi)
         plots[2].update_data(bollband_lo)
+        plots[3].update_data(orderbook)
 
 
 def update_candlestick_data(trade, interval_mins=1):
@@ -86,19 +97,31 @@ def update_candlestick_data(trade, interval_mins=1):
             df.loc[i,'l'] = c
 
 
+def update_orderbook_data(orderbook10):
+    global orderbook
+    ask = pd.DataFrame(orderbook10['asks'], columns=['price','volume'])
+    bid = pd.DataFrame(orderbook10['bids'], columns=['price','volume'])
+    ask['price'] += 0.5 # ask above price
+    ask['volume'] = -ask['volume'].cumsum() # negative volume means pointing left
+    bid['volume'] = -bid['volume'].cumsum()
+    orderbook = [[len(df)+0.5, pd.concat([bid, ask])]]
+
+
 if __name__ == '__main__':
     df = pd.DataFrame(price_history())
-    ws = Instrument(channels=[InstrumentChannels.trade])
+    ws = Instrument(channels=[InstrumentChannels.trade, InstrumentChannels.orderBook10])
     @ws.on('action')
     def action(message):
-        if not 'data' in message:
-            return
-        for trade in message['data']:
-            update_candlestick_data(trade)
+        if 'orderBook' in message['table']:
+            for orderbook10 in message['data']:
+                update_orderbook_data(orderbook10)
+        else:
+            for trade in message['data']:
+                update_candlestick_data(trade)
     thread = Thread(target=ws.run_forever)
     thread.daemon = True
     thread.start()
-    fplt.create_plot('Realtime Bitcoin/Dollar 1m (BitMEX websocket)', init_zoom_periods=100, maximize=False)
+    fplt.create_plot('Realtime Bitcoin/Dollar 1m (BitMEX websocket)', init_zoom_periods=75, maximize=False)
     update_plot()
-    fplt.timer_callback(update_plot, 1.0) # update every second
+    fplt.timer_callback(update_plot, 0.5) # update in 2 Hz
     fplt.show()
