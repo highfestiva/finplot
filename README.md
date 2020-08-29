@@ -14,7 +14,8 @@ And best of all: it can show hundreds of thousands of datapoints without batting
 * Show as many charts as you want on the same time axis, zoom on all of them at once
 * Auto-reload position where you were looking last run
 * Overlays, fill between, value bands, symbols, labels, legend, volume profile, heatmaps, etc.
-* Can show real-time updates.
+* Can show real-time updates, including orderbook.
+* Comes with a dozen great examples.
 
 ![feature1](https://raw.githubusercontent.com/highfestiva/finplot/master/feature1.jpg)
 ![feature2](https://raw.githubusercontent.com/highfestiva/finplot/master/feature2.jpg)
@@ -113,7 +114,7 @@ fplt.show()
 Included in this repo are [a 40-liner Bitfinex example](https://github.com/highfestiva/finplot/blob/master/finplot/example-bfx.py)
 and [a slightly longer BitMEX websocket example](https://github.com/highfestiva/finplot/blob/master/finplot/example-bitmex-ws.py),
 which both update in realtime with Bitcoin/Dollar pulled from the exchange. They also shows realistic and useful indicators (TD
-Sequential for BFX and Bollinger Bands for BitMEX). The [S&P500 example](https://github.com/highfestiva/finplot/blob/master/finplot/example-snp500.py)
-shows you how to display MACD.
+Sequential for BFX; and Bollinger Bands and orderbook for BitMEX). The
+[S&P500 example](https://github.com/highfestiva/finplot/blob/master/finplot/example-snp500.py) shows you how to display MACD.
 
 Enjoy!
