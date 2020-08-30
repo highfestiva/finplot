@@ -1450,6 +1450,9 @@ def show():
     if windows:
         QtGui.QApplication.instance().exec_()
         windows.clear()
+        overlay_axs.clear()
+        global last_ax
+        last_ax = None
 
 
 def play_sound(filename):
@@ -1752,8 +1755,9 @@ def _update_data(preadjustfunc, adjustfunc, item, ds):
         x0 = x1 - tr.width()
         if tr.right() >= x1 - 5 - 2*right_margin_candles:
             item.ax.vb.update_y_zoom(x0, x1)
-        item.ax.axes['bottom']['item'].hide()
-        item.ax.axes['bottom']['item'].show()
+        if item.ax.axes['bottom']['item'].isVisible(): # update axes if visible
+            item.ax.axes['bottom']['item'].hide()
+            item.ax.axes['bottom']['item'].show()
     for ax in item.ax.vb.win.ci.items:
         ax.vb.update()
 
