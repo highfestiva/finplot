@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import math
 import pandas as pd
 import finplot as fplt
 import requests
@@ -7,7 +8,7 @@ import time
 
 
 def cumcnt_indices(v):
-    v[~v] = pd.np.nan
+    v[~v] = math.nan
     cumsum = v.cumsum().fillna(method='pad')
     reset = -cumsum[v.isnull()].diff().fillna(cumsum)
     r = v.where(v.notnull(), reset).cumsum().fillna(0.0)

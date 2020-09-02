@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 '''Slightly more advanced example which requires "pip install bitmex-ws" to run. The data is pushed from the BitMEX server
-   to our chart, which we update once per second.'''
+   to our chart, which we update in a couple of Hertz.'''
 
 from bitmex_websocket import Instrument
 from bitmex_websocket.constants import InstrumentChannels
@@ -56,15 +56,18 @@ def update_plot():
         orderbook_plot = fplt.horiz_time_volume(orderbook, candle_width=1, draw_body=10, colorfunc=orderbook_colorfunc)
         plots.append(orderbook_plot)
         # use bitmex colors
-        colors = dict(
+        candlestick_plot.colors.update(dict(
                 bull_shadow = '#388d53',
                 bull_frame  = '#205536',
                 bull_body   = '#52b370',
                 bear_shadow = '#d56161',
                 bear_frame  = '#5c1a10',
-                bear_body   = '#e8704f')
-        candlestick_plot.colors.update(colors)
-        orderbook_plot.colors.update(colors)
+                bear_body   = '#e8704f'))
+        orderbook_plot.colors.update(dict(
+                bull_frame  = '#52b370',
+                bull_body   = '#bae1c6',
+                bear_frame  = '#e8704f',
+                bear_body   = '#f6c6b9'))
     else: # update
         plots[0].update_data(candlesticks)
         plots[1].update_data(bollband_hi)

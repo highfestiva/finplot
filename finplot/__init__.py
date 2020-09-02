@@ -49,6 +49,7 @@ max_zoom_points = 20 # number of visible candles when maximum zoomed in
 top_graph_scale = 2
 clamp_grid = True
 right_margin_candles = 5 # whitespace at the right-hand side
+side_margin = 0.5
 lod_candles = 3000
 lod_labels = 700
 cache_candle_factor = 3 # factor extra candles rendered to buffer
@@ -165,13 +166,16 @@ class PandasDataSource:
         self.cache_hilo = OrderedDict()
         self.renames = {}
         self.pre_update = lambda df: df
+        self._period = None
 
     @property
     def period(self):
         if len(self.df) <= 1:
             return 1
-        timecol = self.df.columns[0]
-        return self.df[timecol].diff().median() / 1000
+        if not self._period:
+            timecol = self.df.columns[0]
+            self._period = self.df[timecol].diff().median() / 1000
+        return self._period
 
     @property
     def index(self):
@@ -206,8 +210,8 @@ class PandasDataSource:
         return decimals, smallest_diff
 
     def update_init_x(self, init_steps):
-        self.init_x0 = max(self.xlen-init_steps, 0) - 0.5
-        self.init_x1 = self.xlen - 0.5
+        self.init_x0 = max(self.xlen-init_steps, 0) - side_margin
+        self.init_x1 = self.xlen - side_margin
 
     def closest_time(self, x):
         timecol = self.df.columns[0]
@@ -245,6 +249,8 @@ class PandasDataSource:
         datasrc.col_data_offset = orig_col_data_cnt
         datasrc.scale_cols = new_scale_cols
         self.cache_hilo = OrderedDict()
+        self._period = None
+        datasrc._period = None
 
     def update(self, datasrc):
         df = self.pre_update(self.df)
@@ -258,8 +264,9 @@ class PandasDataSource:
                 data[col] = df[col]
         data = data.reset_index()
         self.df = data[[data.columns[0]]+orig_cols] if orig_cols else data
-        self.init_x1 = self.xlen - 0.5
+        self.init_x1 = self.xlen - side_margin
         self.cache_hilo = OrderedDict()
+        self._period = None
 
     def hilo(self, x0, x1):
         '''Return five values in time range: t0, t1, highest, lowest, number of rows.'''
@@ -650,14 +657,25 @@ class FinViewBox(pg.ViewBox):
     def linkedViewChanged(self, view, axis):
         if not self.datasrc:
             return
-        if view:
+        if view and self.datasrc and view.datasrc:
             tr = self.targetRect()
             vr = view.targetRect()
             is_dirty = view.force_range_update > 0
-            if is_dirty or abs(vr.left()-tr.left()) >= 1 or abs(vr.right()-tr.right()) >= 1:
-                if is_dirty:
-                    view.force_range_update -= 1
-                self.update_y_zoom(vr.left(), vr.right())
+            is_same_scale = self.datasrc.xlen == view.datasrc.xlen
+            if is_same_scale: # stable zoom based on index
+                if is_dirty or abs(vr.left()-tr.left()) >= 1 or abs(vr.right()-tr.right()) >= 1:
+                    if is_dirty:
+                        view.force_range_update -= 1
+                    self.update_y_zoom(vr.left(), vr.right())
+            else: # sloppy one based on time stamps
+                tt0,tt1,_,_,_ = self.datasrc.hilo(tr.left(), tr.right())
+                vt0,vt1,_,_,_ = view.datasrc.hilo(vr.left(), vr.right())
+                period2 = self.datasrc.period * 0.5
+                if is_dirty or abs(vt0-tt0) >= period2 or abs(vt1-tt1) >= period2:
+                    if is_dirty:
+                        view.force_range_update -= 1
+                    x0,x1 = _pdtime2index(self.parent(), pd.Series([vt0,vt1]), any_end=True)
+                    self.update_y_zoom(x0, x1)
 
     def zoom_rect(self, vr, scale_fact, center):
         if not self.datasrc:
@@ -673,8 +691,8 @@ class FinViewBox(pg.ViewBox):
             steps = int(percent/100*self.targetRect().width())
         tr = self.targetRect()
         x1 = tr.right() + steps
-        startx = -0.5
-        endx = self.datasrc.xlen - 0.5
+        startx = -side_margin
+        endx = self.datasrc.xlen - side_margin
         if x1 > endx:
             x1 = endx
         x0 = x1 - tr.width()
@@ -702,16 +720,16 @@ class FinViewBox(pg.ViewBox):
             x0 = tr.left()
             x1 = tr.right()
         # make edges rigid
-        xl = max(round(x0-0.5)+0.5, -0.5)
-        xr = min(round(x1-0.5)+0.5, self.datasrc.xlen-0.5)
+        xl = max(round(x0-side_margin)+side_margin, -side_margin)
+        xr = min(round(x1-side_margin)+side_margin, self.datasrc.xlen-side_margin)
         dxl = xl-x0
         dxr = xr-x1
         if dxl > 0:
             x1 += dxl
         if dxr < 0:
             x0 += dxr
-        x0 = max(round(x0-0.5)+0.5, -0.5)
-        x1 = min(round(x1-0.5)+0.5, self.datasrc.xlen-0.5)
+        x0 = max(round(x0-side_margin)+side_margin, -side_margin)
+        x1 = min(round(x1-side_margin)+side_margin, self.datasrc.xlen-side_margin)
         # fetch hi-lo and set range
         t0,t1,hi,lo,cnt = self.datasrc.hilo(x0, x1)
         vr = self.viewRect()
@@ -1444,7 +1462,7 @@ def show():
             if _loadwindata(win):
                 continue
         for vb in vbs:
-            if vb.datasrc and vb.linkedView(0) is None:
+            if vb.datasrc and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None):
                 vb.update_y_zoom(vb.datasrc.init_x0, vb.datasrc.init_x1)
     _repaint_candles()
     if windows:
@@ -1782,8 +1800,8 @@ def _set_plot_x_axis_leader(ax):
 
 
 def _set_x_limits(ax, datasrc):
-    x0 = -0.5
-    x1 = datasrc.xlen - 0.5 + right_margin_candles # add another margin to get the "snap back" sensation
+    x0 = -side_margin
+    x1 = datasrc.xlen - 1 + side_margin + right_margin_candles # add another margin to get the "snap back" sensation
     ax.setLimits(xMin=x0, xMax=x1)
     return x0, x1
 
@@ -1922,7 +1940,7 @@ def _pdtime2epoch(t):
     return t
 
 
-def _pdtime2index(ax, ts):
+def _pdtime2index(ax, ts, any_end=False):
     if isinstance(ts.iloc[0], pd.Timestamp):
         ts = ts.astype('int64') // int(1e6)
     else:
@@ -1940,7 +1958,7 @@ def _pdtime2index(ax, ts):
         xss = xs.loc[xs>t]
         if len(xss) == 0:
             t0 = xs.iloc[-1]
-            if t0 == t:
+            if any_end or t0 == t:
                 r.append(len(xs)-1)
                 continue
             if i > 0:
