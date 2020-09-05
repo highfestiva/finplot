@@ -13,7 +13,8 @@ line = fplt.add_line((dates[100], 4.4), (dates[1100], 4.6), color='#9900ff', int
 text = fplt.add_text((dates[500], 4.6), "I'm here alright!", color='#bb7700')
 ## fplt.remove_text(text)
 
-# save a single screenshot after we're rendered
-fplt.timer_callback(fplt.save_screenshot, 0.5, single_shot=True)
+def save():
+    fplt.screenshot(open('screenshot.png', 'wb'))
+fplt.timer_callback(save, 0.5, single_shot=True) # wait some until we're rendered
 
 fplt.show()

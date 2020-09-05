@@ -1500,13 +1500,14 @@ def play_sound(filename):
     s.play()
 
 
-def save_screenshot(filename='screenshot.png'):
+def screenshot(file, fmt='png'):
     if not app:
         print('ERROR: save_screenshot must be callbacked from e.g. timer_callback()')
         return
     try:
-        fmt = filename.rsplit('.', 1)[-1]
-        app.primaryScreen().grabWindow(windows[0].winId()).save(filename, fmt)
+        buffer = QtCore.QBuffer()
+        app.primaryScreen().grabWindow(windows[0].winId()).save(buffer, fmt)
+        file.write(buffer.data())
     except Exception as e:
         print(type(e), e)
 
