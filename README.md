@@ -18,17 +18,21 @@ And best of all: it can show hundreds of thousands of datapoints without batting
 * Comes with a [dozen](https://github.com/highfestiva/finplot/blob/master/finplot) great examples.
 
 ![feature1](https://raw.githubusercontent.com/highfestiva/finplot/master/feature1.png)
+
 ![feature2](https://raw.githubusercontent.com/highfestiva/finplot/master/feature2.jpg)
+
 ![feature3](https://raw.githubusercontent.com/highfestiva/finplot/master/feature3.jpg)
+
+![feature3](https://raw.githubusercontent.com/highfestiva/finplot/master/feature-nuts.jpg)
 
 
 ## What it is not
 
 finplot is not a web app. It does not help you create an homebrew exchange. It does not work with Jupyter Labs.
 
-It is only intended for you to do backtesting in. That is not to say that you can't create these things yourself.
-The library is based on the eminent pyqtgraph, which is fast and flexible, so feel free to hack away if that's
-what you want.
+It is only intended for you to do backtesting in. That is not to say that you can't create a ticker or a trade
+widget yourself. The library is based on the eminent pyqtgraph, which is fast and flexible, so feel free to hack
+away if that's what you want.
 
 
 ## Easy installation

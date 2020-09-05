@@ -979,7 +979,6 @@ class HorizontalTimeVolumeItem(CandlestickItem):
         volumes = (volumes * f / divvol).T
         p = self.painter
         p.begin(self.picture)
-        p.setPen(pg.mkPen(poc_color, width=1))
         h = 1e-10
         for i in self.datasrc.df.index:
             prcr = prices[i]
@@ -1028,6 +1027,7 @@ class HorizontalTimeVolumeItem(CandlestickItem):
             # draw poc line
             if self.draw_poc:
                 y = prcr[pocidx] + h / 2
+                p.setPen(pg.mkPen(poc_color))
                 p.drawLine(QtCore.QPointF(t, y), QtCore.QPointF(t+f*self.draw_poc, y))
         p.end()
 
