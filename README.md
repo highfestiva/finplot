@@ -25,8 +25,6 @@ And best of all: it can show hundreds of thousands of datapoints without batting
 ## What it is not
 
 finplot is not a web app. It does not help you create an homebrew exchange. It does not work with Jupyter Labs.
-It does not have a save screen shot function. It only shows time-based charts, i.e. no order depth, no trades,
-no tickers.
 
 It is only intended for you to do backtesting in. That is not to say that you can't create these things yourself.
 The library is based on the eminent pyqtgraph, which is fast and flexible, so feel free to hack away if that's
