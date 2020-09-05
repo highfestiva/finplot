@@ -31,11 +31,12 @@ hard_colors = ['#000000', '#772211', '#000066', '#555555', '#0022cc', '#ffcc00']
 cmap_clash = pg.ColorMap([0.0, 0.2, 0.6, 1.0], [[0.5,0.5,1.0,0.2], [0.0,0.0,0.5,0.2], [1.0,0.2,0.4,0.2], [1.0,0.7,0.3,0.2]])
 foreground = '#000000'
 background = '#ffffff'
-hollow_brush_color = background
 candle_bull_color = '#26a69a'
 candle_bear_color = '#ef5350'
+candle_bull_body_color = background
 volume_bull_color = '#92d2cc'
 volume_bear_color = '#f7a9a7'
+volume_bull_body_color = volume_bull_color
 volume_neutral_color = '#b0b0b0'
 poc_color = '#000060'
 odd_plot_background = '#f0f0f0'
@@ -78,6 +79,8 @@ class EpochAxisItem(pg.AxisItem):
         self.vb = vb
 
     def tickStrings(self, values, scale, spacing):
+        if self.mode == 'num':
+            return ['%g'%v for v in values]
         conv = _x2year if self.mode=='year' else _x2local_t
         return [conv(self.vb.datasrc, value) for value in values]
 
@@ -85,7 +88,7 @@ class EpochAxisItem(pg.AxisItem):
         self.mode = 'num'
         ax = self.vb.parent()
         datasrc = _get_datasrc(ax, require=False)
-        if datasrc is None or not datasrc.timebased():
+        if datasrc is None or not ax.x_indexed:
             return super().tickValues(minVal, maxVal, size)
         # see if we have time
         self.mode = 'time'
@@ -165,6 +168,15 @@ class PandasDataSource:
         self.scale_cols = [i for i in range(self.col_data_offset,len(self.df.columns)) if self.df.iloc[:,i].dtype!=object]
         self.cache_hilo = OrderedDict()
         self.renames = {}
+        newcols = []
+        for col in self.df.columns:
+            oldcol = col
+            while col in newcols:
+                col = str(col)+'+'
+            newcols.append(col)
+            if oldcol != col:
+                self.renames[oldcol] = col
+        self.df.columns = newcols
         self.pre_update = lambda df: df
         self._period = None
 
@@ -393,12 +405,15 @@ class FinCrossHair:
         self.hline.setPos(y)
         self.xtext.setPos(x, y)
         self.ytext.setPos(x, y)
-        xtext = _x2local_t(self.ax.vb.datasrc, x)
-        linear_y = y
-        y = self.ax.vb.yscale.xform(y)
         rng = self.ax.vb.y_max - self.ax.vb.y_min
         rngmax = abs(self.ax.vb.y_min) + rng # any approximation is fine
         sd,se = (self.ax.significant_decimals,self.ax.significant_eps) if clamp_grid else (significant_decimals,significant_eps)
+        if self.ax.x_indexed:
+            xtext = _x2local_t(self.ax.vb.datasrc, x)
+        else:
+            xtext = _round_to_significant(rng, rngmax, x, sd, se)
+        linear_y = y
+        y = self.ax.vb.yscale.xform(y)
         ytext = _round_to_significant(rng, rngmax, y, sd, se)
         far_right = self.ax.viewRect().x() + self.ax.viewRect().width()*0.9
         far_bottom = self.ax.viewRect().y() + self.ax.viewRect().height()*0.1
@@ -731,7 +746,7 @@ class FinViewBox(pg.ViewBox):
         x0 = max(round(x0-side_margin)+side_margin, -side_margin)
         x1 = min(round(x1-side_margin)+side_margin, self.datasrc.xlen-side_margin)
         # fetch hi-lo and set range
-        t0,t1,hi,lo,cnt = self.datasrc.hilo(x0, x1)
+        _,_,hi,lo,cnt = self.datasrc.hilo(x0, x1)
         vr = self.viewRect()
         if cnt < vr.width() and cnt < max_zoom_points:
             return
@@ -844,7 +859,7 @@ class CandlestickItem(FinPlotItem):
     def __init__(self, ax, datasrc, draw_body, draw_shadow, candle_width, colorfunc):
         self.colors = dict(bull_shadow      = candle_bull_color,
                            bull_frame       = candle_bull_color,
-                           bull_body        = hollow_brush_color,
+                           bull_body        = candle_bull_body_color,
                            bear_shadow      = candle_bear_color,
                            bear_frame       = candle_bear_color,
                            bear_body        = candle_bear_color,
@@ -948,7 +963,7 @@ class HorizontalTimeVolumeItem(CandlestickItem):
         # normalize
         try:
             f = self.datasrc.period / _get_datasrc(self.ax).period
-            times = _pdtime2index(self.ax, times)
+            times = _pdtime2index(self.ax, times, require_time=True)
         except AssertionError:
             f = 1
         draw_body = self.draw_body
@@ -1006,7 +1021,7 @@ class HorizontalTimeVolumeItem(CandlestickItem):
                     p.setBrush(pg.mkBrush(body))
                     prcr_,volr_ = data
                     for w,y in zip(volr_, prcr_):
-                        if abs(w) > 1e-3:
+                        if abs(w) > 1e-15:
                             p.drawRect(QtCore.QRectF(t, y+h0, w*draw_body, h1))
 
             # draw poc line
@@ -1163,9 +1178,7 @@ def renko(x, y=None, bins=None, step=None, ax=None, colorfunc=price_colorfilter)
     adj = _adjust_renko_log_datasrc if ax.vb.yscale.scaletype == 'log' else _adjust_renko_datasrc
     step_adjust_renko_datasrc = partial(adj, step)
     step_adjust_renko_datasrc(datasrc)
-    ax.setXLink(None)
-    if ax.prev_ax:
-        ax.prev_ax.showAxis('bottom')
+    ax.decouple()
     item = candlestick_ochl(datasrc, draw_shadow=False, candle_width=1, ax=ax, colorfunc=colorfunc)
     item.colors['bull_body'] = item.colors['bull_frame']
     item.update_data = partial(_update_data, None, step_adjust_renko_datasrc, item)
@@ -1184,7 +1197,7 @@ def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter)
     item.colors['bull_body'] = item.colors['bull_frame']
     if colorfunc == volume_colorfilter: # assume normal volume plot
         item.colors['bull_frame'] = volume_bull_color
-        item.colors['bull_body']  = volume_bull_color
+        item.colors['bull_body']  = volume_bull_body_color
         item.colors['bear_frame'] = volume_bear_color
         item.colors['bear_body']  = volume_bear_color
         ax.vb.v_zoom_baseline = 0
@@ -1253,16 +1266,14 @@ def heatmap(datasrc, ax=None, **kwargs):
 
 
 def bar(x, y=None, width=0.8, ax=None, colorfunc=strength_colorfilter):
-    '''Use volume_ocv() if you want a bar plot which relates to other time plots.'''
+    '''Bar plots are decoupled. Use volume_ocv() if you want a bar plot which relates to other time plots.'''
     global right_margin_candles, max_zoom_points
     right_margin_candles = 0
     max_zoom_points = min(max_zoom_points, 8)
     ax = _create_plot(ax=ax, maximize=False)
+    ax.decouple()
     datasrc = _create_datasrc(ax, x, y)
     _adjust_bar_datasrc(datasrc, order_cols=False) # don't rearrange columns, done for us in volume_ocv()
-    ax.setXLink(None)
-    if ax.prev_ax:
-        ax.prev_ax.showAxis('bottom')
     item = volume_ocv(datasrc, candle_width=width, ax=ax, colorfunc=colorfunc)
     item.update_data = partial(_update_data, None, _adjust_bar_datasrc, item)
     _pre_process_data(ax.vb)
@@ -1290,14 +1301,17 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
     _set_datasrc(ax, datasrc)
     if legend is not None:
         _create_legend(ax)
+    x = datasrc.x if datasrc.standalone or not ax.x_indexed else datasrc.index
     y = datasrc.y / ax.vb.yscale.scalef
     if style is None or any(ch in style for ch in '-_.'):
         connect_dots = 'finite' # same as matplotlib; use datasrc.standalone=True if you want to keep separate intervals on a plot
-        item = ax.plot(datasrc.index, y, pen=_makepen(color=used_color, style=style, width=width), name=legend, connect=connect_dots)
+        item = ax.plot(x, y, pen=_makepen(color=used_color, style=style, width=width), name=legend, connect=connect_dots)
     else:
         symbol = {'v':'t', '^':'t1', '>':'t2', '<':'t3'}.get(style, style) # translate some similar styles
-        ser = y.loc[y.notnull()]
-        item = ax.plot(ser.index, ser.values, pen=None, symbol=symbol, symbolPen=None, symbolSize=5*width, symbolBrush=pg.mkBrush(used_color), name=legend)
+        yfilter = y.notnull()
+        ser = y.loc[yfilter]
+        x = x.loc[yfilter].values if hasattr(x, 'loc') else x[yfilter]
+        item = ax.plot(x, ser.values, pen=None, symbol=symbol, symbolPen=None, symbolSize=5*width, symbolBrush=pg.mkBrush(used_color), name=legend)
         item.scatter._dopaint = item.scatter.paint
         item.scatter.paint = partial(_paint_scatter, item.scatter)
         # optimize (when having large number of points) by ignoring scatter click detection
@@ -1371,6 +1385,7 @@ def set_yscale(yscale='linear', ax=None):
 
 def add_band(y0, y1, color=band_color, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
+    color = _get_color(ax, None, color)
     lr = pg.LinearRegionItem([y0,y1], orientation=pg.LinearRegionItem.Horizontal, brush=pg.mkBrush(color), movable=False)
     lr.lines[0].setPen(pg.mkPen(None))
     lr.lines[1].setPen(pg.mkPen(None))
@@ -1380,6 +1395,7 @@ def add_band(y0, y1, color=band_color, ax=None):
 
 def add_line(p0, p1, color=draw_line_color, interactive=False, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
+    color = _get_color(ax, None, color)
     x_pts = _pdtime2index(ax, pd.Series([p0[0], p1[0]]))
     pts = [(x_pts[0], p0[1]), (x_pts[1], p1[1])]
     if interactive:
@@ -1404,9 +1420,10 @@ def remove_line(line):
 
 def add_text(pos, s, color=draw_line_color, anchor=(0,0), ax=None):
     ax = _create_plot(ax=ax, maximize=False)
+    color = _get_color(ax, None, color)
     text = pg.TextItem(s, color=color, anchor=anchor)
     x = pos[0]
-    if ax.vb.datasrc is not None and ax.vb.datasrc.timebased():
+    if ax.vb.datasrc is not None:
         x = _pdtime2index(ax, pd.Series([pos[0]]))[0]
     text.setPos(x, pos[1])
     text.setZValue(50)
@@ -1540,7 +1557,7 @@ def _create_plot(ax=None, **kwargs):
 
 def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
     if prev_ax is not None:
-        prev_ax.hideAxis('bottom') # hide the whole previous axis
+        prev_ax.set_visible(xaxis=False) # hide the whole previous axis
         win.nextRow()
     axes = {'bottom': EpochAxisItem(vb=viewbox, orientation='bottom'),
             'left':   YAxisItem(vb=viewbox, orientation='left')}
@@ -1556,7 +1573,10 @@ def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
     ax.hideButtons()
     ax.overlay = partial(_overlay, ax)
     ax.set_visible = partial(_ax_set_visible, ax)
+    ax.decouple = partial(_ax_decouple, ax)
+    ax.disable_x_index = partial(_ax_disable_x_index, ax)
     ax.prev_ax = prev_ax
+    ax.x_indexed = True
     if index%2:
         viewbox.setBackgroundColor(odd_plot_background)
     viewbox.setParent(ax)
@@ -1575,7 +1595,11 @@ def _overlay(ax, scale=0.25):
     axo = pg.PlotItem()
     axo.significant_decimals = significant_decimals
     axo.significant_eps = significant_eps
+    axo.x_indexed = ax.x_indexed
     axo.vb = viewbox
+    axo.prev_ax = None
+    axo.decouple = partial(_ax_decouple, axo)
+    axo.disable_x_index = partial(_ax_disable_x_index, axo)
     axo.hideAxis('left')
     axo.hideAxis('bottom')
     axo.hideButtons()
@@ -1585,11 +1609,25 @@ def _overlay(ax, scale=0.25):
     return axo
 
 
-def _ax_set_visible(ax, crosshair=True, xaxis=True, yaxis=True):
-    if not crosshair:
+def _ax_set_visible(ax, crosshair=None, xaxis=None, yaxis=None):
+    if crosshair == False:
         ax.crosshair.hide()
-    ax.axes['left']['item'].hide_strings = not yaxis
-    (ax.showAxis if xaxis else ax.hideAxis)('bottom')
+    if yaxis is not None:
+        ax.axes['left']['item'].hide_strings = not yaxis
+    if xaxis is not None:
+        (ax.showAxis if xaxis else ax.hideAxis)('bottom')
+
+
+def _ax_decouple(ax):
+    ax.setXLink(None)
+    if ax.prev_ax:
+        ax.prev_ax.set_visible(xaxis=True)
+
+
+def _ax_disable_x_index(ax, decouple=True):
+    ax.x_indexed = False
+    if decouple:
+        _ax_decouple(ax)
 
 
 def _create_legend(ax):
@@ -1667,6 +1705,8 @@ def _set_datasrc(ax, datasrc):
             viewbox.set_datasrc(viewbox.datasrc) # update zoom
     else:
         datasrc.update_init_x(viewbox.init_steps)
+        if not ax.x_indexed:
+            _set_x_limits(ax, datasrc)
     # update period if this datasrc has higher resolution
     global epoch_period
     if epoch_period > 1e7 or not datasrc.standalone:
@@ -1681,11 +1721,12 @@ def _has_timecol(df):
 def _adjust_renko_datasrc(step, datasrc):
     bricks = datasrc.y.diff() / step
     bricks = (datasrc.y[bricks.isnull() | (bricks.abs()>=0.5)] / step).round().astype(int)
+    extras = datasrc.df.iloc[:, datasrc.col_data_offset+1:]
     ts = datasrc.x[bricks.index]
     up = bricks.iloc[0] + 1
     dn = up - 2
     data = []
-    for t,brick in zip(ts, bricks):
+    for t,i,brick in zip(ts, bricks.index, bricks):
         s = 0
         if brick >= up:
             x0,x1,s = up-1,brick,+1
@@ -1700,8 +1741,9 @@ def _adjust_renko_datasrc(step, datasrc):
                 td = abs(x1-x)-1
                 ds = 0 if s>0 else step
                 y = x*step
-                data.append([t-td, y+ds, y+step-ds, y+step, y])
-    datasrc.df = pd.DataFrame(data, columns='time open close high low'.split())
+                z = list(extras.loc[i])
+                data.append([t-td, y+ds, y+step-ds, y+step, y] + z)
+    datasrc.df = pd.DataFrame(data, columns='time open close high low'.split()+list(extras.columns))
 
 
 def _adjust_renko_log_datasrc(step, datasrc):
@@ -1800,8 +1842,16 @@ def _set_plot_x_axis_leader(ax):
 
 
 def _set_x_limits(ax, datasrc):
-    x0 = -side_margin
-    x1 = datasrc.xlen - 1 + side_margin + right_margin_candles # add another margin to get the "snap back" sensation
+    if ax.x_indexed:
+        x0 = -side_margin
+        x1 = datasrc.xlen - 1 + side_margin + right_margin_candles # add another margin to get the "snap back" sensation
+    else:
+        x0 = datasrc.x.min()
+        x1 = datasrc.x.max()
+        # extend margin on decoupled plots
+        d = (x1-x0) * 0.2
+        x0 -= d
+        x1 += d
     ax.setLimits(xMin=x0, xMax=x1)
     return x0, x1
 
@@ -1940,13 +1990,15 @@ def _pdtime2epoch(t):
     return t
 
 
-def _pdtime2index(ax, ts, any_end=False):
+def _pdtime2index(ax, ts, any_end=False, require_time=False):
     if isinstance(ts.iloc[0], pd.Timestamp):
         ts = ts.astype('int64') // int(1e6)
     else:
         h = np.nanmax(ts.values)
         if h < 1e7:
-            assert False, 'not a time series'
+            if require_time:
+                assert False, 'not a time series'
+            return ts
         if h > 1e13: # handle ns epochs
             ts = ts.astype('float64') / 1e3
         elif h < 1e10: # handle s epochs
@@ -1975,7 +2027,7 @@ def _pdtime2index(ax, ts, any_end=False):
 
 
 def _get_datasrc(ax, require=True):
-    if ax.vb.datasrc is not None:
+    if ax.vb.datasrc is not None or not ax.x_indexed:
         return ax.vb.datasrc
     vbs = set(ax.vb for win in windows for ax in win.ci.items)
     for vb in vbs:
@@ -2053,7 +2105,7 @@ def _roihandle_move_snap(vb, orig_func, pos, modifiers=QtCore.Qt.KeyboardModifie
 
 def _clamp_xy(ax, x, y):
     y = ax.vb.yscale.xform(y)
-    if clamp_grid:
+    if clamp_grid and ax.x_indexed:
         x = round(x)
         eps = ax.significant_eps
         eps2 = np.sign(y) * 0.5 * eps

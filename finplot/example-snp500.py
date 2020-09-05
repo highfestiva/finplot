@@ -17,22 +17,27 @@ r = requests.get(url)
 df = pd.read_csv(StringIO(r.text))
 df['Date'] = pd.to_datetime(df['Date']).astype('int64') // 1_000_000 # use finplot's internal representation, which is ms
 
-# plot candles
 ax,ax2 = fplt.create_plot('S&P 500 MACD', rows=2)
-fplt.candlestick_ochl(df[['Date','Open','Close','High','Low']], ax=ax)
 
-hover_label = fplt.add_legend('', ax=ax)
-axo = ax.overlay()
-fplt.volume_ocv(df[['Date','Open','Close','Volume']], ax=axo)
-fplt.plot(df.Volume.ewm(span=24).mean(), ax=axo, color=1)
-
-# plot macd
+# plot macd with standard colors first
 macd = df.Close.ewm(span=12).mean() - df.Close.ewm(span=26).mean()
 signal = macd.ewm(span=9).mean()
 df['macd_diff'] = macd - signal
 fplt.volume_ocv(df[['Date','Open','Close','macd_diff']], ax=ax2, colorfunc=fplt.strength_colorfilter)
 fplt.plot(macd, ax=ax2, legend='MACD')
 fplt.plot(signal, ax=ax2, legend='Signal')
+
+# change to b/w coloring templates for next plots
+fplt.candle_bull_color = fplt.candle_bear_color = '#000'
+fplt.volume_bull_color = fplt.volume_bear_color = '#333'
+fplt.candle_bull_body_color = fplt.volume_bull_body_color = '#fff'
+
+# plot price and volume
+fplt.candlestick_ochl(df[['Date','Open','Close','High','Low']], ax=ax)
+hover_label = fplt.add_legend('', ax=ax)
+axo = ax.overlay()
+fplt.volume_ocv(df[['Date','Open','Close','Volume']], ax=axo)
+fplt.plot(df.Volume.ewm(span=24).mean(), ax=axo, color=1)
 
 #######################################################
 ## update crosshair and legend when moving the mouse ##
