@@ -416,6 +416,9 @@ class FinCrossHair:
         linear_y = y
         y = self.ax.vb.yscale.xform(y)
         ytext = _round_to_significant(rng, rngmax, y, sd, se)
+        if not self.ax.x_indexed:
+            xtext = 'x ' + xtext
+            ytext = 'y ' + ytext
         far_right = self.ax.viewRect().x() + self.ax.viewRect().width()*0.9
         far_bottom = self.ax.viewRect().y() + self.ax.viewRect().height()*0.1
         close2right = x > far_right
