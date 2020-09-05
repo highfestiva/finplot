@@ -122,4 +122,7 @@ plot_accumulation_distribution(df, ax2)
 plot_on_balance_volume(df, ax3)
 plot_rsi(df, ax4)
 
+# restore view (X-position and zoom) when we run this example again
+fplt.autoviewrestore()
+
 fplt.show()
