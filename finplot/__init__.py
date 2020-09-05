@@ -58,6 +58,7 @@ y_label_width = 65
 long_time = 2*365*24*60*60*1000
 winx,winy,winw,winh = 400,300,800,400
 
+app = None
 windows = [] # no gc
 timers = [] # no gc
 sounds = {} # no gc
@@ -1483,10 +1484,11 @@ def show():
                 vb.update_y_zoom(vb.datasrc.init_x0, vb.datasrc.init_x1)
     _repaint_candles()
     if windows:
-        QtGui.QApplication.instance().exec_()
+        global last_ax, app
+        app = QtGui.QApplication.instance()
+        app.exec_()
         windows.clear()
         overlay_axs.clear()
-        global last_ax
         last_ax = None
 
 
@@ -1496,6 +1498,17 @@ def play_sound(filename):
         sounds[filename] = QSound(filename) # disallow gc
     s = sounds[filename]
     s.play()
+
+
+def save_screenshot(filename='screenshot.png'):
+    if not app:
+        print('ERROR: save_screenshot must be callbacked from e.g. timer_callback()')
+        return
+    try:
+        fmt = filename.rsplit('.', 1)[-1]
+        app.primaryScreen().grabWindow(windows[0].winId()).save(filename, fmt)
+    except Exception as e:
+        print(type(e), e)
 
 
 #################### INTERNALS ####################
