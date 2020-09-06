@@ -25,7 +25,7 @@ fplt.add_legend('Daily % returns histogram', ax=ax3)
 fplt.hist(daily_ret, bins=60, ax=ax3)
 
 fplt.add_legend('Yearly returns in %', ax=ax4)
-fplt.bar(btc.Close.resample('Y').last().pct_change().dropna(), ax=ax4)
+fplt.bar(btc.Close.resample('Y').last().pct_change().dropna()*100, ax=ax4)
 
 # calculate monthly returns, display as a 4x3 heatmap
 months = btc['Adj Close'].resample('M').last().pct_change().dropna().to_frame() * 100
