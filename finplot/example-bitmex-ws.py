@@ -107,7 +107,7 @@ def update_orderbook_data(orderbook10):
     ask['price'] += 0.5 # ask above price
     ask['volume'] = -ask['volume'].cumsum() # negative volume means pointing left
     bid['volume'] = -bid['volume'].cumsum()
-    orderbook = [[len(df)+0.5, pd.concat([bid, ask])]]
+    orderbook = [[len(df)+0.5, pd.concat([bid.iloc[::-1], ask])]]
 
 
 if __name__ == '__main__':

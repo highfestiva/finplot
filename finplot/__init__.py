@@ -1148,6 +1148,17 @@ def strength_colorfilter(item, datasrc, df):
     yield item.rowcolors('bear') + [df.loc[(~is_up)&(~is_strong), :]]
 
 
+def volume_colorfilter_section(sections=[]):
+    '''The sections argument is a (starting_index, color_name) array.'''
+    def _colorfilter(sections, item, datasrc, df):
+        if not sections:
+            return volume_colorfilter(item, datasrc, df)
+        for (i0,colname),(i1,_) in zip(sections, sections[1:]+[(None,'neutral')]):
+            rows = df.iloc[i0:i1, :]
+            yield item.rowcolors(colname) + [rows]
+    return partial(_colorfilter, sections)
+
+
 def horizvol_colorfilter(sections=[]):
     '''The sections argument is a (starting_index, color_name) array.'''
     def _colorfilter(sections, item, datasrc, data):
@@ -1381,7 +1392,7 @@ def set_y_range(ymin, ymax, ax=None):
     ax.vb.set_range(None, ymin, None, ymax)
 
 
-def set_yscale(yscale='linear', ax=None):
+def set_y_scale(yscale='linear', ax=None):
     ax = _create_plot(ax=ax, maximize=False)
     ax.setLogMode(y=(yscale=='log'))
     ax.vb.yscale = YScale(yscale, ax.vb.yscale.scalef)
