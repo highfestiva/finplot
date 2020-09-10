@@ -1515,7 +1515,7 @@ def show(qt_exec=True):
                 vb.update_y_zoom(vb.datasrc.init_x0, vb.datasrc.init_x1)
     _repaint_candles()
     for win in windows:
-        if isinstance(win, FinWindow):
+        if isinstance(win, FinWindow) or qt_exec:
             win.show()
     if windows and qt_exec:
         global last_ax, app
