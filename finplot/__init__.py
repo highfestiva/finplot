@@ -84,7 +84,7 @@ class EpochAxisItem(pg.AxisItem):
         if self.mode == 'num':
             return ['%g'%v for v in values]
         conv = _x2year if self.mode=='year' else _x2local_t
-        return [conv(self.vb.datasrc, value) for value in values]
+        return [conv(self.vb.datasrc, value)[0] for value in values]
 
     def tickValues(self, minVal, maxVal, size):
         self.mode = 'num'
@@ -100,8 +100,8 @@ class EpochAxisItem(pg.AxisItem):
         # year index calculation
         self.mode = 'year'
         maxVal = min(datasrc.df.index[-1], maxVal)
-        y0 = int(_x2utc(datasrc, minVal)[:4])
-        y1 = int(_x2utc(datasrc, maxVal)[:4])
+        y0 = int(_x2utc(datasrc, minVal)[0][:4])
+        y1 = int(_x2utc(datasrc, maxVal)[0][:4])
         step = (y1-y0)//12 or 1
         years = pd.Series(pd.to_datetime(['%s'%y for y in range(y0,y1+1,step)]))
         years_indices = [ceil(yi) for yi in _pdtime2index(ax, years)]
@@ -415,14 +415,15 @@ class FinCrossHair:
         rng = self.ax.vb.y_max - self.ax.vb.y_min
         rngmax = abs(self.ax.vb.y_min) + rng # any approximation is fine
         sd,se = (self.ax.significant_decimals,self.ax.significant_eps) if clamp_grid else (significant_decimals,significant_eps)
+        timebased = False
         if self.ax.x_indexed:
-            xtext = _x2local_t(self.ax.vb.datasrc, x)
+            xtext,timebased = _x2local_t(self.ax.vb.datasrc, x)
         else:
             xtext = _round_to_significant(rng, rngmax, x, sd, se)
         linear_y = y
         y = self.ax.vb.yscale.xform(y)
         ytext = _round_to_significant(rng, rngmax, y, sd, se)
-        if not self.ax.x_indexed:
+        if not timebased:
             xtext = 'x ' + xtext
             ytext = 'y ' + ytext
         far_right = self.ax.viewRect().x() + self.ax.viewRect().width()*0.9
@@ -2099,13 +2100,13 @@ def _x2utc(datasrc, x):
 
 def _x2t(datasrc, x, ts2str):
     if not datasrc:
-        return ''
+        return '',False
     try:
         x += 0.5
         t,_,_,_,cnt = datasrc.hilo(x, x)
         if cnt:
             if not datasrc.timebased():
-                return '%g' % t
+                return '%g' % t, False
             s = ts2str(t)
             if epoch_period >= 24*60*60:
                 i = s.index(' ')
@@ -2117,11 +2118,11 @@ def _x2t(datasrc, x, ts2str):
                 i = -3
             else:
                 i = len(s)
-            return s[:i]
+            return s[:i],True
     except Exception as e:
         import traceback
         traceback.print_exc()
-    return ''
+    return '',datasrc.timebased()
 
 
 def _x2year(datasrc, x):
