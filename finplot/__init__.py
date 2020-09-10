@@ -67,6 +67,7 @@ epoch_period = 1e30
 last_ax = None # always assume we want to plot in the last axis, unless explicitly specified
 overlay_axs = [] # for keeping track of candlesticks in overlays
 viewrestore = False
+master_data = {}
 
 
 
@@ -358,8 +359,13 @@ class FinWindow(pg.GraphicsLayoutWidget):
         self.setGeometry(winx, winy, winw, winh)
         winx += 40
         winy += 40
-        self.show()
         self.centralWidget.installEventFilter(self)
+        self.ci.setContentsMargins(0, 0, 0, 0)
+        self.ci.setSpacing(-1)
+
+    @property
+    def axs(self):
+        return [ax for ax in self.ci.items if isinstance(ax, pg.PlotItem)]
 
     def close(self):
         _savewindata(self)
@@ -725,8 +731,8 @@ class FinViewBox(pg.ViewBox):
         main_vb = self
         if self.linkedView(0):
             self.force_range_update = 1 # main need to update only once to us
-            main_vb = list(self.win.ci.items)[0].vb
-        main_vb.force_range_update = len(self.win.ci.items)-1 # update main as many times as there are other rows
+            main_vb = list(self.win.axs)[0].vb
+        main_vb.force_range_update = len(self.win.axs)-1 # update main as many times as there are other rows
         self.update_y_zoom()
         # refresh crosshair when done
         _mouse_moved(self.win, None)
@@ -752,7 +758,7 @@ class FinViewBox(pg.ViewBox):
         # fetch hi-lo and set range
         _,_,hi,lo,cnt = self.datasrc.hilo(x0, x1)
         vr = self.viewRect()
-        if cnt < vr.width() and cnt < max_zoom_points:
+        if (x1-x0) < vr.width() and cnt < max_zoom_points:
             return
         if not self.v_autozoom:
             hi = vr.bottom()
@@ -1086,37 +1092,48 @@ class ScatterLabelItem(FinPlotItem):
         return self.viewRect()
 
 
-
 def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=True, yscale='linear'):
-    global windows, last_ax
     pg.setConfigOptions(foreground=foreground, background=background)
     win = FinWindow(title)
-    windows.append(win)
-    if maximize:
-        win.showMaximized()
     # normally first graph is of higher significance, so enlarge
     win.ci.layout.setRowStretchFactor(0, top_graph_scale)
-    win.ci.setContentsMargins(0, 0, 0, 0)
-    win.ci.setSpacing(-1)
+    if maximize:
+        win.showMaximized()
+    ax0 = axs = create_plot_widget(master=win, rows=rows, init_zoom_periods=init_zoom_periods, yscale=yscale)
+    axs = axs if type(axs) in (tuple,list) else [axs]
+    for ax in axs:
+        win.addItem(ax)
+        win.nextRow()
+    return ax0
+
+
+def create_plot_widget(master, rows=1, init_zoom_periods=1e10, yscale='linear'):
+    pg.setConfigOptions(foreground=foreground, background=background)
+    global last_ax
+    if master not in windows:
+        windows.append(master)
     axs = []
     prev_ax = None
     for n in range(rows):
         ysc = yscale[n] if type(yscale) in (list,tuple) else yscale
         ysc = YScale(ysc, 1)
         v_zoom_scale = 0.97
-        viewbox = FinViewBox(win, init_steps=init_zoom_periods, yscale=ysc, v_zoom_scale=v_zoom_scale)
-        ax = prev_ax = _add_timestamp_plot(win, prev_ax, viewbox=viewbox, index=n, yscale=ysc)
-        _set_plot_x_axis_leader(ax)
-        if n == 0:
+        viewbox = FinViewBox(master, init_steps=init_zoom_periods, yscale=ysc, v_zoom_scale=v_zoom_scale)
+        ax = prev_ax = _add_timestamp_plot(master=master, prev_ax=prev_ax, viewbox=viewbox, index=n, yscale=ysc)
+        if axs:
+            ax.setXLink(axs[0].vb)
+        else:
             viewbox.setFocus()
         axs += [ax]
-    win.proxy_mmove = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, win))
-    win._last_mouse_evs = None
-    win._last_mouse_y = 0
+    if isinstance(master, FinWindow):
+        proxy = pg.SignalProxy(master.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, master))
+    else:
+        proxy = []
+        for ax in axs:
+            proxy += [pg.SignalProxy(ax.ax_widget.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, master))]
+    master_data[master] = dict(proxymm=proxy, last_mouse_evs=None, last_mouse_y=0)
     last_ax = axs[0]
-    if len(axs) == 1:
-        return axs[0]
-    return axs
+    return axs[0] if len(axs) == 1 else axs
 
 
 def price_colorfilter(item, datasrc, df):
@@ -1485,9 +1502,9 @@ def autoviewrestore(enable=True):
     viewrestore = enable
 
 
-def show():
+def show(qt_exec=True):
     for win in windows:
-        vbs = [ax.vb for ax in win.ci.items]
+        vbs = [ax.vb for ax in win.axs]
         for vb in vbs:
             _pre_process_data(vb)
         if viewrestore:
@@ -1497,12 +1514,18 @@ def show():
             if vb.datasrc and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None):
                 vb.update_y_zoom(vb.datasrc.init_x0, vb.datasrc.init_x1)
     _repaint_candles()
-    if windows:
+    for win in windows:
+        if isinstance(win, FinWindow):
+            win.show()
+    if windows and qt_exec:
         global last_ax, app
         app = QtGui.QApplication.instance()
         app.exec_()
         windows.clear()
         overlay_axs.clear()
+        timers.clear()
+        sounds.clear()
+        master_data.clear()
         last_ax = None
 
 
@@ -1515,15 +1538,17 @@ def play_sound(filename):
 
 
 def screenshot(file, fmt='png'):
-    if not app:
+    if _internal_windows_only() and not app:
         print('ERROR: save_screenshot must be callbacked from e.g. timer_callback()')
-        return
+        return False
     try:
         buffer = QtCore.QBuffer()
         app.primaryScreen().grabWindow(windows[0].winId()).save(buffer, fmt)
         file.write(buffer.data())
+        return True
     except Exception as e:
         print(type(e), e)
+    return False
 
 
 #################### INTERNALS ####################
@@ -1538,7 +1563,7 @@ def _loadwindata(win):
     except:
         return
     kvs = {k:v for k,v in settings}
-    vbs = set(ax.vb for ax in win.ci.items)
+    vbs = set(ax.vb for ax in win.axs)
     for vb in vbs:
         ds = vb.datasrc
         if ds:
@@ -1557,7 +1582,7 @@ def _savewindata(win):
     try:
         min_x = int(1e100)
         max_x = int(-1e100)
-        for ax in win.ci.items:
+        for ax in win.axs:
             if ax.vb.targetRect().right() < 4: # ignore empty plots
                 continue
             t0,t1,_,_,_ = ax.vb.datasrc.hilo(ax.vb.targetRect().left(), ax.vb.targetRect().right())
@@ -1575,6 +1600,10 @@ def _savewindata(win):
         print('Error saving plot:', e)
 
 
+def _internal_windows_only():
+     return all(isinstance(win,FinWindow) for win in windows)
+
+
 def _create_plot(ax=None, **kwargs):
     if ax:
         return ax
@@ -1583,13 +1612,18 @@ def _create_plot(ax=None, **kwargs):
     return create_plot(**kwargs)
 
 
-def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
-    if prev_ax is not None:
+def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
+    native_win = isinstance(master, FinWindow)
+    if native_win and prev_ax is not None:
         prev_ax.set_visible(xaxis=False) # hide the whole previous axis
-        win.nextRow()
     axes = {'bottom': EpochAxisItem(vb=viewbox, orientation='bottom'),
             'left':   YAxisItem(vb=viewbox, orientation='left')}
-    ax = pg.PlotItem(viewBox=viewbox, axisItems=axes, name='plot-%i'%index)
+    if native_win:
+        ax = pg.PlotItem(viewBox=viewbox, axisItems=axes, name='plot-%i'%index)
+    else:
+        axw = pg.PlotWidget(viewBox=viewbox, axisItems=axes, name='plot-%i'%index)
+        ax = axw.plotItem
+        ax.ax_widget = axw
     ax.axes['left']['item'].textWidth = y_label_width # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
     ax.axes['left']['item'].setStyle(tickLength=-5) # some bug, totally unexplicable (why setting the default value again would fix repaint width as axis scale down)
     ax.axes['left']['item'].setZValue(30) # put axis in front instead of behind data
@@ -1608,7 +1642,6 @@ def _add_timestamp_plot(win, prev_ax, viewbox, index, yscale):
     if index%2:
         viewbox.setBackgroundColor(odd_plot_background)
     viewbox.setParent(ax)
-    win.addItem(ax)
     return ax
 
 
@@ -1632,6 +1665,7 @@ def _overlay(ax, scale=0.25):
     axo.hideAxis('bottom')
     axo.hideButtons()
     viewbox.addItem(axo)
+    viewbox.setParent(axo)
     ax.vb.sigResized.connect(updateView)
     overlay_axs.append(axo)
     return axo
@@ -1705,7 +1739,7 @@ def _create_datasrc(ax, *args, datacols=1):
     # check if time column missing
     if len(datasrc.df.columns) == datacols:
         # assume time data has already been added before
-        for a in ax.vb.win.ci.items:
+        for a in ax.vb.win.axs:
             if a.vb.datasrc and len(a.vb.datasrc.df.columns) >= 2:
                 datasrc.df.columns = a.vb.datasrc.df.columns[1:len(datasrc.df.columns)+1]
                 col = a.vb.datasrc.df.columns[0]
@@ -1846,7 +1880,7 @@ def _update_data(preadjustfunc, adjustfunc, item, ds):
         if item.ax.axes['bottom']['item'].isVisible(): # update axes if visible
             item.ax.axes['bottom']['item'].hide()
             item.ax.axes['bottom']['item'].show()
-    for ax in item.ax.vb.win.ci.items:
+    for ax in item.ax.vb.win.axs:
         ax.vb.update()
 
 
@@ -1857,16 +1891,6 @@ def _pre_process_data(vb):
         vb.y_min = df.min().min()
         if vb.y_min <= 0:
             vb.y_positive = False
-
-
-def _set_plot_x_axis_leader(ax):
-    '''The first plot to add some data is the leader. All other's X-axis will follow this one.'''
-    if ax.vb.linkedView(0):
-        return
-    for _ax in ax.vb.win.ci.items:
-        if not _ax.vb.linkedView(0) and _ax.vb.name != ax.vb.name:
-            ax.setXLink(_ax.vb.name)
-            break
 
 
 def _set_x_limits(ax, datasrc):
@@ -1886,7 +1910,7 @@ def _set_x_limits(ax, datasrc):
 
 def _repaint_candles():
     '''Candles are only partially drawn, and therefore needs manual dirty reminder whenever it goes off-screen.'''
-    axs = [ax for win in windows for ax in win.ci.items] + overlay_axs
+    axs = [ax for win in windows for ax in win.axs] + overlay_axs
     for ax in axs:
         for item in ax.items:
             if isinstance(item, FinPlotItem):
@@ -1903,7 +1927,7 @@ def _key_pressed(vb, ev):
         global clamp_grid
         clamp_grid = not clamp_grid
         for win in windows:
-            for ax in win.ci.items:
+            for ax in win.axs:
                 ax.crosshair.update()
     elif ev.text() in ('\r', ' '): # enter, space
         vb.set_draw_line_color(draw_done_color)
@@ -1938,21 +1962,21 @@ def _mouse_clicked(vb, ev):
     return True
 
 
-def _mouse_moved(win, evs):
+def _mouse_moved(master, evs):
     if not evs:
-        evs = win._last_mouse_evs
+        evs = master_data[master]['last_mouse_evs']
         if not evs:
             return
-    win._last_mouse_evs = evs
+    master_data[master]['last_mouse_evs'] = evs
     pos = evs[-1]
     # allow inter-pixel moves if moving mouse slowly
     y = pos.y()
-    dy = y - win._last_mouse_y
+    dy = y - master_data[master]['last_mouse_y']
     if 0 < abs(dy) <= 1:
         pos.setY(pos.y() - dy/2)
-    win._last_mouse_y = y
+    master_data[master]['last_mouse_y'] = y
     # apply to all crosshairs
-    for ax in win.ci.items:
+    for ax in master.axs:
         point = ax.vb.mapSceneToView(pos)
         if ax.crosshair:
             ax.crosshair.update(point)
@@ -2057,7 +2081,7 @@ def _pdtime2index(ax, ts, any_end=False, require_time=False):
 def _get_datasrc(ax, require=True):
     if ax.vb.datasrc is not None or not ax.x_indexed:
         return ax.vb.datasrc
-    vbs = set(ax.vb for win in windows for ax in win.ci.items)
+    vbs = [ax.vb for win in windows for ax in win.axs]
     for vb in vbs:
         if vb.datasrc:
             return vb.datasrc
