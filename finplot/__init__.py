@@ -282,6 +282,11 @@ class PandasDataSource:
         self.cache_hilo = OrderedDict()
         self._period = None
 
+    def set_df(self, df):
+        self.df = df
+        self.cache_hilo = OrderedDict()
+        self._period = None
+
     def hilo(self, x0, x1):
         '''Return five values in time range: t0, t1, highest, lowest, number of rows.'''
         if x0 == x1:
@@ -573,6 +578,7 @@ class FinViewBox(pg.ViewBox):
         self.set_datasrc(None)
         self.setMouseEnabled(x=True, y=False)
         self.init_steps = init_steps
+        self.updating_linked = False
 
     def set_datasrc(self, datasrc):
         self.datasrc = datasrc
@@ -681,9 +687,10 @@ class FinViewBox(pg.ViewBox):
         super().keyPressEvent(ev)
 
     def linkedViewChanged(self, view, axis):
-        if not self.datasrc:
+        if not self.datasrc or self.updating_linked:
             return
         if view and self.datasrc and view.datasrc:
+            self.updating_linked = True
             tr = self.targetRect()
             vr = view.targetRect()
             is_dirty = view.force_range_update > 0
@@ -702,6 +709,7 @@ class FinViewBox(pg.ViewBox):
                         view.force_range_update -= 1
                     x0,x1 = _pdtime2index(self.parent(), pd.Series([vt0,vt1]), any_end=True)
                     self.update_y_zoom(x0, x1)
+            self.updating_linked = False
 
     def zoom_rect(self, vr, scale_fact, center):
         if not self.datasrc:
@@ -1650,7 +1658,10 @@ def _overlay(ax, scale=0.25):
     global overlay_axs
     viewbox = FinViewBox(ax.vb.win, init_steps=ax.vb.init_steps, yscale=YScale('linear', 1))
     viewbox.v_zoom_scale = scale
-    ax.vb.win.centralWidget.scene().addItem(viewbox)
+    if hasattr(ax, 'ax_widget'):
+        ax.ax_widget.scene().addItem(viewbox)
+    else:
+        ax.vb.win.centralWidget.scene().addItem(viewbox)
     viewbox.setXLink(ax.vb)
     def updateView():
         viewbox.setGeometry(ax.vb.sceneBoundingRect())
@@ -1669,6 +1680,7 @@ def _overlay(ax, scale=0.25):
     viewbox.setParent(axo)
     ax.vb.sigResized.connect(updateView)
     overlay_axs.append(axo)
+    updateView()
     return axo
 
 
@@ -1763,7 +1775,7 @@ def _set_datasrc(ax, datasrc):
             viewbox.datasrc.addcols(datasrc)
             for item in ax.items:
                 if isinstance(item, FinPlotItem):
-                    item.datasrc.df = viewbox.datasrc.df # every plot here now has the same time-frame
+                    item.datasrc.set_df(viewbox.datasrc.df) # every plot here now has the same time-frame
             _set_x_limits(ax, datasrc)
             viewbox.set_datasrc(viewbox.datasrc) # update zoom
     else:
@@ -1806,7 +1818,7 @@ def _adjust_renko_datasrc(step, datasrc):
                 y = x*step
                 z = list(extras.loc[i])
                 data.append([t-td, y+ds, y+step-ds, y+step, y] + z)
-    datasrc.df = pd.DataFrame(data, columns='time open close high low'.split()+list(extras.columns))
+    datasrc.set_df(pd.DataFrame(data, columns='time open close high low'.split()+list(extras.columns)))
 
 
 def _adjust_renko_log_datasrc(step, datasrc):
@@ -1820,7 +1832,7 @@ def _adjust_renko_log_datasrc(step, datasrc):
 def _adjust_volume_datasrc(datasrc):
     if len(datasrc.df.columns) <= 4:
         datasrc.df.insert(3, '_zero_', [0]*len(datasrc.df)) # base of candles is always zero
-    datasrc.df = datasrc.df.iloc[:,[0,3,4,1,2]] # re-arrange columns for rendering
+    datasrc.set_df(datasrc.df.iloc[:,[0,3,4,1,2]]) # re-arrange columns for rendering
     datasrc.scale_cols = [1, 2] # scale by both baseline and volume
 
 
@@ -1855,7 +1867,7 @@ def _adjust_bar_datasrc(datasrc, order_cols=True):
         datasrc.df.insert(1, '_open_',  [0]*len(datasrc.df)) # "open" for color
         datasrc.df.insert(2, '_close_', datasrc.df.iloc[:, 3]) # "close" (actual bar value) for color
     if order_cols:
-        datasrc.df = datasrc.df.iloc[:,[0,3,4,1,2]] # re-arrange columns for rendering
+        datasrc.set_df(datasrc.df.iloc[:,[0,3,4,1,2]]) # re-arrange columns for rendering
     datasrc.scale_cols = [1, 2] # scale by both baseline and volume
 
 
@@ -1865,24 +1877,47 @@ def _update_data(preadjustfunc, adjustfunc, item, ds):
     ds = _create_datasrc(item.ax, ds)
     if adjustfunc:
         adjustfunc(ds)
-    item.datasrc.update(ds)
     if isinstance(item, FinPlotItem):
+        item.ax.removeItem(item)
         item.dirty = True
+        item.datasrc.update(ds)
     else:
+        item.datasrc.update(ds)
         item.setData(item.datasrc.index, item.datasrc.y)
+    for i in item.ax.items:
+        if i == item or not hasattr(i, 'datasrc'):
+            continue
+        lc = len(item.datasrc.df)
+        li = len(i.datasrc.df)
+        if lc and li and max(lc,li)/min(lc,li) > 100: # TODO: should be typed instead
+            continue
+        cc = item.datasrc.df.columns
+        ci = i.datasrc.df.columns
+        c0 = [c for c in ci if c in cc]
+        c1 = [c for c in ci if not c in cc]
+        df_clipped = item.datasrc.df[c0]
+        if c1:
+            df_clipped = df_clipped.copy()
+            for c in c1:
+                df_clipped[c] = i.datasrc.df[c]
+        i.datasrc.set_df(df_clipped)
     if not item.datasrc.standalone:
         # new limits when extending/reducing amount of data
         x_min,x1 = _set_x_limits(item.ax, item.datasrc)
         # scroll all plots if we're at the far right
         tr = item.ax.vb.targetRect()
         x0 = x1 - tr.width()
-        if tr.right() >= x1 - 5 - 2*right_margin_candles:
-            item.ax.vb.update_y_zoom(x0, x1)
+        if tr.right() < x1 - 5 - 2*right_margin_candles:
+            x0 = x1 = None
+        item.ax.vb.update_y_zoom(x0, x1)
         if item.ax.axes['bottom']['item'].isVisible(): # update axes if visible
             item.ax.axes['bottom']['item'].hide()
             item.ax.axes['bottom']['item'].show()
     for ax in item.ax.vb.win.axs:
         ax.vb.update()
+    if isinstance(item, FinPlotItem):
+        item.ax.addItem(item)
+        item.repaint()
 
 
 def _pre_process_data(vb):
@@ -2126,7 +2161,8 @@ def _x2t(datasrc, x, ts2str):
 
 
 def _x2year(datasrc, x):
-    return _x2local_t(datasrc, x)[:4]
+    t,hasds = _x2local_t(datasrc, x)
+    return t[:4],hasds
 
 
 def _round_to_significant(rng, rngmax, x, significant_decimals, significant_eps):
