@@ -429,7 +429,8 @@ class FinCrossHair:
         y = self.ax.vb.yscale.xform(y)
         ytext = _round_to_significant(rng, rngmax, y, sd, se)
         if not timebased:
-            xtext = 'x ' + xtext
+            if xtext:
+                xtext = 'x ' + xtext
             ytext = 'y ' + ytext
         far_right = self.ax.viewRect().x() + self.ax.viewRect().width()*0.9
         far_bottom = self.ax.viewRect().y() + self.ax.viewRect().height()*0.1
@@ -2038,7 +2039,8 @@ def _inspect_pos(ax, inspector, poss):
     try:
         t = ax.vb.datasrc.closest_time(t)
     except KeyError: # when clicking beyond right_margin_candles
-        return
+        if clamp_grid:
+            t = ax.vb.datasrc.x.iloc[-1 if t > 0 else 0]
     try:
         inspector(t, point.y())
     except Exception as e:
@@ -2195,6 +2197,9 @@ def _roihandle_move_snap(vb, orig_func, pos, modifiers=QtCore.Qt.KeyboardModifie
 def _clamp_xy(ax, x, y):
     y = ax.vb.yscale.xform(y)
     if clamp_grid and ax.x_indexed:
+        ds = ax.vb.datasrc
+        if x < 0 or (ds and x > len(ds.df)-1):
+            x = 0 if x < 0 else len(ds.df)-1
         x = round(x)
         eps = ax.significant_eps
         eps2 = np.sign(y) * 0.5 * eps
