@@ -28,7 +28,7 @@ legend_fill_color   = '#00000055'
 legend_text_color   = '#dddddd66'
 soft_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 hard_colors = ['#000000', '#772211', '#000066', '#555555', '#0022cc', '#ffcc00']
-cmap_clash = pg.ColorMap([0.0, 0.2, 0.6, 1.0], [[0.5,0.5,1.0,0.2], [0.0,0.0,0.5,0.2], [1.0,0.2,0.4,0.2], [1.0,0.7,0.3,0.2]])
+cmap_clash = pg.ColorMap([0.0, 0.2, 0.6, 1.0], [[127, 127, 255, 51], [0, 0, 127, 51], [255, 51, 102, 51], [255, 178, 76, 51]])
 foreground = '#000000'
 background = '#ffffff'
 candle_bull_color = '#26a69a'
@@ -1500,7 +1500,7 @@ def timer_callback(update_func, seconds, single_shot=False):
     timer.timeout.connect(update_func)
     if single_shot:
         timer.setSingleShot(True)
-    timer.start(seconds*1000)
+    timer.start(int(seconds*1000))
     timers.append(timer)
 
 
@@ -2048,7 +2048,7 @@ def _inspect_pos(ax, inspector, poss):
 def brighten(color, f):
     if not color:
         return color
-    return pg.mkColor(color).lighter(f*100)
+    return pg.mkColor(color).lighter(int(f*100))
 
 
 def _get_color(ax, style, wanted_color):
