@@ -648,7 +648,7 @@ class FinViewBox(pg.ViewBox):
         p1 = _clamp_point(self.parent(), p1)
         def nonzerosize(a, b):
             c = b-a
-            return pg.Point(abs(c.x()) or 1, abs(c.y()) or 1)
+            return pg.Point(abs(c.x()) or 1, abs(c.y()) or 1e-3)
         if not self.drawing:
             # add new line
             p0 = self.mapToView(ev.lastPos())
@@ -1685,13 +1685,15 @@ def _overlay(ax, scale=0.25):
     return axo
 
 
-def _ax_set_visible(ax, crosshair=None, xaxis=None, yaxis=None):
+def _ax_set_visible(ax, crosshair=None, xaxis=None, yaxis=None, yaxis_labels=None):
     if crosshair == False:
         ax.crosshair.hide()
-    if yaxis is not None:
-        ax.axes['left']['item'].hide_strings = not yaxis
     if xaxis is not None:
         (ax.showAxis if xaxis else ax.hideAxis)('bottom')
+    if yaxis is not None:
+        (ax.showAxis if yaxis else ax.hideAxis)('left')
+    if yaxis_labels is not None:
+        ax.axes['left']['item'].hide_strings = not yaxis_labels
 
 
 def _ax_decouple(ax):

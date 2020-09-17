@@ -39,6 +39,6 @@ for j,mrow in enumerate(np.array(mnames).reshape((3,4))):
     for i,month in enumerate(mrow):
         s = month+' %+.2f%%'%hmap.loc[i,2-j]
         fplt.add_text((i, 2.5-j), s, anchor=(0.5,0.5), ax=ax5)
-ax5.set_visible(crosshair=False, xaxis=False, yaxis=False) # hide junk for a more pleasing look
+ax5.set_visible(crosshair=False, xaxis=False, yaxis_labels=False) # hide junk for a more pleasing look
 
 fplt.show()
