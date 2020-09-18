@@ -56,6 +56,7 @@ lod_labels = 700
 cache_candle_factor = 3 # factor extra candles rendered to buffer
 y_label_width = 65
 long_time = 2*365*24*60*60*1000
+display_timezone = None  # default to local
 winx,winy,winw,winh = 400,300,800,400
 
 app = None
@@ -2156,11 +2157,11 @@ def _get_datasrc(ax, require=True):
 
 
 def _x2local_t(datasrc, x):
-    return _x2t(datasrc, x, lambda t: datetime.fromtimestamp(t/1000).isoformat().replace('T',' '))
+    return _x2t(datasrc, x, lambda t: datetime.fromtimestamp(t/1000, tz=display_timezone).isoformat(sep=' ').split('+')[0])
 
 
 def _x2utc(datasrc, x):
-    return _x2t(datasrc, x, lambda t: datetime.utcfromtimestamp(t/1000).isoformat().replace('T',' '))
+    return _x2t(datasrc, x, lambda t: datetime.utcfromtimestamp(t/1000).isoformat(sep=' '))
 
 
 def _x2t(datasrc, x, ts2str):
