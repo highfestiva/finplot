@@ -2205,7 +2205,6 @@ def _round_to_significant(rng, rngmax, x, significant_decimals, significant_eps)
         sd = min(3, sd+int(np.log10(rngmax)))
         fmt = '%%%i.%ife%%i' % (sd, sd)
         r = fmt % (x, exp10)
-        print('_round_to_significant', r, sd, int(np.log10(rngmax)), rngmax)
     else:
         eps = fmod(x, significant_eps)
         if abs(eps) >= significant_eps/2:
