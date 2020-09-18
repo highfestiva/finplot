@@ -215,12 +215,24 @@ class PandasDataSource:
         return len(self.df)+right_margin_candles
 
     def calc_significant_decimals(self):
-        absdiff = (self.z if len(self.scale_cols)>1 else self.y).diff().abs()
+        ser = self.z if len(self.scale_cols)>1 else self.y
+        absdiff = ser.diff().abs()
         absdiff[absdiff<1e-30] = 1e30
-        smallest_diff = absdiff.min()
-        s = '%.0e' % smallest_diff
-        exp = -int(s.partition('e')[2])
-        decimals = max(1, min(10, exp))
+        num = smallest_diff = absdiff.min()
+        for _ in range(2):
+            s = '%e' % num
+            base,_,exp = s.partition('e')
+            base = base.rstrip('0')
+            exp = -int(exp)
+            max_base_decimals = min(5, -exp+2) if exp < 0 else 3
+            base_decimals = max(0, min(max_base_decimals, len(base)-2))
+            decimals = exp + base_decimals
+            decimals = max(0, min(10, decimals))
+            if decimals <= 3:
+                break
+            # retry with full number, to see if we can get the number of decimals down
+            num = smallest_diff + abs(ser.min())
+        smallest_diff = max(10**(-decimals), smallest_diff)
         return decimals, smallest_diff
 
     def update_init_x(self, init_steps):
@@ -367,12 +379,14 @@ class FinWindow(pg.GraphicsLayoutWidget):
         self.centralWidget.installEventFilter(self)
         self.ci.setContentsMargins(0, 0, 0, 0)
         self.ci.setSpacing(-1)
+        self.closing = False
 
     @property
     def axs(self):
         return [ax for ax in self.ci.items if isinstance(ax, pg.PlotItem)]
 
     def close(self):
+        self.closing = True
         _savewindata(self)
         return super().close()
 
@@ -380,6 +394,10 @@ class FinWindow(pg.GraphicsLayoutWidget):
         if ev.type()== QtCore.QEvent.WindowDeactivate:
             _savewindata(self)
         return False
+
+    def leaveEvent(self, ev):
+        if not self.closing:
+            super().leaveEvent(ev)
 
 
 class FinCrossHair:
@@ -708,8 +726,9 @@ class FinViewBox(pg.ViewBox):
                 if is_dirty or abs(vt0-tt0) >= period2 or abs(vt1-tt1) >= period2:
                     if is_dirty:
                         view.force_range_update -= 1
-                    x0,x1 = _pdtime2index(self.parent(), pd.Series([vt0,vt1]), any_end=True)
-                    self.update_y_zoom(x0, x1)
+                    if self.parent():
+                        x0,x1 = _pdtime2index(self.parent(), pd.Series([vt0,vt1]), any_end=True)
+                        self.update_y_zoom(x0, x1)
             self.updating_linked = False
 
     def zoom_rect(self, vr, scale_fact, center):
@@ -1656,7 +1675,6 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
 
 
 def _overlay(ax, scale=0.25):
-    global overlay_axs
     viewbox = FinViewBox(ax.vb.win, init_steps=ax.vb.init_steps, yscale=YScale('linear', 1))
     viewbox.v_zoom_scale = scale
     if hasattr(ax, 'ax_widget'):
@@ -1678,7 +1696,6 @@ def _overlay(ax, scale=0.25):
     axo.hideAxis('bottom')
     axo.hideButtons()
     viewbox.addItem(axo)
-    viewbox.setParent(axo)
     ax.vb.sigResized.connect(updateView)
     overlay_axs.append(axo)
     updateView()
@@ -1721,9 +1738,9 @@ def _update_significants(ax, datasrc, force):
     if force or (default_dec and default_eps):
         try:
             sd,se = datasrc.calc_significant_decimals()
-            if default_dec or sd > ax.significant_decimals:
+            if force or default_dec or sd > ax.significant_decimals:
                 ax.significant_decimals = sd
-            if default_eps or se < ax.significant_eps:
+            if force or default_eps or se < ax.significant_eps:
                 ax.significant_eps = se
         except:
             pass # datasrc probably full av NaNs
@@ -1904,6 +1921,7 @@ def _update_data(preadjustfunc, adjustfunc, item, ds):
             for c in c1:
                 df_clipped[c] = i.datasrc.df[c]
         i.datasrc.set_df(df_clipped)
+    update_sigdig = False
     if not item.datasrc.standalone:
         # new limits when extending/reducing amount of data
         x_min,x1 = _set_x_limits(item.ax, item.datasrc)
@@ -1912,7 +1930,11 @@ def _update_data(preadjustfunc, adjustfunc, item, ds):
         x0 = x1 - tr.width()
         if tr.right() < x1 - 5 - 2*right_margin_candles:
             x0 = x1 = None
+        prev_top = item.ax.vb.targetRect().top()
         item.ax.vb.update_y_zoom(x0, x1)
+        this_top = item.ax.vb.targetRect().top()
+        if this_top and not (0.99 < abs(prev_top/this_top) < 1.01):
+            update_sigdig = True
         if item.ax.axes['bottom']['item'].isVisible(): # update axes if visible
             item.ax.axes['bottom']['item'].hide()
             item.ax.axes['bottom']['item'].show()
@@ -1921,6 +1943,8 @@ def _update_data(preadjustfunc, adjustfunc, item, ds):
     if isinstance(item, FinPlotItem):
         item.ax.addItem(item)
         item.repaint()
+    if update_sigdig:
+        _update_significants(item.ax, item.ax.vb.datasrc, force=True)
 
 
 def _pre_process_data(vb):
@@ -2002,6 +2026,8 @@ def _mouse_clicked(vb, ev):
 
 
 def _mouse_moved(master, evs):
+    if hasattr(master, 'closing') and master.closing:
+        return
     if not evs:
         evs = master_data[master]['last_mouse_evs']
         if not evs:
@@ -2175,9 +2201,10 @@ def _round_to_significant(rng, rngmax, x, significant_decimals, significant_eps)
     if is_highres and abs(x)>0:
         exp10 = floor(np.log10(abs(x)))
         x = x / (10**exp10)
-        sd = min(5, sd+int(np.log10(rngmax)))
+        sd = min(3, sd+int(np.log10(rngmax)))
         fmt = '%%%i.%ife%%i' % (sd, sd)
         r = fmt % (x, exp10)
+        print('_round_to_significant', r, sd, int(np.log10(rngmax)), rngmax)
     else:
         eps = fmod(x, significant_eps)
         if abs(eps) >= significant_eps/2:
