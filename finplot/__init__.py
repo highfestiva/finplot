@@ -2043,8 +2043,8 @@ def _mouse_moved(master, evs):
     master_data[master]['last_mouse_y'] = y
     # apply to all crosshairs
     for ax in master.axs:
-        point = ax.vb.mapSceneToView(pos)
-        if ax.crosshair:
+        if ax.isVisible() and ax.crosshair:
+            point = ax.vb.mapSceneToView(pos)
             ax.crosshair.update(point)
 
 
