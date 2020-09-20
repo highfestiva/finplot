@@ -1127,8 +1127,7 @@ def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=T
     win = FinWindow(title)
     # normally first graph is of higher significance, so enlarge
     win.ci.layout.setRowStretchFactor(0, top_graph_scale)
-    if maximize:
-        win.showMaximized()
+    win.show_maximized = maximize
     ax0 = axs = create_plot_widget(master=win, rows=rows, init_zoom_periods=init_zoom_periods, yscale=yscale)
     axs = axs if type(axs) in (tuple,list) else [axs]
     for ax in axs:
@@ -1546,7 +1545,10 @@ def show(qt_exec=True):
     _repaint_candles()
     for win in windows:
         if isinstance(win, FinWindow) or qt_exec:
-            win.show()
+            if win.show_maximized:
+                win.showMaximized()
+            else:
+                win.show()
     if windows and qt_exec:
         global last_ax, app
         app = QtGui.QApplication.instance()
