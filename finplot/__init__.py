@@ -2124,10 +2124,17 @@ def _pdtime2index(ax, ts, any_end=False, require_time=False):
             ts = ts.astype('float64') / 1e3
         elif h < 1e10: # handle s epochs
             ts = ts.astype('float64') * 1e3
-    r = []
+    
     datasrc = _get_datasrc(ax)
+    xs = datasrc.x
+
+    # try exact match before approximate match
+    exact = datasrc.index[datasrc.x.isin(ts)].to_list()
+    if len(exact) == len(ts):
+        return exact
+    
+    r = []
     for i,t in enumerate(ts):
-        xs = datasrc.x
         xss = xs.loc[xs>t]
         if len(xss) == 0:
             t0 = xs.iloc[-1]
