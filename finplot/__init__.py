@@ -596,6 +596,7 @@ class FinViewBox(pg.ViewBox):
         self.draw_line = None
         self.drawing = False
         self.set_datasrc(None)
+        self.standalones = []
         self.setMouseEnabled(x=True, y=False)
         self.init_steps = init_steps
         self.updating_linked = False
@@ -605,6 +606,13 @@ class FinViewBox(pg.ViewBox):
         if not self.datasrc:
             return
         datasrc.update_init_x(self.init_steps)
+
+    @property
+    def datasrc_or_standalone(self):
+        ds = self.datasrc
+        if not ds and self.standalones:
+            ds = self.standalones[-1]
+        return ds
 
     def wheelEvent(self, ev, axis=None):
         if ev.modifiers() == QtCore.Qt.ControlModifier:
@@ -768,7 +776,8 @@ class FinViewBox(pg.ViewBox):
         _mouse_moved(self.win, None)
 
     def update_y_zoom(self, x0=None, x1=None):
-        if self.datasrc is None:
+        datasrc = self.datasrc_or_standalone
+        if datasrc is None:
             return
         if x0 is None or x1 is None:
             tr = self.targetRect()
@@ -776,7 +785,7 @@ class FinViewBox(pg.ViewBox):
             x1 = tr.right()
         # make edges rigid
         xl = max(round(x0-side_margin)+side_margin, -side_margin)
-        xr = min(round(x1-side_margin)+side_margin, self.datasrc.xlen-side_margin)
+        xr = min(round(x1-side_margin)+side_margin, datasrc.xlen-side_margin)
         dxl = xl-x0
         dxr = xr-x1
         if dxl > 0:
@@ -784,9 +793,9 @@ class FinViewBox(pg.ViewBox):
         if dxr < 0:
             x0 += dxr
         x0 = max(round(x0-side_margin)+side_margin, -side_margin)
-        x1 = min(round(x1-side_margin)+side_margin, self.datasrc.xlen-side_margin)
+        x1 = min(round(x1-side_margin)+side_margin, datasrc.xlen-side_margin)
         # fetch hi-lo and set range
-        _,_,hi,lo,cnt = self.datasrc.hilo(x0, x1)
+        _,_,hi,lo,cnt = datasrc.hilo(x0, x1)
         vr = self.viewRect()
         if (x1-x0) < vr.width() and cnt < max_zoom_points:
             return
@@ -1540,8 +1549,9 @@ def show(qt_exec=True):
             if _loadwindata(win):
                 continue
         for vb in vbs:
-            if vb.datasrc and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None):
-                vb.update_y_zoom(vb.datasrc.init_x0, vb.datasrc.init_x1)
+            datasrc = vb.datasrc_or_standalone
+            if datasrc and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None):
+                vb.update_y_zoom(datasrc.init_x0, datasrc.init_x1)
     _repaint_candles()
     for win in windows:
         if isinstance(win, FinWindow) or qt_exec:
@@ -1802,6 +1812,7 @@ def _set_datasrc(ax, datasrc):
             _set_x_limits(ax, datasrc)
             viewbox.set_datasrc(viewbox.datasrc) # update zoom
     else:
+        viewbox.standalones.append(datasrc)
         datasrc.update_init_x(viewbox.init_steps)
         if not ax.x_indexed:
             _set_x_limits(ax, datasrc)
