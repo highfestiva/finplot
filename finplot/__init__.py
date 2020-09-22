@@ -2129,7 +2129,7 @@ def _pdtime2index(ax, ts, any_end=False, require_time=False):
     xs = datasrc.x
 
     # try exact match before approximate match
-    exact = datasrc.index[datasrc.x.isin(ts)].to_list()
+    exact = datasrc.index[xs.isin(ts)].to_list()
     if len(exact) == len(ts):
         return exact
     
