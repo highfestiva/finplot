@@ -1163,7 +1163,7 @@ def create_plot_widget(master, rows=1, init_zoom_periods=1e10, yscale='linear'):
         else:
             viewbox.setFocus()
         axs += [ax]
-    if isinstance(master, FinWindow):
+    if isinstance(master, pg.GraphicsLayoutWidget):
         proxy = pg.SignalProxy(master.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, master))
     else:
         proxy = []
@@ -1655,7 +1655,7 @@ def _create_plot(ax=None, **kwargs):
 
 
 def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
-    native_win = isinstance(master, FinWindow)
+    native_win = isinstance(master, pg.GraphicsLayoutWidget)
     if native_win and prev_ax is not None:
         prev_ax.set_visible(xaxis=False) # hide the whole previous axis
     axes = {'bottom': EpochAxisItem(vb=viewbox, orientation='bottom'),
