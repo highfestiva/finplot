@@ -14,3 +14,5 @@ for pc in pycode:
 for fn in glob.glob('finplot/example*.py'):
     print(fn)
     os.system('python3.exe %s' % fn)
+os.remove('.t.py')
+os.remove('screenshot.png')

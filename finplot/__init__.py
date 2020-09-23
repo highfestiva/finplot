@@ -91,7 +91,7 @@ class EpochAxisItem(pg.AxisItem):
         self.mode = 'num'
         ax = self.vb.parent()
         datasrc = _get_datasrc(ax, require=False)
-        if datasrc is None or not ax.x_indexed:
+        if datasrc is None or not self.vb.x_indexed:
             return super().tickValues(minVal, maxVal, size)
         # see if we have time
         self.mode = 'time'
@@ -237,8 +237,7 @@ class PandasDataSource:
         return decimals, smallest_diff
 
     def update_init_x(self, init_steps):
-        self.init_x0 = max(self.xlen-init_steps, 0) - side_margin
-        self.init_x1 = self.xlen - side_margin
+        self.init_x0, self.init_x1 = _xminmax(self, x_indexed=True, init_steps=init_steps)
 
     def closest_time(self, x):
         timecol = self.df.columns[0]
@@ -440,7 +439,7 @@ class FinCrossHair:
         rngmax = abs(self.ax.vb.y_min) + rng # any approximation is fine
         sd,se = (self.ax.significant_decimals,self.ax.significant_eps) if clamp_grid else (significant_decimals,significant_eps)
         timebased = False
-        if self.ax.x_indexed:
+        if self.ax.vb.x_indexed:
             xtext,timebased = _x2local_t(self.ax.vb.datasrc, x)
         else:
             xtext = _round_to_significant(rng, rngmax, x, sd, se)
@@ -591,6 +590,7 @@ class FinViewBox(pg.ViewBox):
         self.y_max = 1000
         self.y_min = 0
         self.y_positive = True
+        self.x_indexed = True
         self.force_range_update = 0
         self.rois = []
         self.draw_line = None
@@ -815,6 +815,8 @@ class FinViewBox(pg.ViewBox):
             base = (hi+lo) * self.v_zoom_baseline
             y0 = base - rng*self.v_zoom_baseline
             y1 = base + rng*(1-self.v_zoom_baseline)
+        if not self.x_indexed:
+            x0,x1 = _xminmax(datasrc, x_indexed=False, extra_margin=0)
         self.set_range(x0, y0, x1, y1)
 
     def set_range(self, x0, y0, x1, y1):
@@ -1371,7 +1373,7 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
     _set_datasrc(ax, datasrc)
     if legend is not None:
         _create_legend(ax)
-    x = datasrc.x if datasrc.standalone or not ax.x_indexed else datasrc.index
+    x = datasrc.x if datasrc.standalone or not ax.vb.x_indexed else datasrc.index
     y = datasrc.y / ax.vb.yscale.scalef
     if style is None or any(ch in style for ch in '-_.'):
         connect_dots = 'finite' # same as matplotlib; use datasrc.standalone=True if you want to keep separate intervals on a plot
@@ -1680,7 +1682,6 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
     ax.decouple = partial(_ax_decouple, ax)
     ax.disable_x_index = partial(_ax_disable_x_index, ax)
     ax.prev_ax = prev_ax
-    ax.x_indexed = True
     if index%2:
         viewbox.setBackgroundColor(odd_plot_background)
     viewbox.setParent(ax)
@@ -1700,7 +1701,6 @@ def _overlay(ax, scale=0.25):
     axo = pg.PlotItem()
     axo.significant_decimals = significant_decimals
     axo.significant_eps = significant_eps
-    axo.x_indexed = ax.x_indexed
     axo.vb = viewbox
     axo.prev_ax = None
     axo.decouple = partial(_ax_decouple, axo)
@@ -1733,7 +1733,7 @@ def _ax_decouple(ax):
 
 
 def _ax_disable_x_index(ax, decouple=True):
-    ax.x_indexed = False
+    ax.vb.x_indexed = False
     if decouple:
         _ax_decouple(ax)
 
@@ -1814,8 +1814,8 @@ def _set_datasrc(ax, datasrc):
     else:
         viewbox.standalones.append(datasrc)
         datasrc.update_init_x(viewbox.init_steps)
-        if not ax.x_indexed:
-            _set_x_limits(ax, datasrc)
+        ## if not viewbox.x_indexed:
+            ## _set_x_limits(ax, datasrc)
     # update period if this datasrc has higher resolution
     global epoch_period
     if epoch_period > 1e7 or not datasrc.standalone:
@@ -1971,18 +1971,29 @@ def _pre_process_data(vb):
 
 
 def _set_x_limits(ax, datasrc):
-    if ax.x_indexed:
-        x0 = -side_margin
-        x1 = datasrc.xlen - 1 + side_margin + right_margin_candles # add another margin to get the "snap back" sensation
+    x0,x1 = _xminmax(datasrc, x_indexed=ax.vb.x_indexed)
+    ax.setLimits(xMin=x0, xMax=x1)
+    return x0,x1
+
+
+def _xminmax(datasrc, x_indexed, init_steps=None, extra_margin=0):
+    if x_indexed and init_steps:
+        # initial zoom
+        x0 = max(datasrc.xlen-init_steps, 0) - side_margin - extra_margin
+        x1 = datasrc.xlen - side_margin + extra_margin
+    elif x_indexed:
+        # total x size for indexed data
+        x0 = -side_margin - extra_margin
+        x1 = datasrc.xlen - 1 + side_margin + right_margin_candles + extra_margin# add another margin to get the "snap back" sensation
     else:
+        # x size for plain Y-over-X data (i.e. not indexed)
         x0 = datasrc.x.min()
         x1 = datasrc.x.max()
         # extend margin on decoupled plots
-        d = (x1-x0) * 0.2
+        d = (x1-x0) * (0.2+extra_margin)
         x0 -= d
         x1 += d
-    ax.setLimits(xMin=x0, xMax=x1)
-    return x0, x1
+    return x0,x1
 
 
 def _repaint_candles():
@@ -2166,7 +2177,7 @@ def _pdtime2index(ax, ts, any_end=False, require_time=False):
 
 
 def _get_datasrc(ax, require=True):
-    if ax.vb.datasrc is not None or not ax.x_indexed:
+    if ax.vb.datasrc is not None or not ax.vb.x_indexed:
         return ax.vb.datasrc
     vbs = [ax.vb for win in windows for ax in win.axs]
     for vb in vbs:
@@ -2245,7 +2256,7 @@ def _roihandle_move_snap(vb, orig_func, pos, modifiers=QtCore.Qt.KeyboardModifie
 
 def _clamp_xy(ax, x, y):
     y = ax.vb.yscale.xform(y)
-    if clamp_grid and ax.x_indexed:
+    if clamp_grid and ax.vb.x_indexed:
         ds = ax.vb.datasrc
         if x < 0 or (ds and x > len(ds.df)-1):
             x = 0 if x < 0 else len(ds.df)-1
