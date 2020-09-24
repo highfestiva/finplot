@@ -1243,12 +1243,8 @@ def renko(x, y=None, bins=None, step=None, ax=None, colorfunc=price_colorfilter)
     ax = _create_plot(ax=ax, maximize=False)
     datasrc = _create_datasrc(ax, x, y)
     origdf = datasrc.df
-    if not bins and not step:
-        bins = 50
-    if bins:
-        step = (datasrc.y.max()-datasrc.y.min()) / bins
     adj = _adjust_renko_log_datasrc if ax.vb.yscale.scaletype == 'log' else _adjust_renko_datasrc
-    step_adjust_renko_datasrc = partial(adj, step)
+    step_adjust_renko_datasrc = partial(adj, bins, step)
     step_adjust_renko_datasrc(datasrc)
     ax.decouple()
     item = candlestick_ochl(datasrc, draw_shadow=False, candle_width=1, ax=ax, colorfunc=colorfunc)
@@ -1827,7 +1823,11 @@ def _has_timecol(df):
     return len(df.columns) >= 2
 
 
-def _adjust_renko_datasrc(step, datasrc):
+def _adjust_renko_datasrc(bins, step, datasrc):
+    if not bins and not step:
+        bins = 50
+    if not step:
+        step = (datasrc.y.max()-datasrc.y.min()) / bins
     bricks = datasrc.y.diff() / step
     bricks = (datasrc.y[bricks.isnull() | (bricks.abs()>=0.5)] / step).round().astype(int)
     extras = datasrc.df.iloc[:, datasrc.col_data_offset+1:]
@@ -1855,11 +1855,9 @@ def _adjust_renko_datasrc(step, datasrc):
     datasrc.set_df(pd.DataFrame(data, columns='time open close high low'.split()+list(extras.columns)))
 
 
-def _adjust_renko_log_datasrc(step, datasrc):
-    bins = (datasrc.y.max()-datasrc.y.min()) / step
+def _adjust_renko_log_datasrc(bins, step, datasrc):
     datasrc.df.iloc[:,1] = np.log10(datasrc.df.iloc[:,1])
-    step = (datasrc.y.max()-datasrc.y.min()) / bins
-    _adjust_renko_datasrc(step, datasrc)
+    _adjust_renko_datasrc(bins, step, datasrc)
     datasrc.df.iloc[:,1:5] = 10**datasrc.df.iloc[:,1:5]
 
 
