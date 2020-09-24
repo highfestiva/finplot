@@ -2105,7 +2105,7 @@ def brighten(color, f):
 
 
 def _get_color(ax, style, wanted_color):
-    if type(wanted_color) == str:
+    if (type(wanted_color) == str) or (type(wanted_color) == QtGui.QColor):
         return wanted_color
     index = wanted_color if type(wanted_color) == int else None
     if style is None or any(ch in style for ch in '-_.'):
