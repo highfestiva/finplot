@@ -23,12 +23,17 @@ import pyqtgraph as pg
 from pyqtgraph import QtCore, QtGui
 
 
+
+# appropriate types
+ColorMap = pg.ColorMap
+
+# module definitions, mostly colors
 legend_border_color = '#000000dd'
 legend_fill_color   = '#00000055'
 legend_text_color   = '#dddddd66'
 soft_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 hard_colors = ['#000000', '#772211', '#000066', '#555555', '#0022cc', '#ffcc00']
-cmap_clash = pg.ColorMap([0.0, 0.2, 0.6, 1.0], [[127, 127, 255, 51], [0, 0, 127, 51], [255, 51, 102, 51], [255, 178, 76, 51]])
+colmap_clash = ColorMap([0.0, 0.2, 0.6, 1.0], [[127, 127, 255, 51], [0, 0, 127, 51], [255, 51, 102, 51], [255, 178, 76, 51]])
 foreground = '#000000'
 background = '#ffffff'
 candle_bull_color = '#26a69a'
@@ -958,10 +963,10 @@ class CandlestickItem(FinPlotItem):
 
 
 class HeatmapItem(FinPlotItem):
-    def __init__(self, ax, datasrc, rect_size=0.9, filter_limit=0, cmap=cmap_clash, whiteout=0.0, colcurve=lambda x:pow(x,4)):
+    def __init__(self, ax, datasrc, rect_size=0.9, filter_limit=0, colmap=colmap_clash, whiteout=0.0, colcurve=lambda x:pow(x,4)):
         self.rect_size = rect_size
         self.filter_limit = filter_limit
-        self.cmap = cmap
+        self.colmap = colmap
         self.whiteout = whiteout
         self.colcurve = colcurve
         self.col_data_end = len(datasrc.df.columns)
@@ -985,7 +990,7 @@ class HeatmapItem(FinPlotItem):
                 v = row[ci]
                 if v >= lim:
                     v = 1 - self.colcurve(1 - (v-lim)/(1-lim))
-                    color = self.cmap.map(v, mode='qcolor')
+                    color = self.colmap.map(v, mode='qcolor')
                     p.fillRect(QtCore.QRectF(t-rect_size2, price+h0, self.rect_size, h1), color)
         p.end()
 

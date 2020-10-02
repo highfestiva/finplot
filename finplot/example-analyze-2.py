@@ -34,8 +34,8 @@ mnames = mnames[mnames.index('January'):][:12]
 mrets = [months.loc[mname].mean()[0] for mname in mnames]
 hmap = pd.DataFrame(columns=[2,1,0], data=np.array(mrets).reshape((3,4)).T)
 hmap = hmap.reset_index() # use the range index as X-coordinates (if no DateTimeIndex is found, the first column is used as X)
-colmap = fplt.pg.ColorMap([0.3, 0.5, 0.7], [[255, 110, 90], [255, 247, 0], [60, 255, 50]]) # traffic light
-fplt.heatmap(hmap, rect_size=1, cmap=colmap, colcurve=lambda x: x, ax=ax5)
+colmap = fplt.ColorMap([0.3, 0.5, 0.7], [[255, 110, 90], [255, 247, 0], [60, 255, 50]]) # traffic light
+fplt.heatmap(hmap, rect_size=1, colmap=colmap, colcurve=lambda x: x, ax=ax5)
 for j,mrow in enumerate(np.array(mnames).reshape((3,4))):
     for i,month in enumerate(mrow):
         s = month+' %+.2f%%'%hmap.loc[i,2-j]
