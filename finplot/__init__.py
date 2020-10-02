@@ -2279,8 +2279,20 @@ def _clamp_point(ax, p):
 
 
 def _draw_line_segment_text(polyline, segment, pos0, pos1):
+    fsecs = None
+    datasrc = polyline.vb.datasrc
+    if datasrc and clamp_grid:
+        try:
+            x0,x1 = pos0.x()+0.5, pos1.x()+0.5
+            t0,_,_,_,cnt0 = datasrc.hilo(x0, x0)
+            t1,_,_,_,cnt1 = datasrc.hilo(x1, x1)
+            if cnt0 and cnt1:
+                fsecs = abs(t1 - t0) / 1000
+        except:
+            pass
     diff = pos1 - pos0
-    fsecs = abs(diff.x()*epoch_period)
+    if fsecs is None:
+        fsecs = abs(diff.x()*epoch_period)
     secs = int(fsecs)
     mins = secs//60
     hours = mins//60

@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 
+from datetime import date, timedelta
 import finplot as fplt
 import pandas as pd
 import scipy.optimize
 import yfinance as yf
 
-df = yf.download('GOOG', '2020-08-01', '2020-08-31', interval='90m')
-dfms = yf.download('MSFT', '2020-08-01', '2020-08-31', interval='90m')
+now = date.today()
+start_day = now - timedelta(days=59)
+df = yf.download('GOOG', start_day.isoformat(), now.isoformat(), interval='90m')
+dfms = yf.download('MSFT', start_day.isoformat(), now.isoformat(), interval='90m')
 
 # resample to daily candles, i.e. five 90-minute candles per business day
 dfd = df.Open.resample('D').first().to_frame()
