@@ -22,9 +22,9 @@ layout.addWidget(combo, 0, 0, 1, 1)
 info = QLabel()
 layout.addWidget(info, 0, 1, 1, 1)
 
-ax = fplt.create_plot_widget(win, init_zoom_periods=100)
+ax = fplt.create_plot(init_zoom_periods=100)
 win.axs = [ax] # finplot requres this property
-layout.addWidget(ax.ax_widget, 1, 0, 1, 2)
+layout.addWidget(ax.vb.win, 1, 0, 1, 2)
 
 
 @lru_cache(maxsize=15)
