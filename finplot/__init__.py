@@ -1817,9 +1817,9 @@ def _set_datasrc(ax, datasrc):
         datasrc.update_init_x(viewbox.init_steps)
         ## if not viewbox.x_indexed:
             ## _set_x_limits(ax, datasrc)
-    # update period if this datasrc has higher resolution
+    # update period if this datasrc has higher time resolution
     global epoch_period
-    if epoch_period > 1e7 or not datasrc.standalone:
+    if datasrc.timebased() and (epoch_period > 1e7 or not datasrc.standalone):
         ep = datasrc.period
         epoch_period = ep if ep < epoch_period else epoch_period
 
@@ -2208,9 +2208,9 @@ def _x2t(datasrc, x, ts2str):
             if not datasrc.timebased():
                 return '%g' % t, False
             s = ts2str(t)
-            if epoch_period >= 24*60*60:
+            if epoch_period >= 23*60*60: # daylight savings, leap seconds, etc
                 i = s.index(' ')
-            elif epoch_period >= 60:
+            elif epoch_period >= 59: # consider leap seconds
                 i = s.rindex(':')
             elif epoch_period >= 1:
                 i = s.index('.') if '.' in s else len(s)
