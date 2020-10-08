@@ -2090,6 +2090,8 @@ def _inspect_clicked(ax, inspector, evs):
 
 
 def _inspect_pos(ax, inspector, poss):
+    if not ax.vb.datasrc:
+        return
     point = ax.vb.mapSceneToView(poss[-1])
     t = point.x() + 0.5
     try:
