@@ -1691,6 +1691,7 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
 
 def _overlay(ax, scale=0.25):
     viewbox = FinViewBox(ax.vb.win, init_steps=ax.vb.init_steps, yscale=YScale('linear', 1))
+    viewbox.setZValue(10)
     viewbox.v_zoom_scale = scale
     if hasattr(ax, 'ax_widget'):
         ax.ax_widget.scene().addItem(viewbox)
