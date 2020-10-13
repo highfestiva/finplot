@@ -131,23 +131,23 @@ class YAxisItem(pg.AxisItem):
 class YScale:
     def __init__(self, scaletype, scalef):
         self.scaletype = scaletype
-        self.scalef = scalef
+        self.set_scale(scalef)
 
     def set_scale(self, scale):
-        self.scalef = scale if self.scaletype != 'log' else 1
+        self.scalef = scale
 
     def xform(self, y):
         if self.scaletype == 'log':
             y = 10**y
-        return y * self.scalef
+        y = y * self.scalef
+        return y
 
     def invxform(self, y, verify=False):
+        y /= self.scalef
         if self.scaletype == 'log':
             if verify and y <= 0:
                 return -1e6
             y = np.log10(y)
-        else:
-            y /= self.scalef
         return y
 
 
@@ -2194,7 +2194,7 @@ def _get_datasrc(ax, require=True):
 
 
 def _x2local_t(datasrc, x):
-    return _x2t(datasrc, x, lambda t: datetime.fromtimestamp(t/1000, tz=display_timezone).isoformat(sep=' ').split('+')[0])
+    return _x2t(datasrc, x, lambda t: datetime.fromtimestamp(t/1000, tz=display_timezone).isoformat(sep=' ').partition('+')[0])
 
 
 def _x2utc(datasrc, x):
@@ -2234,7 +2234,7 @@ def _x2year(datasrc, x):
 
 
 def _round_to_significant(rng, rngmax, x, significant_decimals, significant_eps):
-    is_highres = rng/significant_eps > 1e2 and (rngmax>1e7 or rngmax<1e-2)
+    is_highres = (rng/significant_eps > 1e2 and rngmax<1e-2) or abs(rngmax) > 1e7
     sd = significant_decimals
     if is_highres and abs(x)>0:
         exp10 = floor(np.log10(abs(x)))
