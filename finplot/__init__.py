@@ -36,6 +36,7 @@ hard_colors = ['#000000', '#772211', '#000066', '#555555', '#0022cc', '#ffcc00']
 colmap_clash = ColorMap([0.0, 0.2, 0.6, 1.0], [[127, 127, 255, 51], [0, 0, 127, 51], [255, 51, 102, 51], [255, 178, 76, 51]])
 foreground = '#000000'
 background = '#ffffff'
+odd_plot_background = '#f0f0f0'
 candle_bull_color = '#26a69a'
 candle_bear_color = '#ef5350'
 candle_bull_body_color = background
@@ -44,7 +45,6 @@ volume_bear_color = '#f7a9a7'
 volume_bull_body_color = volume_bull_color
 volume_neutral_color = '#b0b0b0'
 poc_color = '#000060'
-odd_plot_background = '#f0f0f0'
 band_color = '#d2dfe6'
 cross_hair_color = '#00000077'
 draw_line_color = '#000000'
@@ -288,13 +288,13 @@ class PandasDataSource:
         orig_cols = list(df.columns)
         timecol,orig_cols = orig_cols[0],orig_cols[1:]
         df = df.set_index(timecol)
-        data = datasrc.df.set_index(datasrc.df.columns[0])
-        data.columns = [self.renames.get(col, col) for col in data.columns]
+        input_df = datasrc.df.set_index(datasrc.df.columns[0])
+        input_df.columns = [self.renames.get(col, col) for col in input_df.columns]
         for col in df.columns:
-            if col not in data.columns:
-                data[col] = df[col]
-        data = data.reset_index()
-        self.df = data[[data.columns[0]]+orig_cols] if orig_cols else data
+            if col not in input_df.columns:
+                input_df[col] = df[col]
+        input_df = input_df.reset_index()
+        self.df = input_df[[input_df.columns[0]]+orig_cols] if orig_cols else input_df
         self.init_x1 = self.xlen - side_margin
         self.cache_hilo = OrderedDict()
         self._period = None
@@ -588,6 +588,7 @@ class FinViewBox(pg.ViewBox):
     def __init__(self, win, init_steps=300, yscale=YScale('linear', 1), v_zoom_scale=1, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.win = win
+        self.master_viewbox = None
         self.yscale = yscale
         self.v_zoom_scale = v_zoom_scale
         self.v_zoom_baseline = 0.5
@@ -612,6 +613,14 @@ class FinViewBox(pg.ViewBox):
             return
         datasrc.update_init_x(self.init_steps)
 
+    def pre_process_data(self):
+        if self.datasrc and self.datasrc.scale_cols:
+            df = self.datasrc.df.iloc[:, self.datasrc.scale_cols]
+            self.y_max = df.max().max()
+            self.y_min = df.min().min()
+            if self.y_min <= 0:
+                self.y_positive = False
+
     @property
     def datasrc_or_standalone(self):
         ds = self.datasrc
@@ -620,6 +629,8 @@ class FinViewBox(pg.ViewBox):
         return ds
 
     def wheelEvent(self, ev, axis=None):
+        if self.master_viewbox:
+            return self.master_viewbox.wheelEvent(ev, axis=axis)
         if ev.modifiers() == QtCore.Qt.ControlModifier:
             scale_fact = 1
             self.v_zoom_scale /= 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
@@ -637,6 +648,8 @@ class FinViewBox(pg.ViewBox):
         ev.accept()
 
     def mouseDragEvent(self, ev, axis=None):
+        if self.master_viewbox:
+            return self.master_viewbox.mouseDragEvent(ev, axis=axis)
         if not self.datasrc:
             return
         if ev.button() == QtCore.Qt.LeftButton:
@@ -701,6 +714,8 @@ class FinViewBox(pg.ViewBox):
         ev.accept()
 
     def mouseClickEvent(self, ev):
+        if self.master_viewbox:
+            return self.master_viewbox.mouseClickEvent(ev)
         if _mouse_clicked(self, ev):
             ev.accept()
             return
@@ -714,6 +729,8 @@ class FinViewBox(pg.ViewBox):
         ev.accept()
 
     def keyPressEvent(self, ev):
+        if self.master_viewbox:
+            return self.master_viewbox.keyPressEvent(ev)
         if _key_pressed(self, ev):
             ev.accept()
             return
@@ -1349,7 +1366,7 @@ def bar(x, y=None, width=0.8, ax=None, colorfunc=strength_colorfilter):
     _adjust_bar_datasrc(datasrc, order_cols=False) # don't rearrange columns, done for us in volume_ocv()
     item = volume_ocv(datasrc, candle_width=width, ax=ax, colorfunc=colorfunc)
     item.update_data = partial(_update_data, None, _adjust_bar_datasrc, item)
-    _pre_process_data(ax.vb)
+    ax.vb.pre_process_data()
     if ax.vb.y_min >= 0:
         ax.vb.v_zoom_baseline = 0
     return item
@@ -1547,7 +1564,7 @@ def show(qt_exec=True):
     for win in windows:
         vbs = [ax.vb for ax in win.axs]
         for vb in vbs:
-            _pre_process_data(vb)
+            vb.pre_process_data()
         if viewrestore:
             if _loadwindata(win):
                 continue
@@ -1691,7 +1708,10 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
 
 def _overlay(ax, scale=0.25):
     viewbox = FinViewBox(ax.vb.win, init_steps=ax.vb.init_steps, yscale=YScale('linear', 1))
-    viewbox.setZValue(10)
+    viewbox.master_viewbox = ax.vb
+    viewbox.setZValue(-5)
+    viewbox.setBackgroundColor(ax.vb.state['background'])
+    ax.vb.setBackgroundColor(None)
     viewbox.v_zoom_scale = scale
     if hasattr(ax, 'ax_widget'):
         ax.ax_widget.scene().addItem(viewbox)
@@ -1807,10 +1827,16 @@ def _set_datasrc(ax, datasrc):
             viewbox.set_datasrc(datasrc) # for mwheel zoom-scaling
             _set_x_limits(ax, datasrc)
         else:
+            t0 = viewbox.datasrc.x.loc[0]
             viewbox.datasrc.addcols(datasrc)
+            # check if we need to re-render previous plots due to changed indices
+            indices_updated = viewbox.datasrc.timebased() and t0 != viewbox.datasrc.x.loc[0]
             for item in ax.items:
-                if isinstance(item, FinPlotItem):
+                if hasattr(item, 'datasrc'):
                     item.datasrc.set_df(viewbox.datasrc.df) # every plot here now has the same time-frame
+                    if indices_updated:
+                        _start_visual_update(item)
+                        _end_visual_update(item)
             _set_x_limits(ax, datasrc)
             viewbox.set_datasrc(viewbox.datasrc) # update zoom
     else:
@@ -1915,13 +1941,8 @@ def _update_data(preadjustfunc, adjustfunc, item, ds):
     ds = _create_datasrc(item.ax, ds)
     if adjustfunc:
         adjustfunc(ds)
-    if isinstance(item, FinPlotItem):
-        item.ax.removeItem(item)
-        item.dirty = True
-        item.datasrc.update(ds)
-    else:
-        item.datasrc.update(ds)
-        item.setData(item.datasrc.index, item.datasrc.y)
+    item.datasrc.update(ds)
+    _start_visual_update(item)
     for i in item.ax.items:
         if i == item or not hasattr(i, 'datasrc'):
             continue
@@ -1956,22 +1977,23 @@ def _update_data(preadjustfunc, adjustfunc, item, ds):
         if item.ax.axes['bottom']['item'].isVisible(): # update axes if visible
             item.ax.axes['bottom']['item'].hide()
             item.ax.axes['bottom']['item'].show()
-    for ax in item.ax.vb.win.axs:
-        ax.vb.update()
-    if isinstance(item, FinPlotItem):
-        item.ax.addItem(item)
-        item.repaint()
+    _end_visual_update(item)
     if update_sigdig:
         _update_significants(item.ax, item.ax.vb.datasrc, force=True)
 
 
-def _pre_process_data(vb):
-    if vb.datasrc and vb.datasrc.scale_cols:
-        df = vb.datasrc.df.iloc[:, vb.datasrc.scale_cols]
-        vb.y_max = df.max().max()
-        vb.y_min = df.min().min()
-        if vb.y_min <= 0:
-            vb.y_positive = False
+def _start_visual_update(item):
+    if isinstance(item, FinPlotItem):
+        item.ax.removeItem(item)
+        item.dirty = True
+    else:
+        item.setData(item.datasrc.index, item.datasrc.y)
+
+
+def _end_visual_update(item):
+    if isinstance(item, FinPlotItem):
+        item.ax.addItem(item)
+        item.repaint()
 
 
 def _set_x_limits(ax, datasrc):
@@ -2133,9 +2155,10 @@ def _pdtime2epoch(t):
         if isinstance(t.iloc[0], pd.Timestamp):
             return t.astype('int64') // int(1e6)
         if np.nanmax(t.values) > 1e13: # handle ns epochs
-            return t.astype('float64') / 1e3
+            return (t/1e3).astype('int64')
         if np.nanmax(t.values) < 1e10: # handle s epochs
-            return t.astype('float64') * 1e3
+            return (t*1e3).astype('int64')
+        return t.astype('int64')
     return t
 
 
