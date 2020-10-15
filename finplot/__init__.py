@@ -1700,14 +1700,18 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
     ax.decouple = partial(_ax_decouple, ax)
     ax.disable_x_index = partial(_ax_disable_x_index, ax)
     ax.prev_ax = prev_ax
+    ax.win_index = index
     if index%2:
         viewbox.setBackgroundColor(odd_plot_background)
     viewbox.setParent(ax)
     return ax
 
 
-def _overlay(ax, scale=0.25):
-    viewbox = FinViewBox(ax.vb.win, init_steps=ax.vb.init_steps, yscale=YScale('linear', 1))
+def _overlay(ax, scale=0.25, y_axis=False):
+    '''The scale parameter defines how "high up" on the initial plot this overlay will show.
+       The y_axis parameter can be one of [False, 'linear', 'log'].'''
+    yscale = y_axis if y_axis else 'linear'
+    viewbox = FinViewBox(ax.vb.win, init_steps=ax.vb.init_steps, yscale=YScale(yscale, 1))
     viewbox.master_viewbox = ax.vb
     viewbox.setZValue(-5)
     viewbox.setBackgroundColor(ax.vb.state['background'])
@@ -1731,6 +1735,14 @@ def _overlay(ax, scale=0.25):
     axo.hideAxis('bottom')
     axo.hideButtons()
     viewbox.addItem(axo)
+    if y_axis and isinstance(axo.vb.win, pg.GraphicsLayoutWidget):
+        axi = YAxisItem(vb=axo.vb, orientation='right')
+        axi.linkToView(axo.vb)
+        row = ax.win_index
+        for col in range(1, 100):
+            if axo.vb.win.getItem(row, col) is None:
+                axo.vb.win.addItem(axi, row=row, col=1)
+                break
     ax.vb.sigResized.connect(updateView)
     overlay_axs.append(axo)
     updateView()
