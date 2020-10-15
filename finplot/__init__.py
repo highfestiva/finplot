@@ -1737,6 +1737,7 @@ def _overlay(ax, scale=0.25, y_axis=False):
     viewbox.addItem(axo)
     if y_axis and isinstance(axo.vb.win, pg.GraphicsLayoutWidget):
         axi = YAxisItem(vb=axo.vb, orientation='right')
+        axo.axes['right'] = {'item':axi}
         axi.linkToView(axo.vb)
         row = ax.win_index
         for col in range(1, 100):
