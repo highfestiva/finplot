@@ -1732,6 +1732,7 @@ def _overlay(ax, scale=0.25, y_axis=False):
     axo.decouple = partial(_ax_decouple, axo)
     axo.disable_x_index = partial(_ax_disable_x_index, axo)
     axo.hideAxis('left')
+    axo.hideAxis('right')
     axo.hideAxis('bottom')
     axo.hideButtons()
     viewbox.addItem(axo)
@@ -1754,9 +1755,9 @@ def _ax_set_visible(ax, crosshair=None, xaxis=None, yaxis=None, yaxis_labels=Non
     if crosshair == False:
         ax.crosshair.hide()
     if xaxis is not None:
-        (ax.showAxis if xaxis else ax.hideAxis)('bottom')
+        ax.showAxis('bottom', xaxis)
     if yaxis is not None:
-        (ax.showAxis if yaxis else ax.hideAxis)('left')
+        ax.showAxis('left', yaxis)
     if yaxis_labels is not None:
         ax.axes['left']['item'].hide_strings = not yaxis_labels
 
