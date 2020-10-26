@@ -1955,6 +1955,9 @@ def _update_data(preadjustfunc, adjustfunc, item, ds):
     ds = _create_datasrc(item.ax, ds)
     if adjustfunc:
         adjustfunc(ds)
+    cs = list(item.datasrc.df.columns[:1]) + list(item.datasrc.df.columns[item.datasrc.col_data_offset:])
+    if len(cs) >= len(ds.df.columns):
+        ds.df.columns = cs[:len(ds.df.columns)]
     item.datasrc.update(ds)
     _start_visual_update(item)
     for i in item.ax.items:
