@@ -80,7 +80,7 @@ df = pd.DataFrame(data['result'])
 df = df.rename(columns={'T':'time', 'O':'open', 'C':'close', 'H':'high', 'L':'low', 'V':'volume'})
 df = df.astype({'time':'datetime64[ns]'})
 
-# create two plots
+# create two axes
 ax,ax2 = fplt.create_plot(symbol, rows=2)
 
 # plot candle sticks
@@ -119,4 +119,86 @@ which both update in realtime with Bitcoin/Dollar pulled from the exchange. They
 Sequential for BFX; and Bollinger Bands and orderbook for BitMEX). The
 [S&P500 example](https://github.com/highfestiva/finplot/blob/master/finplot/example-snp500.py) shows you how to display MACD.
 
-Enjoy!
+
+## Snippets
+
+**Background color**
+```python
+# finplot uses no background (i.e. white) on even rows and a slightly different color on odd rows.
+# Set your own before creating the plot.
+fplt.background = '#ff0' # yellow
+fplt.odd_plot_background = '#f0f' # purple
+fplt.plot(df.Close)
+fplt.show()
+```
+
+**Unordered time series**
+finplot requires time-ordered time series - otherwise you'll get a crosshair and an X-axis showing the
+millisecond epoch instead of the actual time. See my comment
+[here](https://github.com/highfestiva/finplot/issues/58#issuecomment-716054127) for a solution.
+
+**Restore the zoom at startup**
+```python
+# By default finplot shows all or a subset of your time series at startup. Do so to store your zoom position:
+fplt.autoviewrestore()
+fplt.show() # will load zoom when showing, and save zoom when closing
+```
+
+**Time zone**
+```python
+# Pandas normally reads datetimes in UTC time zone.
+# finplot by default use the local time zone of your computer (for crosshair and X-axis)
+from dateutil.tz import gettz
+fplt.display_timezone = gettz('Asia/Jakarta')
+```
+
+**Scatter plot with X-offset**
+To offset your scatter markers (say 0.2 time intervals to the left), see my comment
+[here](https://github.com/highfestiva/finplot/issues/31#issuecomment-695952455).
+
+**Disable zoom/pan sync between axes**
+```python
+# finplot assumes all your axes are in the same time span. To decouple the zoom/pan link, use:
+ax2.decouple()
+```
+
+**Place Region of Interest (ROI) markers**
+For placing ellipses, see [issue 57](https://github.com/highfestiva/finplot/issues/57).
+For drawing lines, see [example-line.py](https://github.com/highfestiva/finplot/blob/master/finplot/example-line.py).
+(Interactively use Ctrl+drag for lines and Ctrl+mbutton-drag for ellipses.)
+
+**More than one Y-axis in same viewbox**
+```python
+fplt.candlestick_ochl(df2[['Open','Close','High','Low']], ax=ax.overlay(scale=1.0, y_axis='linear'))
+```
+The `scale` parameter means it goes all the way to the top of the axis (volume normally stays at the bottom).
+The `y_axis` parameter can be one of `False` (hidden which is default), `'linear'` or `'log'`.
+See [issue 52](https://github.com/highfestiva/finplot/issues/52) for more info.
+
+**Plot non-timeseries**
+finplot is made for plotting time series. To plot something different use `ax.disable_x_index()`. See second
+axis of [example-overlay-correlate.py](https://github.com/highfestiva/finplot/blob/master/finplot/example-overlay-correlate.py).
+
+**Saving screenshot**
+See [example-line.py](https://github.com/highfestiva/finplot/blob/master/finplot/example-line.py).
+To keep screenshot in RAM see [issue 28](https://github.com/highfestiva/finplot/issues/28).
+
+**Scaling axes' heights**
+See [issue 56](https://github.com/highfestiva/finplot/issues/56).
+
+**Threading**
+See [issue 55](https://github.com/highfestiva/finplot/issues/55).
+
+**Titles on axes**
+See [issue 41](https://github.com/highfestiva/finplot/issues/41).
+
+**Beep**
+```python
+fplt.play_sound('bot-happy.wav') # Ooh! Watch me - I just made a profit!
+```
+
+**Keys**
+`Esc`, `Home`, `End`, `g`, `Left arrow`, `Right arrow`. `Ctrl+drag`.
+
+**Missing snippets**
+Act on mouse hover, customizing crosshair+axis, setting+updating legend text, update an orderbook, etc.
