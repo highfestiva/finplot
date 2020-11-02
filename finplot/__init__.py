@@ -648,6 +648,7 @@ class FinViewBox(pg.ViewBox):
         ev.accept()
 
     def mouseDragEvent(self, ev, axis=None):
+        axis = 0 # don't constrain drag direction
         if self.master_viewbox:
             return self.master_viewbox.mouseDragEvent(ev, axis=axis)
         if not self.datasrc:
