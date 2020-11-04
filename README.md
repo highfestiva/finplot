@@ -135,7 +135,8 @@ fplt.show()
 ### Unordered time series
 finplot requires time-ordered time series - otherwise you'll get a crosshair and an X-axis showing the
 millisecond epoch instead of the actual time. See my comment
-[here](https://github.com/highfestiva/finplot/issues/58#issuecomment-716054127) for a solution.
+[here](https://github.com/highfestiva/finplot/issues/58#issuecomment-716054127) and
+[issue 50](https://github.com/highfestiva/finplot/issues/50) for more info.
 
 ### Restore the zoom at startup
 ```python
@@ -155,6 +156,10 @@ fplt.display_timezone = gettz('Asia/Jakarta')
 ### Scatter plot with X-offset
 To offset your scatter markers (say 0.2 time intervals to the left), see my comment
 [here](https://github.com/highfestiva/finplot/issues/31#issuecomment-695952455).
+
+### Align X-axes
+See [issue 27](https://github.com/highfestiva/finplot/issues/27), and possibly (rarely a problem)
+[issue 4](https://github.com/highfestiva/finplot/issues/4).
 
 ### Disable zoom/pan sync between axes
 ```python
@@ -179,12 +184,21 @@ See [issue 52](https://github.com/highfestiva/finplot/issues/52) for more info.
 finplot is made for plotting time series. To plot something different use `ax.disable_x_index()`. See second
 axis of [example-overlay-correlate.py](https://github.com/highfestiva/finplot/blob/master/finplot/example-overlay-correlate.py).
 
+### Custom crosshair and legend
+[S&P500 example](https://github.com/highfestiva/finplot/blob/master/finplot/example-snp500.py) shows how
+to set crosshair texts and update legend text+color as a result of mouse hover.
+
+### Custom axes ticks
+To use your own labels on the X-axis see [comment on issue 50](https://github.com/highfestiva/finplot/issues/50#issuecomment-707929546).
+If you want to roll your own Y-axis, inherit `fplt.YAxisItem`.
+
 ### Saving screenshot
 See [example-line.py](https://github.com/highfestiva/finplot/blob/master/finplot/example-line.py).
 To keep screenshot in RAM see [issue 28](https://github.com/highfestiva/finplot/issues/28).
 
-### Scaling axes' heights
-See [issue 56](https://github.com/highfestiva/finplot/issues/56).
+### Scaling plot heights
+See [issue 56](https://github.com/highfestiva/finplot/issues/56). Changing the default window size can be
+achieved by setting `fplt.winw = 900; fplt.winh = 500;` before creating your plot.
 
 ### Threading
 See [issue 55](https://github.com/highfestiva/finplot/issues/55).
@@ -201,4 +215,4 @@ fplt.play_sound('bot-happy.wav') # Ooh! Watch me - I just made a profit!
 `Esc`, `Home`, `End`, `g`, `Left arrow`, `Right arrow`. `Ctrl+drag`.
 
 ### Missing snippets
-Act on mouse hover, customizing crosshair+axis, setting+updating legend text, update an orderbook, etc.
+Act on mouse hover, update an orderbook, etc.
