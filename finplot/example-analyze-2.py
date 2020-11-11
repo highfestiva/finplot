@@ -9,8 +9,9 @@ import yfinance as yf
 btc = yf.download('BTC-USD', '2014-09-01')
 
 ax1,ax2,ax3,ax4,ax5 = fplt.create_plot('Bitcoin/Dollar long term analysis', rows=5, maximize=False)
+fplt.set_y_scale(ax=ax1, yscale='log')
 
-fplt.plot(btc.Close, color='#000', legend='Price', ax=ax1)
+fplt.plot(btc.Close, color='#000', legend='Log price', ax=ax1)
 btc['ma200'] = btc.Close.rolling(200).mean()
 btc['ma50'] = btc.Close.rolling(50).mean()
 fplt.plot(btc.ma200, legend='MA200', ax=ax1)

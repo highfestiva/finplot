@@ -657,10 +657,13 @@ class FinViewBox(pg.ViewBox):
             self.mouseLeftDrag(ev, axis)
         elif ev.button() == QtCore.Qt.MiddleButton:
             self.mouseMiddleDrag(ev, axis)
+        elif ev.button() == QtCore.Qt.RightButton:
+            self.mouseRightDrag(ev, axis)
         else:
             super().mouseDragEvent(ev, axis)
 
     def mouseLeftDrag(self, ev, axis):
+        '''Ctrl+LButton draw lines.'''
         if ev.modifiers() != QtCore.Qt.ControlModifier:
             super().mouseDragEvent(ev, axis)
             if ev.isFinish() or self.drawing:
@@ -688,6 +691,7 @@ class FinViewBox(pg.ViewBox):
         ev.accept()
 
     def mouseMiddleDrag(self, ev, axis):
+        '''Ctrl+MButton draw ellipses.'''
         if ev.modifiers() != QtCore.Qt.ControlModifier:
             return super().mouseDragEvent(ev, axis)
         p1 = self.mapToView(ev.pos())
@@ -696,7 +700,7 @@ class FinViewBox(pg.ViewBox):
             c = b-a
             return pg.Point(abs(c.x()) or 1, abs(c.y()) or 1e-3)
         if not self.drawing:
-            # add new line
+            # add new ellipse
             p0 = self.mapToView(ev.lastPos())
             p0 = _clamp_point(self.parent(), p0)
             s = nonzerosize(p0, p1)
@@ -713,6 +717,19 @@ class FinViewBox(pg.ViewBox):
         if ev.isFinish():
             self.drawing = False
         ev.accept()
+
+    def mouseRightDrag(self, ev, axis):
+        '''RButton is box zoom. At least for now.'''
+        ev.accept()
+        if not ev.isFinish():
+            self.updateScaleBox(ev.buttonDownPos(), ev.pos())
+        else:
+            self.rbScaleBox.hide()
+            ax = QtCore.QRectF(pg.Point(ev.buttonDownPos(ev.button())), pg.Point(ev.pos()))
+            ax = self.childGroup.mapRectFromParent(ax)
+            self.showAxRect(ax)
+            self.axHistoryPointer += 1
+            self.axHistory = self.axHistory[:self.axHistoryPointer] + [ax]
 
     def mouseClickEvent(self, ev):
         if self.master_viewbox:
