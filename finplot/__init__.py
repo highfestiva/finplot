@@ -68,7 +68,6 @@ app = None
 windows = [] # no gc
 timers = [] # no gc
 sounds = {} # no gc
-plotdf2df = {} # for pandas df.plot
 epoch_period = 1e30
 last_ax = None # always assume we want to plot in the last axis, unless explicitly specified
 overlay_axs = [] # for keeping track of candlesticks in overlays
@@ -352,22 +351,6 @@ class PandasDataSource:
 
     def __eq__(self, other):
         return id(self) == id(other) or id(self.df) == id(other.df)
-
-
-
-class PlotDf(object):
-    '''This class is for allowing you to do df.plot(...), as you normally would in Pandas.'''
-    def __init__(self, df):
-        global plotdf2df
-        plotdf2df[self] = df
-    def __getattribute__(self, name):
-        if name == 'plot':
-            return partial(dfplot, plotdf2df[self])
-        return getattr(plotdf2df[self], name)
-    def __getitem__(self, i):
-        return plotdf2df[self].__getitem__(i)
-    def __setitem__(self, i, v):
-        return plotdf2df[self].__setitem__(i, v)
 
 
 
@@ -1471,13 +1454,6 @@ def fill_between(plot0, plot1, color=None):
     return item
 
 
-def dfplot(df, x=None, y=None, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True):
-    legend = legend if legend else y
-    x = x if x else df.columns[0]
-    y = y if y else df.columns[1]
-    return plot(df[x], df[y], color=color, width=width, ax=ax, style=style, legend=legend, zoomscale=zoomscale)
-
-
 def set_y_range(ymin, ymax, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
     ax.setLimits(yMin=ymin, yMax=ymax)
@@ -2431,6 +2407,8 @@ except:
 
 # default to black-on-white
 pg.widgets.GraphicsView.GraphicsView.wheelEvent = partialmethod(_wheel_event_wrapper, pg.widgets.GraphicsView.GraphicsView.wheelEvent)
+# use finplot instead of matplotlib
+pd.set_option('plotting.backend', 'finplot.pdplot')
 # pick up win resolution
 try:
     import ctypes
