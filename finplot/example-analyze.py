@@ -30,13 +30,13 @@ def download_price_history(symbol='XBTUSD', start_time='2020-01-10', end_time='2
         for col in d:
             data[col] += d[col]
     df = pd.DataFrame(data)
-    return df.rename(columns={'t':'time', 'o':'open', 'c':'close', 'h':'high', 'l':'low', 'v':'volume'})
+    df = df.rename(columns={'t':'time', 'o':'open', 'c':'close', 'h':'high', 'l':'low', 'v':'volume'})
+    return df.set_index('time')
 
 
 def plot_accumulation_distribution(df, ax):
     ad = (2*df.close-df.high-df.low) * df.volume / (df.high - df.low)
-    df['acc_dist'] = ad.cumsum().ffill()
-    fplt.plot(df.time, df.acc_dist, ax=ax, legend='Accum/Dist', color='#f00000')
+    ad.cumsum().ffill().plot(ax=ax, legend='Accum/Dist', color='#f00000')
 
 
 def plot_bollinger_bands(df, ax):
@@ -44,13 +44,13 @@ def plot_bollinger_bands(df, ax):
     stddev = df.close.rolling(20).std()
     df['boll_hi'] = mean + 2.5*stddev
     df['boll_lo'] = mean - 2.5*stddev
-    p0 = fplt.plot(df.time, df.boll_hi, ax=ax, color='#808080', legend='BB')
-    p1 = fplt.plot(df.time, df.boll_lo, ax=ax, color='#808080')
+    p0 = df.boll_hi.plot(ax=ax, color='#808080', legend='BB')
+    p1 = df.boll_lo.plot(ax=ax, color='#808080')
     fplt.fill_between(p0, p1, color='#bbb')
 
 
 def plot_ema(df, ax):
-    fplt.plot(df.time, df.close.ewm(span=9).mean(), ax=ax, legend='EMA')
+    df.close.ewm(span=9).mean().plot(ax=ax, legend='EMA')
 
 
 def plot_heikin_ashi(df, ax):
@@ -58,21 +58,18 @@ def plot_heikin_ashi(df, ax):
     df['h_open'] = (df.open.shift()+df.close.shift()) * 0.5
     df['h_high'] = df[['high','h_open','h_close']].max(axis=1)
     df['h_low'] = df[['low','h_open','h_close']].min(axis=1)
-    candles = df['time h_open h_close h_high h_low'.split()]
-    fplt.candlestick_ochl(candles, ax=ax)
+    df[['h_open','h_close','h_high','h_low']].plot(ax=ax, kind='candle')
 
 
 def plot_heikin_ashi_volume(df, ax):
-    volume = df['time h_open h_close volume'.split()]
-    fplt.volume_ocv(volume, ax=ax)
+    df[['h_open','h_close','volume']].plot(ax=ax, kind='volume')
 
 
 def plot_on_balance_volume(df, ax):
     obv = df.volume.copy()
     obv[df.close < df.close.shift()] = -obv
     obv[df.close==df.close.shift()] = 0
-    df['obv'] = obv.cumsum()
-    fplt.plot(df.time, df.obv, ax=ax, legend='OBV', color='#008800')
+    obv.cumsum().plot(ax=ax, legend='OBV', color='#008800')
 
 
 def plot_rsi(df, ax):
@@ -93,14 +90,14 @@ def plot_rsi(df, ax):
     for i,v in enumerate(losses[n:],n):
         l = losses[i] = ni*v + m*l
     rs = gains / losses
-    df['rsi'] = pd.Series(100 - (100/(1+rs)))
-    fplt.plot(df.time, df.rsi, ax=ax, legend='RSI')
+    df['rsi'] = 100 - (100/(1+rs))
+    df.rsi.plot(ax=ax, legend='RSI')
     fplt.set_y_range(0, 100, ax=ax)
     fplt.add_band(30, 70, ax=ax)
 
 
 def plot_vma(df, ax):
-    fplt.plot(df.time, df.volume.rolling(20).mean(), ax=ax, color='#c0c030')
+    df.volume.rolling(20).mean().plot(ax=ax, color='#c0c030')
 
 
 symbol = 'XBTUSD'
