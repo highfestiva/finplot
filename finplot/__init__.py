@@ -119,6 +119,8 @@ class YAxisItem(pg.AxisItem):
         super().__init__(*args, **kwargs)
         self.vb = vb
         self.hide_strings = False
+        self.style['autoExpandTextSpace'] = False
+        self.style['autoReduceTextSpace'] = False
 
     def tickStrings(self, values, scale, spacing):
         if self.hide_strings:
@@ -1680,7 +1682,7 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
         axw = pg.PlotWidget(viewBox=viewbox, axisItems=axes, name='plot-%i'%index)
         ax = axw.plotItem
         ax.ax_widget = axw
-    ax.axes['left']['item'].textWidth = y_label_width # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
+    ax.axes['left']['item'].setWidth(y_label_width) # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
     ax.axes['left']['item'].setStyle(tickLength=-5) # some bug, totally unexplicable (why setting the default value again would fix repaint width as axis scale down)
     ax.axes['left']['item'].setZValue(30) # put axis in front instead of behind data
     ax.axes['bottom']['item'].setZValue(30)
@@ -2037,9 +2039,10 @@ def _repaint_candles():
     '''Candles are only partially drawn, and therefore needs manual dirty reminder whenever it goes off-screen.'''
     axs = [ax for win in windows for ax in win.axs] + overlay_axs
     for ax in axs:
-        for item in ax.items:
+        for item in list(ax.items):
             if isinstance(item, FinPlotItem):
-                item.repaint()
+                _start_visual_update(item)
+                _end_visual_update(item)
 
 
 def _paint_scatter(item, p, *args):
@@ -2398,7 +2401,7 @@ def _makepen(color, style=None, width=1):
 
 try:
     qtver = '%d.%d' % (QtCore.QT_VERSION//256//256, QtCore.QT_VERSION//256%256)
-    if qtver not in ('5.9', '5.13'):
+    if qtver not in ('5.9', '5.13') and [int(i) for i in pg.__version__.split('.')] <= [0,11,0]:
         print('WARNING: your version of Qt may not plot curves containing NaNs and is not recommended.')
         print('See https://github.com/pyqtgraph/pyqtgraph/issues/1057')
 except:
