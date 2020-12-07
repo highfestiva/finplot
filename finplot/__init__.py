@@ -60,7 +60,7 @@ lod_candles = 3000
 lod_labels = 700
 cache_candle_factor = 3 # factor extra candles rendered to buffer
 y_label_width = 65
-long_time = 2*365*24*60*60*1000
+long_time = 2*365*24*60*60*1e9
 display_timezone = None  # default to local
 winx,winy,winw,winh = 400,300,800,400
 
@@ -195,7 +195,7 @@ class PandasDataSource:
             return 1
         if not self._period:
             timecol = self.df.columns[0]
-            self._period = self.df[timecol].diff().median() / 1000
+            self._period = self.df[timecol].diff().median() / 1e9
         return self._period
 
     @property
@@ -1276,7 +1276,7 @@ def renko(x, y=None, bins=None, step=None, ax=None, colorfunc=price_colorfilter)
     item.colors['bull_body'] = item.colors['bull_frame']
     item.update_data = partial(_update_data, None, step_adjust_renko_datasrc, item)
     global epoch_period
-    epoch_period = (origdf.iloc[1,0] - origdf.iloc[0,0]) // 1000
+    epoch_period = (origdf.iloc[1,0] - origdf.iloc[0,0]) // int(1e9)
     return item
 
 
@@ -2167,10 +2167,13 @@ def _get_color(ax, style, wanted_color):
 def _pdtime2epoch(t):
     if isinstance(t, pd.Series):
         if isinstance(t.iloc[0], pd.Timestamp):
-            return t.astype('int64') // int(1e6)
-        if np.nanmax(t.values) > 1e13: # handle ns epochs
-            return (t/1e3).astype('int64')
-        if np.nanmax(t.values) < 1e10: # handle s epochs
+            return t.astype('int64')
+        h = np.nanmax(t.values)
+        if h < 1e10: # handle s epochs
+            return (t*1e9).astype('int64')
+        if h < 1e13: # handle ns epochs
+            return (t*1e6).astype('int64')
+        if h < 1e16: # handle us epochs
             return (t*1e3).astype('int64')
         return t.astype('int64')
     return t
@@ -2178,16 +2181,18 @@ def _pdtime2epoch(t):
 
 def _pdtime2index(ax, ts, any_end=False, require_time=False):
     if isinstance(ts.iloc[0], pd.Timestamp):
-        ts = ts.astype('int64') // int(1e6)
+        ts = ts.astype('int64')
     else:
         h = np.nanmax(ts.values)
         if h < 1e7:
             if require_time:
                 assert False, 'not a time series'
             return ts
-        if h > 1e13: # handle ns epochs
-            ts = ts.astype('float64') / 1e3
-        elif h < 1e10: # handle s epochs
+        if h < 1e10: # handle s epochs
+            ts = ts.astype('float64') * 1e9
+        elif h < 1e13: # handle ms epochs
+            ts = ts.astype('float64') * 1e6
+        elif h < 1e16: # handle us epochs
             ts = ts.astype('float64') * 1e3
     
     datasrc = _get_datasrc(ax)
@@ -2230,12 +2235,16 @@ def _get_datasrc(ax, require=True):
         assert ax.vb.datasrc, 'not possible to plot this primitive without a prior time-range to compare to'
 
 
+def _millisecond_wrap(s):
+    return (s+'.000000') if '.' not in s else s
+
+
 def _x2local_t(datasrc, x):
-    return _x2t(datasrc, x, lambda t: datetime.fromtimestamp(t/1000, tz=display_timezone).isoformat(sep=' ').partition('+')[0])
+    return _x2t(datasrc, x, lambda t: _millisecond_wrap(datetime.fromtimestamp(t/1e9, tz=display_timezone).isoformat(sep=' ').partition('+')[0]))
 
 
 def _x2utc(datasrc, x):
-    return _x2t(datasrc, x, lambda t: datetime.utcfromtimestamp(t/1000).isoformat(sep=' '))
+    return _x2t(datasrc, x, lambda t: _millisecond_wrap(datetime.utcfromtimestamp(t/1e9).isoformat(sep=' ')))
 
 
 def _x2t(datasrc, x, ts2str):
@@ -2248,6 +2257,7 @@ def _x2t(datasrc, x, ts2str):
             if not datasrc.timebased():
                 return '%g' % t, False
             s = ts2str(t)
+            
             if epoch_period >= 23*60*60: # daylight savings, leap seconds, etc
                 i = s.index(' ')
             elif epoch_period >= 59: # consider leap seconds
@@ -2327,7 +2337,7 @@ def _draw_line_segment_text(polyline, segment, pos0, pos1):
             t0,_,_,_,cnt0 = datasrc.hilo(x0, x0)
             t1,_,_,_,cnt1 = datasrc.hilo(x1, x1)
             if cnt0 and cnt1:
-                fsecs = abs(t1 - t0) / 1000
+                fsecs = abs(t1 - t0) / 1e9
         except:
             pass
     diff = pos1 - pos0
