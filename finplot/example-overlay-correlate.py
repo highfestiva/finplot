@@ -7,7 +7,7 @@ import scipy.optimize
 import yfinance as yf
 
 now = date.today()
-start_day = now - timedelta(days=59)
+start_day = now - timedelta(days=55)
 df = yf.download('GOOG', start_day.isoformat(), now.isoformat(), interval='90m')
 dfms = yf.download('MSFT', start_day.isoformat(), now.isoformat(), interval='90m')
 

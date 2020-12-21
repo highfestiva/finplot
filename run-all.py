@@ -11,7 +11,7 @@ for pc in pycode:
     open('.t.py', 'w').write('import finplot as fplt\n'+pc)
     print('markup example')
     os.system('python3.exe .t.py')
-for fn in glob.glob('finplot/example*.py'):
+for fn in glob.glob('finplot/example*.py') + glob.glob('dumb/*.py'):
     print(fn)
     os.system('python3.exe %s' % fn)
 os.remove('.t.py')

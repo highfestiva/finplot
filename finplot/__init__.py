@@ -378,6 +378,7 @@ class FinWindow(pg.GraphicsLayoutWidget):
     def close(self):
         self.closing = True
         _savewindata(self)
+        _clear_timers()
         return super().close()
 
     def eventFilter(self, obj, ev):
@@ -1456,6 +1457,13 @@ def fill_between(plot0, plot1, color=None):
     return item
 
 
+def set_x_pos(xmin, xmax, ax=None):
+    ax = _create_plot(ax=ax, maximize=False)
+    xidx0,xidx1 = _pdtime2index(ax, pd.Series([xmin, xmax]))
+    ax.vb.update_y_zoom(xidx0, xidx1)
+    _repaint_candles()
+
+
 def set_y_range(ymin, ymax, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
     ax.setLimits(yMin=ymin, yMax=ymax)
@@ -1581,7 +1589,7 @@ def show(qt_exec=True):
         app.exec_()
         windows.clear()
         overlay_axs.clear()
-        timers.clear()
+        _clear_timers()
         sounds.clear()
         master_data.clear()
         last_ax = None
@@ -1668,6 +1676,12 @@ def _create_plot(ax=None, **kwargs):
     if last_ax:
         return last_ax
     return create_plot(**kwargs)
+
+
+def _clear_timers():
+    for timer in timers:
+        timer.timeout.disconnect()
+    timers.clear()
 
 
 def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
