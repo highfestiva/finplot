@@ -169,6 +169,10 @@ See [issue 27](https://github.com/highfestiva/finplot/issues/27), and possibly (
 ax2.decouple()
 ```
 
+### Move viewport along X-axis (and autozoom)
+Use `fplt.set_x_pos(xmin, xmax, ax)`. See
+[example-animate.py](https://github.com/highfestiva/finplot/blob/master/finplot/example-animate.py).
+
 ### Place Region of Interest (ROI) markers
 For placing ellipses, see [issue 57](https://github.com/highfestiva/finplot/issues/57).
 For drawing lines, see [example-line.py](https://github.com/highfestiva/finplot/blob/master/finplot/example-line.py).
