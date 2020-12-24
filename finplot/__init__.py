@@ -339,9 +339,9 @@ class PandasDataSource:
 
     def rows(self, colcnt, x0, x1, yscale, lod=True):
         df = self.df.loc[x0:x1, :]
-        origlen = len(df)
         if self.is_sparse:
             df = df.loc[df.iloc[:,self.col_data_offset].notna(), :]
+        origlen = len(df)
         return self._rows(df, colcnt, yscale=yscale, lod=lod), origlen
 
     def _rows(self, df, colcnt, yscale, lod):
