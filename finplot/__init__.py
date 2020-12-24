@@ -188,6 +188,7 @@ class PandasDataSource:
         self.df.columns = newcols
         self.pre_update = lambda df: df
         self._period = None
+        self.is_sparse = self.df[self.df.columns[self.col_data_offset]].isnull().sum() > len(self.df)/2
 
     @property
     def period(self):
@@ -283,6 +284,9 @@ class PandasDataSource:
         self.cache_hilo = OrderedDict()
         self._period = None
         datasrc._period = None
+        ldf2 = len(self.df) / 2
+        self.is_sparse = self.is_sparse or self.df[self.df.columns[self.col_data_offset]].isnull().sum() > ldf2
+        datasrc.is_sparse = datasrc.is_sparse or datasrc.df[datasrc.df.columns[datasrc.col_data_offset]].isnull().sum() > ldf2
 
     def update(self, datasrc):
         df = self.pre_update(self.df)
@@ -336,6 +340,8 @@ class PandasDataSource:
     def rows(self, colcnt, x0, x1, yscale, lod=True):
         df = self.df.loc[x0:x1, :]
         origlen = len(df)
+        if self.is_sparse:
+            df = df.loc[df.iloc[:,self.col_data_offset].notna(), :]
         return self._rows(df, colcnt, yscale=yscale, lod=lod), origlen
 
     def _rows(self, df, colcnt, yscale, lod):
