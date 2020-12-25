@@ -565,10 +565,16 @@ class FinLine(pg.GraphicsObject):
 
     def paint(self, p, *args):
         p.setPen(self.pen)
-        p.drawLine(QtCore.QPointF(*self.points[0]), QtCore.QPointF(*self.points[1]))
+        p.drawPath(self.shape())
+
+    def shape(self):
+        p = QtGui.QPainterPath()
+        p.moveTo(*self.points[0])
+        p.lineTo(*self.points[1])
+        return p
 
     def boundingRect(self):
-        return QtCore.QRectF(*self.points[0], *self.points[1])
+        return self.shape().boundingRect()
 
 
 class FinEllipse(pg.EllipseROI):
