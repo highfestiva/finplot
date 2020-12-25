@@ -11,7 +11,7 @@ region.
 '''
 
 from ast import literal_eval
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from datetime import datetime
 from decimal import Decimal
 from functools import partial, partialmethod
@@ -585,6 +585,7 @@ class FinViewBox(pg.ViewBox):
         self.v_zoom_scale = v_zoom_scale
         self.v_zoom_baseline = 0.5
         self.v_autozoom = True
+        self.max_zoom_points_f = 1
         self.y_max = 1000
         self.y_min = 0
         self.y_positive = True
@@ -829,7 +830,8 @@ class FinViewBox(pg.ViewBox):
         # fetch hi-lo and set range
         _,_,hi,lo,cnt = datasrc.hilo(x0, x1)
         vr = self.viewRect()
-        if (x1-x0) < vr.width() and cnt < max_zoom_points:
+        minlen = int((max_zoom_points-0.5) * self.max_zoom_points_f + 0.51)
+        if (x1-x0) < vr.width() and cnt < minlen:
             return
         if not self.v_autozoom:
             hi = vr.bottom()
@@ -1578,6 +1580,7 @@ def show(qt_exec=True):
         if viewrestore:
             if _loadwindata(win):
                 continue
+        _set_max_zoom(vbs)
         for vb in vbs:
             datasrc = vb.datasrc_or_standalone
             if datasrc and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None):
@@ -1883,6 +1886,22 @@ def _set_datasrc(ax, datasrc):
 
 def _has_timecol(df):
     return len(df.columns) >= 2
+
+
+def _set_max_zoom(vbs):
+    '''Set the relative allowed zoom level between axes groups, where the lowest-resolution
+       plot in each group uses max_zoom_points, while the others get a scale >=1 of their
+       respective highest zoom level.'''
+    groups = defaultdict(set)
+    for vb in vbs:
+        master_vb = vb.linkedView(0)
+        if vb.datasrc and master_vb and master_vb.datasrc:
+            groups[master_vb].add(vb)
+            groups[master_vb].add(master_vb)
+    for group in groups.values():
+        minlen = min(len(vb.datasrc.df) for vb in group)
+        for vb in group:
+            vb.max_zoom_points_f = len(vb.datasrc.df) / minlen
 
 
 def _adjust_renko_datasrc(bins, step, datasrc):
