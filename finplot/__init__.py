@@ -963,6 +963,7 @@ class CandlestickItem(FinPlotItem):
         self.draw_body = draw_body
         self.draw_shadow = draw_shadow
         self.candle_width = candle_width
+        self.shadow_width = 1
         self.colorfunc = colorfunc
         self.x_offset = 0
         super().__init__(ax, datasrc, lod=True)
@@ -981,7 +982,7 @@ class CandlestickItem(FinPlotItem):
             if self.x_offset:
                 idxs += self.x_offset
             if self.draw_shadow:
-                p.setPen(pg.mkPen(shadow))
+                p.setPen(pg.mkPen(shadow, width=self.shadow_width))
                 for x,(t,open,close,high,low) in zip(idxs, rows):
                     if high > low:
                         p.drawLine(QtCore.QPointF(x, low), QtCore.QPointF(x, high))
