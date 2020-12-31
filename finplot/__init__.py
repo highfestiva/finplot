@@ -1867,10 +1867,10 @@ def _set_datasrc(ax, datasrc):
             viewbox.set_datasrc(datasrc) # for mwheel zoom-scaling
             _set_x_limits(ax, datasrc)
         else:
-            t0 = viewbox.datasrc.x.loc[0]
+            t0 = viewbox.datasrc.x.iloc[0]
             viewbox.datasrc.addcols(datasrc)
             # check if we need to re-render previous plots due to changed indices
-            indices_updated = viewbox.datasrc.timebased() and t0 != viewbox.datasrc.x.loc[0]
+            indices_updated = viewbox.datasrc.timebased() and t0 != viewbox.datasrc.x.iloc[0]
             for item in ax.items:
                 if hasattr(item, 'datasrc'):
                     item.datasrc.set_df(viewbox.datasrc.df) # every plot here now has the same time-frame
