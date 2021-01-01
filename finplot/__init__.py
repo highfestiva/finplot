@@ -112,6 +112,13 @@ class EpochAxisItem(pg.AxisItem):
         years_indices = [ceil(yi) for yi in _pdtime2index(ax, years)]
         return [(0,years_indices)]
 
+    def generateDrawSpecs(self, p):
+        specs = super().generateDrawSpecs(p)
+        if specs and not self.style['showValues']:
+            pen,p0,p1 = specs[0]
+            specs = [(_makepen('#fff0'),p0,p1)] + list(specs[1:]) # don't draw axis if hiding values
+        return specs
+
 
 
 class YAxisItem(pg.AxisItem):
@@ -1368,7 +1375,7 @@ def heatmap(datasrc, ax=None, **kwargs):
     if ax.vb.datasrc is not None and not ax.vb.datasrc.timebased(): # manual zoom update
         ax.setXLink(None)
         if ax.prev_ax:
-            ax.prev_ax.showAxis('bottom')
+            ax.prev_ax.set_visible(xaxis=True)
         df = ax.vb.datasrc.df
         prices = df.columns[ax.vb.datasrc.col_data_offset:item.col_data_end]
         delta_price = abs(prices[0] - prices[1])
@@ -1779,15 +1786,13 @@ def _overlay(ax, scale=0.25, y_axis=False):
     return axo
 
 
-def _ax_set_visible(ax, crosshair=None, xaxis=None, yaxis=None, yaxis_labels=None):
+def _ax_set_visible(ax, crosshair=None, xaxis=None, yaxis=None):
     if crosshair == False:
         ax.crosshair.hide()
     if xaxis is not None:
-        ax.showAxis('bottom', xaxis)
+        ax.getAxis('bottom').setStyle(showValues=xaxis)
     if yaxis is not None:
-        ax.showAxis('left', yaxis)
-    if yaxis_labels is not None:
-        ax.axes['left']['item'].hide_strings = not yaxis_labels
+        ax.getAxis('left').setStyle(showValues=yaxis)
 
 
 def _ax_decouple(ax):
