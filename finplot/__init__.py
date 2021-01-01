@@ -295,6 +295,8 @@ class PandasDataSource:
         df = df.set_index(timecol)
         input_df = datasrc.df.set_index(datasrc.df.columns[0])
         input_df.columns = [self.renames.get(col, col) for col in input_df.columns]
+        # pad index if the input data is a sub-set
+        input_df = pd.merge(input_df, df[[]], how='outer', left_index=True, right_index=True)
         for col in df.columns:
             if col not in input_df.columns:
                 input_df[col] = df[col]
