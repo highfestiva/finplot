@@ -140,6 +140,10 @@ millisecond epoch instead of the actual time. See my comment
 [here](https://github.com/highfestiva/finplot/issues/58#issuecomment-716054127) and
 [issue 50](https://github.com/highfestiva/finplot/issues/50) for more info.
 
+It is also imperative that you either put your datetimes in your index, or in the first column. If your
+datetime is in the first column, you normally want to have a zero-based range index,
+`df.reset_index(drop=True)`, before plotting.
+
 ### Restore the zoom at startup
 ```python
 # By default finplot shows all or a subset of your time series at startup. To store/restore zoom position:
@@ -153,6 +157,10 @@ fplt.show() # will load zoom when showing, and save zoom when closing
 # finplot by default use the local time zone of your computer (for crosshair and X-axis)
 from dateutil.tz import gettz
 fplt.display_timezone = gettz('Asia/Jakarta')
+
+# ... or in UTC = "display same as timezone-unaware data"
+import datetime
+finplot.display_timezone = datetime.timezone.utc
 ```
 
 ### Scatter plot with X-offset
@@ -201,6 +209,8 @@ If you want to roll your own Y-axis, inherit `fplt.YAxisItem`.
 ### Saving screenshot
 See [example-line.py](https://github.com/highfestiva/finplot/blob/master/finplot/example-line.py).
 To keep screenshot in RAM see [issue 28](https://github.com/highfestiva/finplot/issues/28).
+
+For creating multiple screenshots see [issue 71](https://github.com/highfestiva/finplot/issues/71#issuecomment-742015927).
 
 ### Scaling plot heights
 See [issue 56](https://github.com/highfestiva/finplot/issues/56). Changing the default window size can be
