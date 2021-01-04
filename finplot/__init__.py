@@ -1208,7 +1208,7 @@ def create_plot_widget(master, rows=1, init_zoom_periods=1e10, yscale='linear'):
         ysc = yscale[n] if type(yscale) in (list,tuple) else yscale
         ysc = YScale(ysc, 1)
         v_zoom_scale = 0.97
-        viewbox = FinViewBox(master, init_steps=init_zoom_periods, yscale=ysc, v_zoom_scale=v_zoom_scale)
+        viewbox = FinViewBox(master, init_steps=init_zoom_periods, yscale=ysc, v_zoom_scale=v_zoom_scale, enableMenu=False)
         ax = prev_ax = _add_timestamp_plot(master=master, prev_ax=prev_ax, viewbox=viewbox, index=n, yscale=ysc)
         if axs:
             ax.setXLink(axs[0].vb)
@@ -1716,9 +1716,9 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
     axes = {'bottom': EpochAxisItem(vb=viewbox, orientation='bottom'),
             'left':   YAxisItem(vb=viewbox, orientation='left')}
     if native_win:
-        ax = pg.PlotItem(viewBox=viewbox, axisItems=axes, name='plot-%i'%index)
+        ax = pg.PlotItem(viewBox=viewbox, axisItems=axes, name='plot-%i'%index, enableMenu=False)
     else:
-        axw = pg.PlotWidget(viewBox=viewbox, axisItems=axes, name='plot-%i'%index)
+        axw = pg.PlotWidget(viewBox=viewbox, axisItems=axes, name='plot-%i'%index, enableMenu=False)
         ax = axw.plotItem
         ax.ax_widget = axw
     ax.axes['left']['item'].setWidth(y_label_width) # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
@@ -1746,7 +1746,7 @@ def _overlay(ax, scale=0.25, y_axis=False):
     '''The scale parameter defines how "high up" on the initial plot this overlay will show.
        The y_axis parameter can be one of [False, 'linear', 'log'].'''
     yscale = y_axis if y_axis else 'linear'
-    viewbox = FinViewBox(ax.vb.win, init_steps=ax.vb.init_steps, yscale=YScale(yscale, 1))
+    viewbox = FinViewBox(ax.vb.win, init_steps=ax.vb.init_steps, yscale=YScale(yscale, 1), enableMenu=False)
     viewbox.master_viewbox = ax.vb
     viewbox.setZValue(-5)
     viewbox.setBackgroundColor(ax.vb.state['background'])
@@ -1759,7 +1759,7 @@ def _overlay(ax, scale=0.25, y_axis=False):
     viewbox.setXLink(ax.vb)
     def updateView():
         viewbox.setGeometry(ax.vb.sceneBoundingRect())
-    axo = pg.PlotItem()
+    axo = pg.PlotItem(enableMenu=False)
     axo.significant_decimals = significant_decimals
     axo.significant_eps = significant_eps
     axo.vb = viewbox
