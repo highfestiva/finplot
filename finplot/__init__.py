@@ -1743,10 +1743,10 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
     return ax
 
 
-def _overlay(ax, scale=0.25, y_axis=False):
+def _overlay(ax, scale=0.25, yaxis=False):
     '''The scale parameter defines how "high up" on the initial plot this overlay will show.
-       The y_axis parameter can be one of [False, 'linear', 'log'].'''
-    yscale = y_axis if y_axis else 'linear'
+       The yaxis parameter can be one of [False, 'linear', 'log'].'''
+    yscale = yaxis if yaxis else 'linear'
     viewbox = FinViewBox(ax.vb.win, init_steps=ax.vb.init_steps, yscale=YScale(yscale, 1), enableMenu=False)
     viewbox.master_viewbox = ax.vb
     viewbox.setZValue(-5)
@@ -1772,7 +1772,7 @@ def _overlay(ax, scale=0.25, y_axis=False):
     axo.hideAxis('bottom')
     axo.hideButtons()
     viewbox.addItem(axo)
-    if y_axis and isinstance(axo.vb.win, pg.GraphicsLayoutWidget):
+    if yaxis and isinstance(axo.vb.win, pg.GraphicsLayoutWidget):
         axi = YAxisItem(vb=axo.vb, orientation='right')
         axo.axes['right'] = {'item':axi}
         axi.linkToView(axo.vb)

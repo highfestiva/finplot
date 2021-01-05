@@ -188,10 +188,10 @@ For drawing lines, see [example-line.py](https://github.com/highfestiva/finplot/
 
 ### More than one Y-axis in same viewbox
 ```python
-fplt.candlestick_ochl(df2[['Open','Close','High','Low']], ax=ax.overlay(scale=1.0, y_axis='linear'))
+fplt.candlestick_ochl(df2[['Open','Close','High','Low']], ax=ax.overlay(scale=1.0, yaxis='linear'))
 ```
 The `scale` parameter means it goes all the way to the top of the axis (volume normally stays at the bottom).
-The `y_axis` parameter can be one of `False` (hidden which is default), `'linear'` or `'log'`.
+The `yaxis` parameter can be one of `False` (hidden which is default), `'linear'` or `'log'`.
 See [issue 52](https://github.com/highfestiva/finplot/issues/52) for more info.
 
 ### Plot non-timeseries
