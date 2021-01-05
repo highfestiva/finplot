@@ -220,7 +220,11 @@ achieved by setting `fplt.winw = 900; fplt.winh = 500;` before creating your plo
 See [issue 55](https://github.com/highfestiva/finplot/issues/55).
 
 ### Titles on axes
-See [issue 41](https://github.com/highfestiva/finplot/issues/41).
+See [issue 41](https://github.com/highfestiva/finplot/issues/41). To show grid and further adapt axes, etc:
+
+```python
+ax.set_visible(crosshair=False, xaxis=False, yaxis=True, xgrid=True, ygrid=True)
+```
 
 ### Beep
 ```python
@@ -231,4 +235,4 @@ fplt.play_sound('bot-happy.wav') # Ooh! Watch me - I just made a profit!
 `Esc`, `Home`, `End`, `g`, `Left arrow`, `Right arrow`. `Ctrl+drag`.
 
 ### Missing snippets
-Act on mouse hover, update an orderbook, etc.
+Plot valign on mouse hover, update an orderbook, etc.
