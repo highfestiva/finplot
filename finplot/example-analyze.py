@@ -104,6 +104,7 @@ symbol = 'XBTUSD'
 df = download_price_history(symbol=symbol)
 
 ax,axv,ax2,ax3,ax4 = fplt.create_plot('BitMEX %s heikin-ashi price history' % symbol, rows=5)
+ax.set_visible(xgrid=True, ygrid=True)
 
 # price chart
 plot_heikin_ashi(df, ax)

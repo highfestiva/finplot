@@ -1429,12 +1429,13 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
         yfilter = y.notnull()
         ser = y.loc[yfilter]
         x = x.loc[yfilter].values if hasattr(x, 'loc') else x[yfilter]
-        item = ax.plot(x, ser.values, pen=None, symbol=symbol, symbolPen=None, symbolSize=5*width, symbolBrush=pg.mkBrush(used_color), name=legend)
+        item = ax.plot(x, ser.values, pen=None, symbol=symbol, symbolPen=None, symbolSize=7*width, symbolBrush=pg.mkBrush(used_color), name=legend)
         item.scatter._dopaint = item.scatter.paint
         item.scatter.paint = partial(_paint_scatter, item.scatter)
         # optimize (when having large number of points) by ignoring scatter click detection
         _dummy_mouse_click = lambda ev: 0
         item.scatter.mouseClickEvent = _dummy_mouse_click
+        item.setZValue(10)
     item.opts['handed_color'] = color
     item.ax = ax
     item.datasrc = datasrc
@@ -1786,13 +1787,15 @@ def _overlay(ax, scale=0.25, y_axis=False):
     return axo
 
 
-def _ax_set_visible(ax, crosshair=None, xaxis=None, yaxis=None):
+def _ax_set_visible(ax, crosshair=None, xaxis=None, yaxis=None, xgrid=None, ygrid=None):
     if crosshair == False:
         ax.crosshair.hide()
     if xaxis is not None:
         ax.getAxis('bottom').setStyle(showValues=xaxis)
     if yaxis is not None:
         ax.getAxis('left').setStyle(showValues=yaxis)
+    if xgrid is not None or ygrid is not None:
+        ax.showGrid(x=xgrid, y=ygrid)
 
 
 def _ax_decouple(ax):
