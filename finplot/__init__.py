@@ -350,9 +350,6 @@ class PandasDataSource:
         df = self.df.loc[x0:x1, :]
         if self.is_sparse:
             df = df.loc[df.iloc[:,self.col_data_offset].notna(), :]
-            if len(df) == 0:
-                # we need something that renders
-                df = self.df.loc[self.df.iloc[:,self.col_data_offset].notna(), :]
         origlen = len(df)
         return self._rows(df, colcnt, yscale=yscale, lod=lod), origlen
 
@@ -930,12 +927,15 @@ class FinPlotItem(pg.GraphicsObject):
         self.painter = QtGui.QPainter()
         self.dirty = True
         self.lod = lod
+        self.cachedRect = None
 
     def repaint(self):
         self.dirty = True
         self.paint(self.painter)
 
     def paint(self, p, *args):
+        if self.datasrc.is_sparse:
+            self.dirty = True
         self.update_dirty_picture(self.viewRect())
         p.drawPicture(0, 0, self.picture)
 
@@ -949,9 +949,21 @@ class FinPlotItem(pg.GraphicsObject):
 
     def _generate_picture(self, boundingRect):
         w = boundingRect.width()
-        self.cachedRect = QtCore.QRectF(boundingRect.left()-w, 0, cache_candle_factor*w, 0)
+        self.cachedRect = QtCore.QRectF(boundingRect.left()-(cache_candle_factor-1)*0.5*w, 0, cache_candle_factor*w, 0)
+        self.painter.begin(self.picture)
         self.generate_picture(self.cachedRect)
+        self._generate_dummy_picture(self.viewRect())
+        self.painter.end()
         self.dirty = False
+
+    def _generate_dummy_picture(self, boundingRect):
+        if self.datasrc.is_sparse:
+            # just draw something to ensure PyQt will paint us again
+            self.painter.setPen(pg.mkPen(background))
+            self.painter.setBrush(pg.mkBrush(background))
+            l,r = boundingRect.left(), boundingRect.right()
+            self.painter.drawRect(QtCore.QRectF(l, boundingRect.top(), 1e-3, boundingRect.height()*1e-5))
+            self.painter.drawRect(QtCore.QRectF(r, boundingRect.bottom(), -1e-3, -boundingRect.height()*1e-5))
 
     def boundingRect(self):
         return QtCore.QRectF(self.picture.boundingRect())
@@ -985,7 +997,6 @@ class CandlestickItem(FinPlotItem):
         w2 = w * 0.5
         left,right = boundingRect.left(), boundingRect.right()
         p = self.painter
-        p.begin(self.picture)
         df,origlen = self.datasrc.rows(5, left, right, yscale=self.ax.vb.yscale)
         drawing_many_shadows = self.draw_shadow and origlen > lod_candles*2//3
         for shadow,frame,body,df_rows in self.colorfunc(self, self.datasrc, df):
@@ -1003,7 +1014,6 @@ class CandlestickItem(FinPlotItem):
                 p.setBrush(pg.mkBrush(body))
                 for x,(t,open,close,high,low) in zip(idxs, rows):
                     p.drawRect(QtCore.QRectF(x-w2, open, w, close-open))
-        p.end()
 
     def rowcolors(self, prefix):
         return [self.colors[prefix+'_shadow'], self.colors[prefix+'_frame'], self.colors[prefix+'_body']]
@@ -1032,7 +1042,6 @@ class HeatmapItem(FinPlotItem):
         values /= np.nanmax(values) / (1+self.whiteout) # overshoot for coloring
         lim = self.filter_limit * (1+self.whiteout)
         p = self.painter
-        p.begin(self.picture)
         for t,row in enumerate(values):
             for ci,price in enumerate(prices):
                 v = row[ci]
@@ -1040,7 +1049,6 @@ class HeatmapItem(FinPlotItem):
                     v = 1 - self.colcurve(1 - (v-lim)/(1-lim))
                     color = self.colmap.map(v, mode='qcolor')
                     p.fillRect(QtCore.QRectF(t-rect_size2, price+h0, self.rect_size, h1), color)
-        p.end()
 
 
 
@@ -1081,7 +1089,6 @@ class HorizontalTimeVolumeItem(CandlestickItem):
         divvol[divvol==0] = 1
         volumes = (volumes * f / divvol).T
         p = self.painter
-        p.begin(self.picture)
         h = 1e-10
         for i in self.datasrc.df.index:
             prcr = prices[i]
@@ -1132,7 +1139,6 @@ class HorizontalTimeVolumeItem(CandlestickItem):
                 y = prcr[pocidx] + h / 2
                 p.setPen(pg.mkPen(poc_color))
                 p.drawLine(QtCore.QPointF(t, y), QtCore.QPointF(t+f*self.draw_poc, y))
-        p.end()
 
 
 
@@ -2221,13 +2227,15 @@ def _get_color(ax, style, wanted_color):
     if type(wanted_color) in (str, QtGui.QColor):
         return wanted_color
     index = wanted_color if type(wanted_color) == int else None
-    if style is None or any(ch in style for ch in '-_.'):
+    is_line = lambda style: style is None or any(ch in style for ch in '-_.')
+    this_line = is_line(style)
+    if this_line:
         colors = soft_colors
     else:
         colors = hard_colors
     if index is None:
-        avoid = set(i.opts['handed_color'] for i in ax.items if isinstance(i,pg.PlotDataItem) and i.opts['handed_color'] is not None)
-        index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and i.opts['handed_color'] is None])
+        avoid = set(i.opts['handed_color'] for i in ax.items if isinstance(i,pg.PlotDataItem) and i.opts['handed_color'] is not None and this_line==is_line(i.opts['symbol']))
+        index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and i.opts['handed_color'] is None and this_line==is_line(i.opts['symbol'])])
         while index in avoid:
             index += 1
     return colors[index%len(colors)]
