@@ -779,7 +779,7 @@ class FinViewBox(pg.ViewBox):
             else: # sloppy one based on time stamps
                 tt0,tt1,_,_,_ = self.datasrc.hilo(tr.left(), tr.right())
                 vt0,vt1,_,_,_ = view.datasrc.hilo(vr.left(), vr.right())
-                period2 = self.datasrc.period * 0.5
+                period2 = self.datasrc.period * 0.5 * 1e9
                 if is_dirty or abs(vt0-tt0) >= period2 or abs(vt1-tt1) >= period2:
                     if is_dirty:
                         view.force_range_update -= 1
