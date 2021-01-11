@@ -350,6 +350,9 @@ class PandasDataSource:
         df = self.df.loc[x0:x1, :]
         if self.is_sparse:
             df = df.loc[df.iloc[:,self.col_data_offset].notna(), :]
+            if len(df) == 0:
+                # we need something that renders
+                df = self.df.loc[self.df.iloc[:,self.col_data_offset].notna(), :]
         origlen = len(df)
         return self._rows(df, colcnt, yscale=yscale, lod=lod), origlen
 
