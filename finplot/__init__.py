@@ -1840,9 +1840,8 @@ def _create_series(a):
     return a if isinstance(a, pd.Series) else pd.Series(a)
 
 
-def _create_datasrc(ax, *args, datacols=1):
-    def do_create(*args):
-        args = [a for a in args if a is not None]
+def _create_datasrc(ax, *args):
+    def do_create(args):
         if len(args) == 1 and type(args[0]) == PandasDataSource:
             return args[0]
         if len(args) == 1 and type(args[0]) in (list, tuple):
@@ -1853,9 +1852,10 @@ def _create_datasrc(ax, *args, datacols=1):
             return PandasDataSource(args[0])
         args = [_create_series(a) for a in args]
         return PandasDataSource(pd.concat(args, axis=1))
-    datasrc = do_create(*args)
+    iargs = [a for a in args if a is not None]
+    datasrc = do_create(iargs)
     # check if time column missing
-    if len(datasrc.df.columns) == datacols:
+    if len(datasrc.df.columns) == 1:
         # assume time data has already been added before
         for a in ax.vb.win.axs:
             if a.vb.datasrc and len(a.vb.datasrc.df.columns) >= 2:
@@ -1864,6 +1864,16 @@ def _create_datasrc(ax, *args, datacols=1):
                 datasrc.df.insert(0, col, a.vb.datasrc.df[col])
                 datasrc = PandasDataSource(datasrc.df)
                 break
+    elif len(iargs) >= 2 and len(datasrc.df.columns) == len(iargs)+1 and len(iargs) == len(args):
+        try:
+            if '.Int' in str(type(iargs[0].index)):
+                print('WARNING: performance penalty and crash may occur when using int64 instead of range indices.')
+                if (iargs[0].index == range(len(iargs[0]))).all():
+                    print(' - Fix by .reset_index(drop=True)')
+                    return _create_datasrc(ax, datasrc.df[datasrc.df.columns[1:]])
+        except:
+            print('WARNING: input data source may cause performance penalty and crash.')
+
     # FIX: stupid QT bug causes rectangles larger than 2G to flicker, so scale rendering down some
     if datasrc.df.iloc[:, 1:].max(numeric_only=True).max() > 1e8: # too close to 2G for comfort
         ax.vb.yscale.set_scale(int(1e8))
