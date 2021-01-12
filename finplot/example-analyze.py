@@ -54,8 +54,12 @@ def plot_ema(df, ax):
 
 
 def plot_heikin_ashi(df, ax):
-    df['h_close'] = (df.open+df.close+df.high+df.low) * 0.25
-    df['h_open'] = (df.open.shift()+df.close.shift()) * 0.5
+    df['h_close'] = (df.open+df.close+df.high+df.low) / 4
+    ho = (df.open.iloc[0] + df.close.iloc[0]) / 2
+    for i,hc in zip(df.index, df['h_close']):
+        df.loc[i, 'h_open'] = ho
+        ho = (ho + hc) / 2
+    print(df['h_open'])
     df['h_high'] = df[['high','h_open','h_close']].max(axis=1)
     df['h_low'] = df[['low','h_open','h_close']].min(axis=1)
     df[['h_open','h_close','h_high','h_low']].plot(ax=ax, kind='candle')
