@@ -2358,12 +2358,12 @@ def _x2year(datasrc, x):
 
 
 def _round_to_significant(rng, rngmax, x, significant_decimals, significant_eps):
-    is_highres = (rng/significant_eps > 1e2 and rngmax<1e-2) or abs(rngmax) > 1e7
+    is_highres = (rng/significant_eps > 1e2 and rngmax<1e-2) or abs(rngmax) > 1e7 or rng < 1e-5
     sd = significant_decimals
     if is_highres and abs(x)>0:
         exp10 = floor(np.log10(abs(x)))
         x = x / (10**exp10)
-        sd = min(3, sd+int(np.log10(rngmax)))
+        sd = min(3, sd+int(abs(np.log10(rngmax))))
         fmt = '%%%i.%ife%%i' % (sd, sd)
         r = fmt % (x, exp10)
     else:
@@ -2392,8 +2392,9 @@ def _clamp_xy(ax, x, y):
             x = 0 if x < 0 else len(ds.df)-1
         x = round(x)
         eps = ax.significant_eps
-        eps2 = np.sign(y) * 0.5 * eps
-        y -= fmod(y+eps2, eps) - eps2
+        if eps > 1e-8:
+            eps2 = np.sign(y) * 0.5 * eps
+            y -= fmod(y+eps2, eps) - eps2
     y = ax.vb.yscale.invxform(y, verify=True)
     return x, y
 
