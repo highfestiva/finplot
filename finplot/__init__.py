@@ -951,8 +951,8 @@ class FinPlotItem(pg.GraphicsObject):
         w = boundingRect.width()
         self.cachedRect = QtCore.QRectF(boundingRect.left()-(cache_candle_factor-1)*0.5*w, 0, cache_candle_factor*w, 0)
         self.painter.begin(self.picture)
-        self.generate_picture(self.cachedRect)
         self._generate_dummy_picture(self.viewRect())
+        self.generate_picture(self.cachedRect)
         self.painter.end()
         self.dirty = False
 
