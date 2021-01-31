@@ -712,6 +712,7 @@ class FinViewBox(pg.ViewBox):
             p0 = self.mapToView(ev.lastPos())
             p0 = _clamp_point(self.parent(), p0)
             s = nonzerosize(p0, p1)
+            p0 = QtCore.QPointF(p0.x()-s.x()/2, p0.y()-s.y()/2)
             self.draw_ellipse = FinEllipse(p0, s, pen=pg.mkPen(draw_line_color), movable=True)
             self.draw_ellipse.setZValue(80)
             self.rois.append(self.draw_ellipse)
