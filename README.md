@@ -236,3 +236,12 @@ fplt.play_sound('bot-happy.wav') # Ooh! Watch me - I just made a profit!
 
 ### Missing snippets
 Plot valign on mouse hover, update an orderbook, etc.
+
+
+## Coffee
+
+For future support and features, consider a small donation.
+
+BTC: bc1qk8m8yh86l2pz4eypflchr0tkn5aeud6cmt426m
+
+ETH: 0x684d7d4C52ed428AE9a36B2407ba909D896cDB67
