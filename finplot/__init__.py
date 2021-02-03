@@ -464,7 +464,7 @@ class FinCrossHair:
             for info in self.infos:
                 xtext,ytext = info(x,y,xtext,ytext)
         except Exception as e:
-            print(e)
+            print('Crosshair error:', type(e), e)
         space = '      '
         if close2right:
             xtext = xtext + space
@@ -1650,7 +1650,7 @@ def screenshot(file, fmt='png'):
         file.write(buffer.data())
         return True
     except Exception as e:
-        print(type(e), e)
+        print('Screenshot error:', type(e), e)
     return False
 
 
@@ -2216,7 +2216,7 @@ def _inspect_pos(ax, inspector, poss):
     try:
         inspector(t, point.y())
     except Exception as e:
-        print(type(e), e)
+        print('Inspection error:', type(e), e)
 
 
 def brighten(color, f):

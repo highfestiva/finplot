@@ -112,6 +112,15 @@ def update_orderbook_data(orderbook10):
 
 if __name__ == '__main__':
     df = pd.DataFrame(price_history())
+
+    # fix bug in BitMEX websocket lib
+    def bugfix(self, *args, **kwargs):
+        from pyee import EventEmitter
+        EventEmitter.__init__(self)
+        orig_init(self, *args, **kwargs)
+    orig_init = Instrument.__init__
+    Instrument.__init__ = bugfix
+
     ws = Instrument(channels=[InstrumentChannels.trade, InstrumentChannels.orderBook10])
     @ws.on('action')
     def action(message):
