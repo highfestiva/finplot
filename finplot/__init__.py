@@ -194,6 +194,7 @@ class PandasDataSource:
                 self.renames[oldcol] = col
         self.df.columns = newcols
         self.pre_update = lambda df: df
+        self.post_update = lambda df: df
         self._period = None
         self.is_sparse = self.df[self.df.columns[self.col_data_offset]].isnull().sum() > len(self.df)/2
 
@@ -307,6 +308,7 @@ class PandasDataSource:
         for col in df.columns:
             if col not in input_df.columns:
                 input_df[col] = df[col]
+        input_df = self.post_update(input_df)
         input_df = input_df.reset_index()
         self.df = input_df[[input_df.columns[0]]+orig_cols] if orig_cols else input_df
         self.init_x1 = self.xlen - side_margin
@@ -1360,6 +1362,7 @@ def horiz_time_volume(datasrc, ax=None, **kwargs):
         datasrc.standalone = True # only force standalone if there is something on our charts already
     datasrc.scale_cols = [datasrc.col_data_offset, len(datasrc.df.columns)-2] # first and last price columns
     datasrc.pre_update = lambda df: df.loc[:, :df.columns[0]] # throw away previous data
+    datasrc.post_update = lambda df: df.dropna(how='all') # kill all-NaNs
     _set_datasrc(ax, datasrc)
     item = HorizontalTimeVolumeItem(ax=ax, datasrc=datasrc, **kwargs)
     item.update_data = partial(_update_data, _preadjust_horiz_datasrc, _adjust_horiz_datasrc, item)
@@ -2215,6 +2218,8 @@ def _inspect_pos(ax, inspector, poss):
             t = ax.vb.datasrc.x.iloc[-1 if t > 0 else 0]
     try:
         inspector(t, point.y())
+    except OSError as e:
+        pass
     except Exception as e:
         print('Inspection error:', type(e), e)
 

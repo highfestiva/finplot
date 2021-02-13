@@ -85,9 +85,7 @@ def update_candlestick_data(trade, interval_mins=1):
         return
     elif t > df['t'].iloc[-1]:
         # add new candle
-        o = df['c'].iloc[-1]
-        h = c if c>o else o
-        l = o if o<c else c
+        o = c = h = l = df['c'].iloc[-1]
         df1 = pd.DataFrame(dict(t=[t], o=[o], c=[c], h=[l], l=[l]))
         df = pd.concat([df, df1], ignore_index=True, sort=False)
     else:
