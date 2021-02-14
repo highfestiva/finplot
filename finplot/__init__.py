@@ -1237,7 +1237,12 @@ def create_plot_widget(master, rows=1, init_zoom_periods=1e10, yscale='linear'):
     last_ax = axs[0]
     return axs[0] if len(axs) == 1 else axs
 
-
+def close():
+    try:
+        win.close()
+    except:
+        pass
+                
 def price_colorfilter(item, datasrc, df):
     opencol = df.columns[1]
     closecol = df.columns[2]
