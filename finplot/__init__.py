@@ -1239,7 +1239,8 @@ def create_plot_widget(master, rows=1, init_zoom_periods=1e10, yscale='linear'):
 
 def close():
     try:
-        win.close()
+        for win in windows:
+            win.close()
     except:
         pass
                 
