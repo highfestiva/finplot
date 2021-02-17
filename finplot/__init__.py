@@ -1238,7 +1238,6 @@ def create_plot_widget(master, rows=1, init_zoom_periods=1e10, yscale='linear'):
     return axs[0] if len(axs) == 1 else axs
 
 def close():
-    
     for win in windows:
         try:
             win.close()
