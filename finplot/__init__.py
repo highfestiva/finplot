@@ -1242,8 +1242,8 @@ def close():
     for win in windows:
         try:
             win.close()
-        except:
-            pass
+        except Exception as e:
+            print('Window closing error:', e)
                 
 def price_colorfilter(item, datasrc, df):
     opencol = df.columns[1]
