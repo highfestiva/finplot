@@ -1238,6 +1238,14 @@ def create_plot_widget(master, rows=1, init_zoom_periods=1e10, yscale='linear'):
     return axs[0] if len(axs) == 1 else axs
 
 
+def close():
+    for win in windows:
+        try:
+            win.close()
+        except Exception as e:
+            print('Window closing error:', type(e), e)
+
+
 def price_colorfilter(item, datasrc, df):
     opencol = df.columns[1]
     closecol = df.columns[2]
