@@ -1305,6 +1305,7 @@ def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6
     item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width, colorfunc=colorfunc)
     _update_significants(ax, datasrc, force=True)
     item.update_data = partial(_update_data, None, None, item)
+    item.update_gfx = partial(_update_gfx, item)
     ax.addItem(item)
     return item
 
@@ -1320,6 +1321,7 @@ def renko(x, y=None, bins=None, step=None, ax=None, colorfunc=price_colorfilter)
     item = candlestick_ochl(datasrc, draw_shadow=False, candle_width=1, ax=ax, colorfunc=colorfunc)
     item.colors['bull_body'] = item.colors['bull_frame']
     item.update_data = partial(_update_data, None, step_adjust_renko_datasrc, item)
+    item.update_gfx = partial(_update_gfx, item)
     global epoch_period
     epoch_period = (origdf.iloc[1,0] - origdf.iloc[0,0]) // int(1e9)
     return item
@@ -1343,6 +1345,7 @@ def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter)
         item.colors['weak_bull_frame'] = brighten(volume_bull_color, 1.2)
         item.colors['weak_bull_body']  = brighten(volume_bull_color, 1.2)
     item.update_data = partial(_update_data, None, _adjust_volume_datasrc, item)
+    item.update_gfx = partial(_update_gfx, item)
     ax.addItem(item)
     item.setZValue(-20)
     return item
@@ -1374,6 +1377,7 @@ def horiz_time_volume(datasrc, ax=None, **kwargs):
     _set_datasrc(ax, datasrc)
     item = HorizontalTimeVolumeItem(ax=ax, datasrc=datasrc, **kwargs)
     item.update_data = partial(_update_data, _preadjust_horiz_datasrc, _adjust_horiz_datasrc, item)
+    item.update_gfx = partial(_update_gfx, item)
     item.setZValue(-10)
     ax.addItem(item)
     return item
@@ -1391,6 +1395,7 @@ def heatmap(datasrc, ax=None, **kwargs):
     _set_datasrc(ax, datasrc)
     item = HeatmapItem(ax=ax, datasrc=datasrc, **kwargs)
     item.update_data = partial(_update_data, None, None, item)
+    item.update_gfx = partial(_update_gfx, item)
     item.setZValue(-30)
     ax.addItem(item)
     if ax.vb.datasrc is not None and not ax.vb.datasrc.timebased(): # manual zoom update
@@ -1415,6 +1420,7 @@ def bar(x, y=None, width=0.8, ax=None, colorfunc=strength_colorfilter):
     _adjust_bar_datasrc(datasrc, order_cols=False) # don't rearrange columns, done for us in volume_ocv()
     item = volume_ocv(datasrc, candle_width=width, ax=ax, colorfunc=colorfunc)
     item.update_data = partial(_update_data, None, _adjust_bar_datasrc, item)
+    item.update_gfx = partial(_update_gfx, item)
     ax.vb.pre_process_data()
     if ax.vb.y_min >= 0:
         ax.vb.v_zoom_baseline = 0
@@ -1463,6 +1469,7 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
     item.datasrc = datasrc
     _update_significants(ax, datasrc, force=False)
     item.update_data = partial(_update_data, None, None, item)
+    item.update_gfx = partial(_update_gfx, item)
     if ax.legend is not None:
         for _,label in ax.legend.items:
             if label.text == legend:
@@ -1480,6 +1487,7 @@ def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
     item = ScatterLabelItem(ax=ax, datasrc=datasrc, color=used_color, anchor=anchor)
     _update_significants(ax, datasrc, force=False)
     item.update_data = partial(_update_data, None, None, item)
+    item.update_gfx = partial(_update_gfx, item)
     ax.addItem(item)
     if ax.vb.v_zoom_scale > 0.9: # adjust to make hi/lo text fit
         ax.vb.v_zoom_scale = 0.9
@@ -2033,7 +2041,7 @@ def _adjust_bar_datasrc(datasrc, order_cols=True):
     datasrc.scale_cols = [1, 2] # scale by both baseline and volume
 
 
-def _update_data(preadjustfunc, adjustfunc, item, ds):
+def _update_data(preadjustfunc, adjustfunc, item, ds, gfx=True):
     if preadjustfunc:
         ds = preadjustfunc(ds)
     ds = _create_datasrc(item.ax, ds)
@@ -2043,6 +2051,11 @@ def _update_data(preadjustfunc, adjustfunc, item, ds):
     if len(cs) >= len(ds.df.columns):
         ds.df.columns = cs[:len(ds.df.columns)]
     item.datasrc.update(ds)
+    if gfx:
+        item.update_gfx()
+
+
+def _update_gfx(item):
     _start_visual_update(item)
     for i in item.ax.items:
         if i == item or not hasattr(i, 'datasrc'):
