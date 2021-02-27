@@ -226,6 +226,9 @@ See [issue 41](https://github.com/highfestiva/finplot/issues/41). To show grid a
 ax.set_visible(crosshair=False, xaxis=False, yaxis=True, xgrid=True, ygrid=True)
 ```
 
+### Fixing auto-zoom on realtime updates
+See [issue 131](https://github.com/highfestiva/finplot/issues/131#issuecomment-786245998).
+
 ### Beep
 ```python
 fplt.play_sound('bot-happy.wav') # Ooh! Watch me - I just made a profit!
