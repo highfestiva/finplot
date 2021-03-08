@@ -1162,14 +1162,16 @@ class ScatterLabelItem(FinPlotItem):
         created = 0
         for x,t,y,txt in rows:
             txt = str(txt)
+            ishtml = '<' in txt and '>' in txt
             key = '%s:%.8f' % (t, y)
             if key in self.text_items:
                 item = self.text_items[key]
-                item.setText(txt)
+                (item.setHtml if ishtml else item.setText)(txt)
                 item.setPos(x, y)
                 drops.remove(key)
             else:
-                self.text_items[key] = item = pg.TextItem(txt, color=self.color, anchor=self.anchor)
+                kws = {'html':txt} if ishtml else {'text':txt}
+                self.text_items[key] = item = pg.TextItem(color=self.color, anchor=self.anchor, **kws)
                 item.setPos(x, y)
                 item.setParentItem(self)
                 created += 1
