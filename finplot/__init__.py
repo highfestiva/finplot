@@ -1855,10 +1855,11 @@ def _update_significants(ax, datasrc, force):
     if force or (default_dec and default_eps):
         try:
             sd,se = datasrc.calc_significant_decimals()
-            if force or default_dec or sd > ax.significant_decimals:
-                ax.significant_decimals = sd
-            if force or default_eps or se < ax.significant_eps:
-                ax.significant_eps = se
+            if sd:
+                if force or default_dec or sd > ax.significant_decimals:
+                    ax.significant_decimals = sd
+                if force or default_eps or se < ax.significant_eps:
+                    ax.significant_eps = se
         except:
             pass # datasrc probably full av NaNs
 
