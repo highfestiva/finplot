@@ -425,10 +425,7 @@ class FinCrossHair:
         self.hline.setZValue(50)
         self.xtext.setZValue(50)
         self.ytext.setZValue(50)
-        ax.addItem(self.vline, ignoreBounds=True)
-        ax.addItem(self.hline, ignoreBounds=True)
-        ax.addItem(self.xtext, ignoreBounds=True)
-        ax.addItem(self.ytext, ignoreBounds=True)
+        self.show()
 
     def update(self, point=None):
         if point is not None:
@@ -487,6 +484,12 @@ class FinCrossHair:
         self.ytext.setAnchor(yanchor)
         self.xtext.setText(xtext)
         self.ytext.setText(ytext)
+
+    def show(self):
+        self.ax.addItem(self.vline, ignoreBounds=True)
+        self.ax.addItem(self.hline, ignoreBounds=True)
+        self.ax.addItem(self.xtext, ignoreBounds=True)
+        self.ax.addItem(self.ytext, ignoreBounds=True)
 
     def hide(self):
         self.ax.removeItem(self.xtext)
@@ -597,9 +600,13 @@ class FinViewBox(pg.ViewBox):
     def __init__(self, win, init_steps=300, yscale=YScale('linear', 1), v_zoom_scale=1, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.win = win
-        self.master_viewbox = None
+        self.init_steps = init_steps
         self.yscale = yscale
         self.v_zoom_scale = v_zoom_scale
+        self.reset()
+
+    def reset(self):
+        self.master_viewbox = None
         self.v_zoom_baseline = 0.5
         self.v_autozoom = True
         self.max_zoom_points_f = 1
@@ -611,11 +618,10 @@ class FinViewBox(pg.ViewBox):
         self.rois = []
         self.draw_line = None
         self.drawing = False
-        self.set_datasrc(None)
         self.standalones = []
-        self.setMouseEnabled(x=True, y=False)
-        self.init_steps = init_steps
         self.updating_linked = False
+        self.set_datasrc(None)
+        self.setMouseEnabled(x=True, y=False)
 
     def set_datasrc(self, datasrc):
         self.datasrc = datasrc
@@ -1621,7 +1627,7 @@ def autoviewrestore(enable=True):
     viewrestore = enable
 
 
-def show(qt_exec=True):
+def refresh():
     for win in windows:
         vbs = [ax.vb for ax in win.axs]
         for vb in vbs:
@@ -1635,6 +1641,12 @@ def show(qt_exec=True):
             if datasrc and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None):
                 vb.update_y_zoom(datasrc.init_x0, datasrc.init_x1)
     _repaint_candles()
+    for win in windows:
+        _mouse_moved(win, None)
+
+
+def show(qt_exec=True):
+    refresh()
     for win in windows:
         if isinstance(win, FinWindow) or qt_exec:
             if win.show_maximized:
@@ -1767,6 +1779,7 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
     ax.set_visible = partial(_ax_set_visible, ax)
     ax.decouple = partial(_ax_decouple, ax)
     ax.disable_x_index = partial(_ax_disable_x_index, ax)
+    ax.reset = partial(_ax_reset, ax)
     ax.prev_ax = prev_ax
     ax.win_index = index
     if index%2:
@@ -1799,6 +1812,7 @@ def _overlay(ax, scale=0.25, yaxis=False):
     axo.prev_ax = None
     axo.decouple = partial(_ax_decouple, axo)
     axo.disable_x_index = partial(_ax_disable_x_index, axo)
+    axo.reset = partial(_ax_reset, axo)
     axo.hideAxis('left')
     axo.hideAxis('right')
     axo.hideAxis('bottom')
@@ -1840,6 +1854,14 @@ def _ax_disable_x_index(ax, decouple=True):
     ax.vb.x_indexed = False
     if decouple:
         _ax_decouple(ax)
+
+
+def _ax_reset(ax):
+    ax.crosshair.hide()
+    for item in ax.items:
+        ax.removeItem(item)
+    ax.vb.reset()
+    ax.crosshair.show()
 
 
 def _create_legend(ax):
