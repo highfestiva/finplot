@@ -1417,7 +1417,7 @@ def heatmap(datasrc, ax=None, **kwargs):
     return item
 
 
-def bar(x, y=None, width=0.8, ax=None, colorfunc=strength_colorfilter):
+def bar(x, y=None, width=0.8, ax=None, colorfunc=strength_colorfilter, **kwargs):
     '''Bar plots are decoupled. Use volume_ocv() if you want a bar plot which relates to other time plots.'''
     global right_margin_candles, max_zoom_points
     right_margin_candles = 0
@@ -1435,7 +1435,7 @@ def bar(x, y=None, width=0.8, ax=None, colorfunc=strength_colorfilter):
     return item
 
 
-def hist(x, bins, ax=None):
+def hist(x, bins, ax=None, **kwargs):
     hist_data = pd.cut(x, bins=bins).value_counts()
     data = [(i.mid,0,hist_data.loc[i],hist_data.loc[i]) for i in sorted(hist_data.index)]
     df = pd.DataFrame(data, columns=['x','_op_','_cl_','bin'])
@@ -1445,7 +1445,7 @@ def hist(x, bins, ax=None):
     return item
 
 
-def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True):
+def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True, **kwargs):
     ax = _create_plot(ax=ax, maximize=False)
     used_color = _get_color(ax, style, color)
     datasrc = _create_datasrc(ax, x, y)
