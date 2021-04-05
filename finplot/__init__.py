@@ -1550,16 +1550,18 @@ def add_band(y0, y1, color=band_color, ax=None):
     ax.addItem(lr)
 
 
-def add_line(p0, p1, color=draw_line_color, interactive=False, ax=None):
+def add_line(p0, p1, color=draw_line_color, width=1, style=None, interactive=False, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
-    color = _get_color(ax, None, color)
+    used_color = _get_color(ax, style, color)
+    pen = _makepen(color=used_color, style=style, width=width)
     x_pts = _pdtime2index(ax, pd.Series([p0[0], p1[0]]))
-    pts = [(x_pts[0], p0[1]), (x_pts[1], p1[1])]
+    ix = ax.vb.yscale.invxform
+    pts = [(x_pts[0], ix(p0[1])), (x_pts[1], ix(p1[1]))]
     if interactive:
-        line = FinPolyLine(ax.vb, pts, closed=False, pen=pg.mkPen(color), movable=False)
+        line = FinPolyLine(ax.vb, pts, closed=False, pen=pen, movable=False)
         ax.vb.rois.append(line)
     else:
-        line = FinLine(pts, pen=pg.mkPen(color))
+        line = FinLine(pts, pen=pen)
     line.ax = ax
     ax.addItem(line)
     return line
