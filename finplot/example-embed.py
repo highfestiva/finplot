@@ -24,6 +24,7 @@ layout.addWidget(info, 0, 1, 1, 1)
 
 ax = fplt.create_plot(init_zoom_periods=100)
 win.axs = [ax] # finplot requres this property
+axo = ax.overlay()
 layout.addWidget(ax.vb.win, 1, 0, 1, 2)
 
 
@@ -45,16 +46,13 @@ def update(txt):
     ma20 = df.Close.rolling(20).mean()
     ma50 = df.Close.rolling(50).mean()
     volume = df['Open Close Volume'.split()]
-    if not plots:
-        plots.append(fplt.candlestick_ochl(price))
-        plots.append(fplt.plot(ma20, legend='MA-20'))
-        plots.append(fplt.plot(ma50, legend='MA-50'))
-        plots.append(fplt.volume_ocv(volume, ax=ax.overlay()))
-    else:
-        plots[0].update_data(price)
-        plots[1].update_data(ma20)
-        plots[2].update_data(ma50)
-        plots[3].update_data(volume)
+    ax.reset() # remove previous plots
+    axo.reset() # remove previous plots
+    fplt.candlestick_ochl(price)
+    fplt.plot(ma20, legend='MA-20')
+    fplt.plot(ma50, legend='MA-50')
+    fplt.volume_ocv(volume, ax=axo)
+    fplt.refresh() # refresh autoscaling when all plots complete
     Thread(target=lambda: info.setText(get_name(txt))).start() # slow, so use thread
 
 combo.currentTextChanged.connect(update)

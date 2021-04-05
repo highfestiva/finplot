@@ -603,10 +603,10 @@ class FinViewBox(pg.ViewBox):
         self.init_steps = init_steps
         self.yscale = yscale
         self.v_zoom_scale = v_zoom_scale
+        self.master_viewbox = None
         self.reset()
 
     def reset(self):
-        self.master_viewbox = None
         self.v_zoom_baseline = 0.5
         self.v_autozoom = True
         self.max_zoom_points_f = 1
@@ -1629,7 +1629,7 @@ def autoviewrestore(enable=True):
 
 def refresh():
     for win in windows:
-        vbs = [ax.vb for ax in win.axs]
+        vbs = [ax.vb for ax in win.axs] + [ax.vb for ax in overlay_axs if ax.vb.win==win]
         for vb in vbs:
             vb.pre_process_data()
         if viewrestore:
@@ -1638,7 +1638,7 @@ def refresh():
         _set_max_zoom(vbs)
         for vb in vbs:
             datasrc = vb.datasrc_or_standalone
-            if datasrc and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None):
+            if datasrc and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None or vb.master_viewbox is not None):
                 vb.update_y_zoom(datasrc.init_x0, datasrc.init_x1)
     _repaint_candles()
     for win in windows:
@@ -1810,6 +1810,7 @@ def _overlay(ax, scale=0.25, yaxis=False):
     axo.significant_eps = significant_eps
     axo.vb = viewbox
     axo.prev_ax = None
+    axo.crosshair = None
     axo.decouple = partial(_ax_decouple, axo)
     axo.disable_x_index = partial(_ax_disable_x_index, axo)
     axo.reset = partial(_ax_reset, axo)
@@ -1857,11 +1858,13 @@ def _ax_disable_x_index(ax, decouple=True):
 
 
 def _ax_reset(ax):
-    ax.crosshair.hide()
+    if ax.crosshair is not None:
+        ax.crosshair.hide()
     for item in ax.items:
         ax.removeItem(item)
     ax.vb.reset()
-    ax.crosshair.show()
+    if ax.crosshair is not None:
+        ax.crosshair.show()
 
 
 def _create_legend(ax):
