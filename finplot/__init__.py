@@ -596,6 +596,26 @@ class FinEllipse(pg.EllipseROI):
         pass
 
 
+class FinRect(pg.RectROI):
+    def __init__(self, ax, brush, *args, **kwargs):
+        self.ax = ax
+        self.brush = brush
+        super().__init__(*args, **kwargs)
+
+    def paint(self, p, *args):
+        r = QtCore.QRectF(0, 0, self.state['size'][0], self.state['size'][1]).normalized()
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        p.setPen(self.currentPen)
+        p.setBrush(self.brush)
+        p.translate(r.left(), r.top())
+        p.scale(r.width(), r.height())
+        p.drawRect(0, 0, 1, 1)
+
+    def addScaleHandle(self, *args, **kwargs):
+        if self.resizable:
+            super().addScaleHandle(*args, **kwargs)
+
+
 class FinViewBox(pg.ViewBox):
     def __init__(self, win, init_steps=300, yscale=YScale('linear', 1), v_zoom_scale=1, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -890,10 +910,9 @@ class FinViewBox(pg.ViewBox):
 
     def remove_last_roi(self):
         if self.rois:
-            if isinstance(self.rois[-1], pg.EllipseROI):
+            if not isinstance(self.rois[-1], pg.PolyLineROI):
                 self.removeItem(self.rois[-1])
                 self.rois = self.rois[:-1]
-                self.draw_ellipse = None
             else:
                 h = self.rois[-1].handles[-1]['item']
                 self.rois[-1].removeHandle(h)
@@ -902,9 +921,7 @@ class FinViewBox(pg.ViewBox):
                     self.rois = self.rois[:-1]
                     self.draw_line = None
             if self.rois:
-                if isinstance(self.rois[-1], pg.EllipseROI):
-                    self.draw_ellipse = self.rois[-1]
-                else:
+                if isinstance(self.rois[-1], pg.PolyLineROI):
                     self.draw_line = self.rois[-1]
                     self.set_draw_line_color(draw_line_color)
             return True
@@ -1543,11 +1560,30 @@ def set_y_scale(yscale='linear', ax=None):
 def add_band(y0, y1, color=band_color, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
     color = _get_color(ax, None, color)
-    lr = pg.LinearRegionItem([y0,y1], orientation=pg.LinearRegionItem.Horizontal, brush=pg.mkBrush(color), movable=False)
+    ix = ax.vb.yscale.invxform
+    lr = pg.LinearRegionItem([ix(y0),ix(y1)], orientation=pg.LinearRegionItem.Horizontal, brush=pg.mkBrush(color), movable=False)
     lr.lines[0].setPen(pg.mkPen(None))
     lr.lines[1].setPen(pg.mkPen(None))
     lr.setZValue(-50)
+    lr.ax = ax
     ax.addItem(lr)
+    return lr
+
+
+def add_rect(p0, p1, color=band_color, interactive=False, ax=None):
+    ax = _create_plot(ax=ax, maximize=False)
+    x_pts = _pdtime2index(ax, pd.Series([p0[0], p1[0]]))
+    ix = ax.vb.yscale.invxform
+    y0,y1 = sorted([p0[1], p1[1]])
+    pos  = (x_pts[0], ix(y0))
+    size = (x_pts[1]-pos[0], ix(y1-y0))
+    rect = FinRect(ax=ax, brush=pg.mkBrush(color), pos=pos, size=size, movable=interactive, resizable=interactive, rotatable=False)
+    rect.setZValue(-40)
+    if interactive:
+        ax.vb.rois.append(rect)
+    rect.ax = ax
+    ax.addItem(rect)
+    return rect
 
 
 def add_line(p0, p1, color=draw_line_color, width=1, style=None, interactive=False, ax=None):
@@ -1567,16 +1603,6 @@ def add_line(p0, p1, color=draw_line_color, width=1, style=None, interactive=Fal
     return line
 
 
-def remove_line(line):
-    ax = line.ax
-    ax.removeItem(line)
-    if line in ax.vb.rois:
-        ax.vb.rois.remove(line)
-    if hasattr(line, 'texts'):
-        for txt in line.texts:
-            ax.vb.removeItem(txt)
-
-
 def add_text(pos, s, color=draw_line_color, anchor=(0,0), ax=None):
     ax = _create_plot(ax=ax, maximize=False)
     color = _get_color(ax, None, color)
@@ -1584,15 +1610,32 @@ def add_text(pos, s, color=draw_line_color, anchor=(0,0), ax=None):
     x = pos[0]
     if ax.vb.datasrc is not None:
         x = _pdtime2index(ax, pd.Series([pos[0]]))[0]
-    text.setPos(x, pos[1])
+    y = ax.vb.yscale.invxform(pos[1])
+    text.setPos(x, y)
     text.setZValue(50)
     text.ax = ax
     ax.addItem(text, ignoreBounds=True)
     return text
 
 
+def remove_line(line):
+    print('remove_line() is deprecated, use remove_primitive() instead')
+    remove_primitive(line)
+
+
 def remove_text(text):
-    text.ax.removeItem(text)
+    print('remove_text() is deprecated, use remove_primitive() instead')
+    remove_primitive(text)
+
+
+def remove_primitive(primitive):
+    ax = primitive.ax
+    ax.removeItem(primitive)
+    if primitive in ax.vb.rois:
+        ax.vb.rois.remove(primitive)
+    if hasattr(primitive, 'texts'):
+        for txt in primitive.texts:
+            ax.vb.removeItem(txt)
 
 
 def set_time_inspector(inspector, ax=None, when='click'):
