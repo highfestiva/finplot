@@ -17,7 +17,7 @@ And best of all: it can show hundreds of thousands of datapoints without batting
 * Auto-reload position where you were looking last run
 * Overlays, fill between, value bands, symbols, labels, legend, volume profile, heatmaps, etc.
 * Can show real-time updates, including orderbook. Save screenshot.
-* Comes with a [dozen](https://github.com/highfestiva/finplot/blob/master/finplot) great examples.
+* Comes with a [dozen](https://github.com/highfestiva/finplot/blob/master/finplot/examples) great examples.
 
 ![feature1](https://raw.githubusercontent.com/highfestiva/finplot/master/feature1.png)
 
@@ -115,11 +115,11 @@ fplt.show()
 
 ## Realtime updating with realistic indicator
 
-Included in this repo are [a 40-liner Bitfinex example](https://github.com/highfestiva/finplot/blob/master/finplot/example-bfx.py)
-and [a slightly longer BitMEX websocket example](https://github.com/highfestiva/finplot/blob/master/finplot/example-bitmex-ws.py),
+Included in this repo are [a 40-liner Bitfinex example](https://github.com/highfestiva/finplot/blob/master/finplot/examples/bfx.py)
+and [a slightly longer BitMEX websocket example](https://github.com/highfestiva/finplot/blob/master/finplot/examples/bitmex-ws.py),
 which both update in realtime with Bitcoin/Dollar pulled from the exchange. They also shows realistic and useful indicators (TD
 Sequential for BFX; and Bollinger Bands and orderbook for BitMEX). The
-[S&P500 example](https://github.com/highfestiva/finplot/blob/master/finplot/example-snp500.py) shows you how to display MACD.
+[S&P500 example](https://github.com/highfestiva/finplot/blob/master/finplot/examples/snp500.py) shows you how to display MACD.
 
 
 ## Snippets
@@ -179,11 +179,11 @@ ax2.decouple()
 
 ### Move viewport along X-axis (and autozoom)
 Use `fplt.set_x_pos(xmin, xmax, ax)`. See
-[example-animate.py](https://github.com/highfestiva/finplot/blob/master/finplot/example-animate.py).
+[examples/animate.py](https://github.com/highfestiva/finplot/blob/master/finplot/examples/animate.py).
 
 ### Place Region of Interest (ROI) markers
 For placing ellipses, see [issue 57](https://github.com/highfestiva/finplot/issues/57).
-For drawing lines, see [example-line.py](https://github.com/highfestiva/finplot/blob/master/finplot/example-line.py).
+For drawing lines, see [examples/line.py](https://github.com/highfestiva/finplot/blob/master/finplot/examples/line.py).
 (Interactively use Ctrl+drag for lines and Ctrl+mbutton-drag for ellipses.)
 
 ### More than one Y-axis in same viewbox
@@ -196,10 +196,10 @@ See [issue 52](https://github.com/highfestiva/finplot/issues/52) for more info.
 
 ### Plot non-timeseries
 finplot is made for plotting time series. To plot something different use `ax.disable_x_index()`. See second
-axis of [example-overlay-correlate.py](https://github.com/highfestiva/finplot/blob/master/finplot/example-overlay-correlate.py).
+axis of [examples/overlay-correlate.py](https://github.com/highfestiva/finplot/blob/master/finplot/examples/overlay-correlate.py).
 
 ### Custom crosshair and legend
-[S&P500 example](https://github.com/highfestiva/finplot/blob/master/finplot/example-snp500.py) shows how
+[S&P500 example](https://github.com/highfestiva/finplot/blob/master/finplot/examples/snp500.py) shows how
 to set crosshair texts and update legend text+color as a result of mouse hover.
 
 ### Custom axes ticks
@@ -207,7 +207,7 @@ To use your own labels on the X-axis see [comment on issue 50](https://github.co
 If you want to roll your own Y-axis, inherit `fplt.YAxisItem`.
 
 ### Saving screenshot
-See [example-line.py](https://github.com/highfestiva/finplot/blob/master/finplot/example-line.py).
+See [examples/line.py](https://github.com/highfestiva/finplot/blob/master/finplot/examples/line.py).
 To keep screenshot in RAM see [issue 28](https://github.com/highfestiva/finplot/issues/28).
 
 For creating multiple screenshots see [issue 71](https://github.com/highfestiva/finplot/issues/71#issuecomment-742015927).
