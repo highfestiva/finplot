@@ -1720,7 +1720,7 @@ def play_sound(filename):
 
 def screenshot(file, fmt='png'):
     if _internal_windows_only() and not app:
-        print('ERROR: save_screenshot must be callbacked from e.g. timer_callback()')
+        print('ERROR: screenshot must be callbacked from e.g. timer_callback()')
         return False
     try:
         buffer = QtCore.QBuffer()
@@ -1740,7 +1740,7 @@ def _loadwindata(win):
     except: pass
     try:
         f = os.path.expanduser('~/.finplot/'+win.title.replace('/','-')+'.ini')
-        settings = [(k.strip(),literal_eval(v.strip())) for line in open(f) for k,d,v in [line.partition('=')] if v]
+        settings = [(k.strip(),literal_eval(v.strip())) for line in openfile(f) for k,d,v in [line.partition('=')] if v]
     except:
         return
     kvs = {k:v for k,v in settings}
@@ -1772,13 +1772,17 @@ def _savewindata(win):
         if np.max(np.abs([min_x, max_x])) < 1e99:
             s = 'min_x = %s\nmax_x = %s\n' % (min_x, max_x)
             f = os.path.expanduser('~/.finplot/'+win.title.replace('/','-')+'.ini')
-            try: changed = open(f).read() != s
+            try: changed = openfile(f).read() != s
             except: changed = True
             if changed:
-                open(f, 'wt').write(s)
+                openfile(f, 'wt').write(s)
                 ## print('%s saved' % win.title)
     except Exception as e:
         print('Error saving plot:', e)
+
+
+def _openfile(*args):
+    return open(*args)
 
 
 def _internal_windows_only():
@@ -1905,7 +1909,7 @@ def _ax_disable_x_index(ax, decouple=True):
 def _ax_reset(ax):
     if ax.crosshair is not None:
         ax.crosshair.hide()
-    for item in ax.items:
+    for item in list(ax.items):
         ax.removeItem(item)
     ax.vb.reset()
     if ax.crosshair is not None:
