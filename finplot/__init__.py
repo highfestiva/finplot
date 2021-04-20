@@ -1735,12 +1735,16 @@ def screenshot(file, fmt='png'):
 #################### INTERNALS ####################
 
 
+def _openfile(*args):
+    return open(*args)
+
+
 def _loadwindata(win):
     try: os.mkdir(os.path.expanduser('~/.finplot'))
     except: pass
     try:
         f = os.path.expanduser('~/.finplot/'+win.title.replace('/','-')+'.ini')
-        settings = [(k.strip(),literal_eval(v.strip())) for line in openfile(f) for k,d,v in [line.partition('=')] if v]
+        settings = [(k.strip(),literal_eval(v.strip())) for line in _openfile(f) for k,d,v in [line.partition('=')] if v]
     except:
         return
     kvs = {k:v for k,v in settings}
@@ -1772,17 +1776,13 @@ def _savewindata(win):
         if np.max(np.abs([min_x, max_x])) < 1e99:
             s = 'min_x = %s\nmax_x = %s\n' % (min_x, max_x)
             f = os.path.expanduser('~/.finplot/'+win.title.replace('/','-')+'.ini')
-            try: changed = openfile(f).read() != s
+            try: changed = _openfile(f).read() != s
             except: changed = True
             if changed:
-                openfile(f, 'wt').write(s)
+                _openfile(f, 'wt').write(s)
                 ## print('%s saved' % win.title)
     except Exception as e:
         print('Error saving plot:', e)
-
-
-def _openfile(*args):
-    return open(*args)
 
 
 def _internal_windows_only():
