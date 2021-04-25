@@ -28,27 +28,27 @@ from pyqtgraph import QtCore, QtGui
 ColorMap = pg.ColorMap
 
 # module definitions, mostly colors
-legend_border_color = '#000000dd'
-legend_fill_color   = '#00000055'
-legend_text_color   = '#dddddd66'
+legend_border_color = '#777'
+legend_fill_color   = '#6668'
+legend_text_color   = '#ddd6'
 soft_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 hard_colors = ['#000000', '#772211', '#000066', '#555555', '#0022cc', '#ffcc00']
 colmap_clash = ColorMap([0.0, 0.2, 0.6, 1.0], [[127, 127, 255, 51], [0, 0, 127, 51], [255, 51, 102, 51], [255, 178, 76, 51]])
-foreground = '#000000'
-background = '#ffffff'
-odd_plot_background = '#f0f0f0'
+foreground = '#000'
+background = '#fff'
+odd_plot_background = '#fff'
 candle_bull_color = '#26a69a'
 candle_bear_color = '#ef5350'
 candle_bull_body_color = background
 volume_bull_color = '#92d2cc'
 volume_bear_color = '#f7a9a7'
 volume_bull_body_color = volume_bull_color
-volume_neutral_color = '#b0b0b0'
-poc_color = '#000060'
+volume_neutral_color = '#bbb'
+poc_color = '#006'
 band_color = '#d2dfe6'
-cross_hair_color = '#00000077'
-draw_line_color = '#000000'
-draw_done_color = '#555555'
+cross_hair_color = '#0007'
+draw_line_color = '#000'
+draw_done_color = '#555'
 significant_decimals = 8
 significant_eps = 1e-8
 max_zoom_points = 20 # number of visible candles when maximum zoomed in
@@ -624,6 +624,7 @@ class FinViewBox(pg.ViewBox):
         self.yscale = yscale
         self.v_zoom_scale = v_zoom_scale
         self.master_viewbox = None
+        self.rois = []
         self.reset()
 
     def reset(self):
@@ -635,7 +636,8 @@ class FinViewBox(pg.ViewBox):
         self.y_positive = True
         self.x_indexed = True
         self.force_range_update = 0
-        self.rois = []
+        while self.rois:
+            self.remove_last_roi()
         self.draw_line = None
         self.drawing = False
         self.standalones = []
@@ -895,7 +897,7 @@ class FinViewBox(pg.ViewBox):
             y1 = base + rng*(1-self.v_zoom_baseline)
         if not self.x_indexed:
             x0,x1 = _xminmax(datasrc, x_indexed=False, extra_margin=0)
-        self.set_range(x0, y0, x1, y1)
+        return self.set_range(x0, y0, x1, y1)
 
     def set_range(self, x0, y0, x1, y1):
         if x0 is None or x1 is None:
@@ -907,6 +909,7 @@ class FinViewBox(pg.ViewBox):
         _y0 = self.yscale.invxform(y0, verify=True)
         _y1 = self.yscale.invxform(y1, verify=True)
         self.setRange(QtCore.QRectF(pg.Point(x0, _y0), pg.Point(x1, _y1)), padding=0)
+        return True
 
     def remove_last_roi(self):
         if self.rois:
@@ -1483,6 +1486,8 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
         ser = y.loc[yfilter]
         x = x.loc[yfilter].values if hasattr(x, 'loc') else x[yfilter]
         item = ax.plot(x, ser.values, pen=None, symbol=symbol, symbolPen=None, symbolSize=7*width, symbolBrush=pg.mkBrush(used_color), name=legend)
+        if width < 1:
+            item.opts['antialias'] = True
         item.scatter._dopaint = item.scatter.paint
         item.scatter.paint = partial(_paint_scatter, item.scatter)
         # optimize (when having large number of points) by ignoring scatter click detection
@@ -1495,8 +1500,12 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
     _update_significants(ax, datasrc, force=False)
     item.update_data = partial(_update_data, None, None, item)
     item.update_gfx = partial(_update_gfx, item)
-    if ax.legend is not None:
-        for _,label in ax.legend.items:
+    # add legend to main ax, not to overlay
+    axm = ax.vb.master_viewbox.parent() if ax.vb.master_viewbox else ax
+    if axm.legend is not None:
+        if legend and axm != ax:
+            axm.legend.addItem(item, name=legend)
+        for _,label in axm.legend.items:
             if label.text == legend:
                 label.setAttr('justify', 'left')
                 label.setText(label.text, color=legend_text_color)
@@ -1683,7 +1692,7 @@ def refresh():
         _set_max_zoom(vbs)
         for vb in vbs:
             datasrc = vb.datasrc_or_standalone
-            if datasrc and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None or vb.master_viewbox is not None):
+            if datasrc and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None or vb.master_viewbox):
                 vb.update_y_zoom(datasrc.init_x0, datasrc.init_x1)
     _repaint_candles()
     for win in windows:
@@ -1749,16 +1758,17 @@ def _loadwindata(win):
         return
     kvs = {k:v for k,v in settings}
     vbs = set(ax.vb for ax in win.axs)
+    zoom_set = False
     for vb in vbs:
         ds = vb.datasrc
-        if ds:
+        if ds and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None or vb.master_viewbox):
             period = ds.period
             if kvs['min_x'] >= ds.x.iloc[0]-period and kvs['max_x'] <= ds.x.iloc[-1]+period:
                 x0,x1 = ds.x.loc[ds.x>=kvs['min_x']].index[0], ds.x.loc[ds.x<=kvs['max_x']].index[-1]
                 if x1 == len(ds.x)-1:
                     x1 += right_margin_candles
-                vb.update_y_zoom(x0, x1)
-    return True
+                zoom_set = vb.update_y_zoom(x0, x1)
+    return zoom_set
 
 
 def _savewindata(win):
@@ -1769,6 +1779,8 @@ def _savewindata(win):
         max_x = int(-1e100)
         for ax in win.axs:
             if ax.vb.targetRect().right() < 4: # ignore empty plots
+                continue
+            if ax.vb.datasrc is None:
                 continue
             t0,t1,_,_,_ = ax.vb.datasrc.hilo(ax.vb.targetRect().left(), ax.vb.targetRect().right())
             min_x = np.nanmin([min_x, t0])
@@ -1824,7 +1836,7 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
     ax.significant_eps = significant_eps
     ax.crosshair = FinCrossHair(ax, color=cross_hair_color)
     ax.hideButtons()
-    ax.overlay = partial(_overlay, ax)
+    ax.overlay = partial(_ax_overlay, ax)
     ax.set_visible = partial(_ax_set_visible, ax)
     ax.decouple = partial(_ax_decouple, ax)
     ax.disable_x_index = partial(_ax_disable_x_index, ax)
@@ -1837,7 +1849,7 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
     return ax
 
 
-def _overlay(ax, scale=0.25, yaxis=False):
+def _ax_overlay(ax, scale=0.25, yaxis=False):
     '''The scale parameter defines how "high up" on the initial plot this overlay will show.
        The yaxis parameter can be one of [False, 'linear', 'log'].'''
     yscale = yaxis if yaxis else 'linear'
@@ -1911,12 +1923,16 @@ def _ax_reset(ax):
         ax.crosshair.hide()
     for item in list(ax.items):
         ax.removeItem(item)
+        if ax.vb.master_viewbox and hasattr(item, 'name') and item.name():
+            ax.vb.master_viewbox.parent().legend.removeItem(item)
     ax.vb.reset()
     if ax.crosshair is not None:
         ax.crosshair.show()
 
 
 def _create_legend(ax):
+    if ax.vb.master_viewbox:
+        ax = ax.vb.master_viewbox.parent()
     if ax.legend is None:
         ax.legend = FinLegendItem(border_color=legend_border_color, fill_color=legend_fill_color, size=None, offset=(3,2))
         ax.legend.setParentItem(ax.vb)
