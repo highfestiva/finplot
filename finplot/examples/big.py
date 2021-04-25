@@ -11,16 +11,97 @@
 
 import finplot as fplt
 from functools import lru_cache
+import json
 from math import nan
 import pandas as pd
 from PyQt5.QtWidgets import QComboBox, QCheckBox, QWidget
 from pyqtgraph import QtGui
 import pyqtgraph as pg
 import requests
-from time import time as now
+from time import time as now, sleep
+from threading import Thread
+import websocket
 
 
-ctrl_panel = None
+class BinanceFutureWebsocket:
+    def __init__(self):
+        self.url = 'wss://fstream.binance.com/stream'
+        self.symbol = None
+        self.ws = None
+        self.df = None
+
+    def connect(self, symbol, df):
+        self.df = df
+        if symbol.lower() == self.symbol:
+            return
+        self.symbol = symbol.lower()
+        self.thread_connect = Thread(target=self._thread_connect)
+        self.thread_connect.daemon = True
+        self.thread_connect.start()
+
+    def close(self, reset_symbol=True):
+        if reset_symbol:
+            self.symbol = None
+        if self.ws:
+            self.ws.close()
+        self.ws = None
+
+    def _thread_connect(self):
+        self.close(reset_symbol=False)
+        print('websocket connecting to %s' % self.url)
+        self.ws = websocket.WebSocketApp(self.url, on_message=self.on_message, on_error=self.on_error)
+        self.thread_io = Thread(target=self.ws.run_forever)
+        self.thread_io.daemon = True
+        self.thread_io.start()
+        for _ in range(100):
+            if self.ws.sock and self.ws.sock.connected:
+                break
+            sleep(0.1)
+        else:
+            self.close()
+            raise websocket.WebSocketTimeoutException('websocket connection failed')
+        self.subscribe(self.symbol)
+        print('websocket connected')
+
+    def subscribe(self, symbol):
+        try:
+            data = '{"method":"SUBSCRIBE","params":["%s@kline_1m"],"id":1}' % symbol
+            self.ws.send(data)
+        except Exception as e:
+            print('websocket subscribe error:', type(e), e)
+            raise e
+
+    def on_message(self, msg):
+        if self.df is None:
+            return
+        msg = json.loads(msg)
+        try:
+            if 'stream' not in msg:
+                return
+            stream = msg['stream']
+            if '@kline_' in stream:
+                k = msg['data']['k']
+                t = k['t']
+                df = self.df
+                t0 = int(df.index[-2].timestamp()) * 1000
+                t1 = int(df.index[-1].timestamp()) * 1000
+                t2 = t1 + (t1-t0)
+                if t < t2:
+                    i = df.index[-1]
+                    df.loc[i, 'Close']  = float(k['c'])
+                    df.loc[i, 'High']   = max(df.loc[i, 'High'], float(k['h']))
+                    df.loc[i, 'Low']    = min(df.loc[i, 'Low'],  float(k['l']))
+                    df.loc[i, 'Volume'] = float(k['v'])
+                else:
+                    data = [pd.to_datetime(t, unit='ms')] + [float(k[i]) for i in ['o','c','h','l','v']]
+                    candle = pd.DataFrame([data], columns='Time Open Close High Low Volume'.split())
+                    candle.set_index('Time', inplace=True)
+                    self.df = df.append(candle)
+        except Exception as e:
+            print('websocket error, unable to parse stream:', type(e), e)
+
+    def on_error(self, error):
+        print('websocket error: %s' % error)
 
 
 def do_load_price_history(symbol, interval):
@@ -45,7 +126,7 @@ def load_price_history(symbol, interval):
     return df
 
 
-def plot_parabolic_sar(df, af=0.2, steps=10, ax=None):
+def calc_parabolic_sar(df, af=0.2, steps=10):
     up = True
     sars = [nan] * len(df)
     sar = ep_lo = df.Low.iloc[0]
@@ -82,10 +163,10 @@ def plot_parabolic_sar(df, af=0.2, steps=10, ax=None):
                 af = 0
         sars[i] = sar
     df['sar'] = sars
-    p = df.sar.plot(ax=ax, color='#55a', style='+', width=0.6, legend='SAR')
+    return df['sar']
 
 
-def plot_rsi(price, n=14, ax=None):
+def calc_rsi(price, n=14, ax=None):
     diff = price.diff().values
     gains = diff
     losses = -diff
@@ -102,18 +183,45 @@ def plot_rsi(price, n=14, ax=None):
         l = losses[i] = ni*v + m*l
     rs = gains / losses
     rsi = 100 - (100/(1+rs))
-    fplt.plot(rsi, ax=ax, legend='RSI')
-    fplt.set_y_range(0, 100, ax=ax)
-    fplt.add_band(30, 70, color='#6335', ax=ax)
+    return rsi
 
 
-def plot_stochastic_oscillator(df, n=14, m=3, smooth=3, ax=None):
+def calc_stochastic_oscillator(df, n=14, m=3, smooth=3):
     lo = df.Low.rolling(n).min()
     hi = df.High.rolling(n).max()
     k = 100 * (df.Close-lo) / (hi-lo)
     d = k.rolling(m).mean()
-    fplt.plot(k.rolling(smooth).mean(), color='#880', legend='Stoch', ax=ax)
-    fplt.plot(d.rolling(smooth).mean(), color='#650', ax=ax)
+    return k, d
+
+
+def calc_plot_data(df, indicators):
+    price = df['Open Close High Low'.split()]
+    volume = df['Open Close Volume'.split()]
+    ma50 = ma200 = vema24 = sar = rsi = stoch = stoch_s = None
+    if 'clean' not in indicators:
+        ma50  = price.Close.rolling(50).mean()
+        ma200 = price.Close.rolling(200).mean()
+        vema24 = volume.Volume.ewm(span=24).mean()
+    if 'many' in indicators:
+        sar = calc_parabolic_sar(df)
+        rsi = calc_rsi(df.Close)
+        stoch,stoch_s = calc_stochastic_oscillator(df)
+    return dict(price=price, volume=volume, ma50=ma50, ma200=ma200, vema24=vema24, sar=sar, rsi=rsi, stoch=stoch, stoch_s=stoch_s)
+
+
+def update_plot():
+    if ws.df is None:
+        return
+    indicators = ctrl_panel.indicators.currentText().lower()
+    data = calc_plot_data(ws.df, indicators)
+    for k in data:
+        if data[k] is not None:
+            plots[k].update_data(data[k])
+    price = data['price']
+    close = price.iloc[-1].Close
+    col = fplt.candle_bull_color if close > price.iloc[-2].Close else fplt.candle_bear_color
+    ax.price_line.setPos(data['price'].iloc[-1]['Close'])
+    ax.price_line.pen.setColor(pg.mkColor(col))
 
 
 def change_asset(*args, **kwargs):
@@ -122,37 +230,48 @@ def change_asset(*args, **kwargs):
 
     symbol = ctrl_panel.symbol.currentText()
     interval = ctrl_panel.interval.currentText()
+    ws.df = None
     df = load_price_history(symbol, interval=interval)
-    price = df['Open Close High Low'.split()]
-    volume = df['Open Close Volume'.split()]
+    ws.connect(symbol, df)
 
     # remove any previous plots
     ax.reset()
     axo.reset()
     ax_rsi.reset()
 
-    fplt.candlestick_ochl(price, ax=ax)
-    fplt.volume_ocv(volume, ax=axo)
-
+    # calculate plot data
     indicators = ctrl_panel.indicators.currentText().lower()
-    clean = 'clean' in indicators
-    ctrl_panel.move(100 if clean else 200, 0)
-    if not clean:
-        ma50  = price.Close.rolling(50).mean()
-        ma200 = price.Close.rolling(200).mean()
-        fplt.plot(ma50, legend='MA-50', ax=ax)
-        fplt.plot(ma200, legend='MA-200', ax=ax)
-        vma20 = volume.Volume.rolling(20).mean()
-        fplt.plot(vma20, color=4, ax=axo, legend='VMA-20')
-    if 'many' in indicators:
+    data = calc_plot_data(df, indicators)
+
+    # some space for legend
+    ctrl_panel.move(100 if 'clean' in indicators else 200, 0)
+
+    # plot data
+    global plots
+    plots = {}
+    plots['price'] = fplt.candlestick_ochl(data['price'], ax=ax)
+    plots['volume'] = fplt.volume_ocv(data['volume'], ax=axo)
+    if data['ma50'] is not None:
+        plots['ma50'] = fplt.plot(data['ma50'], legend='MA-50', ax=ax)
+        plots['ma200'] = fplt.plot(data['ma200'], legend='MA-200', ax=ax)
+        plots['vema24'] = fplt.plot(data['vema24'], color=4, legend='V-EMA-24', ax=axo)
+    if data['rsi'] is not None:
         ax.set_visible(xaxis=False)
         ax_rsi.show()
-        plot_parabolic_sar(df, ax=ax)
-        plot_rsi(df.Close, ax=ax_rsi)
-        plot_stochastic_oscillator(df, ax=ax_rsi)
+        fplt.set_y_range(0, 100, ax=ax_rsi)
+        fplt.add_band(30, 70, color='#6335', ax=ax_rsi)
+        plots['sar'] = fplt.plot(data['sar'], color='#55a', style='+', width=0.6, legend='SAR', ax=ax)
+        plots['rsi'] = fplt.plot(data['rsi'], legend='RSI', ax=ax_rsi)
+        plots['stoch'] = fplt.plot(data['stoch'], color='#880', legend='Stoch', ax=ax_rsi)
+        plots['stoch_s'] = fplt.plot(data['stoch_s'], color='#650', ax=ax_rsi)
     else:
         ax.set_visible(xaxis=True)
         ax_rsi.hide()
+    # price line
+    ax.price_line = pg.InfiniteLine(angle=0, movable=False, pen=fplt._makepen(fplt.candle_bull_body_color, style='.'))
+    ax.price_line.setPos(data['price'].iloc[-1]['Close'])
+    ax.addItem(ax.price_line, ignoreBounds=True)
+
 
     # restores saved zoom position, if in range
     fplt.refresh()
@@ -260,6 +379,7 @@ def create_ctrl_panel(win):
     return panel
 
 
+plots = {}
 fplt.y_pad = 0.07 # pad some more (for control panel)
 fplt.max_zoom_points = 7
 fplt.autoviewrestore()
@@ -270,8 +390,10 @@ axo = ax.overlay()
 ax_rsi.hide()
 ax_rsi.vb.setBackgroundColor(None)
 ax.set_visible(xaxis=True)
+ws = BinanceFutureWebsocket()
 
 ctrl_panel = create_ctrl_panel(ax.vb.win)
 dark_mode_toggle(True)
 change_asset()
+fplt.timer_callback(update_plot, 1) # update every second
 fplt.show()
