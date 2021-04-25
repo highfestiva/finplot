@@ -59,6 +59,7 @@ side_margin = 0.5
 lod_candles = 3000
 lod_labels = 700
 cache_candle_factor = 3 # factor extra candles rendered to buffer
+y_pad = 0.03 # 3% padding at top and bottom of autozoom plots
 y_label_width = 65
 long_time = 2*365*24*60*60*1e9
 display_timezone = None  # default to local
@@ -1247,8 +1248,7 @@ def create_plot_widget(master, rows=1, init_zoom_periods=1e10, yscale='linear'):
     for n in range(rows):
         ysc = yscale[n] if type(yscale) in (list,tuple) else yscale
         ysc = YScale(ysc, 1)
-        v_zoom_scale = 0.97
-        viewbox = FinViewBox(master, init_steps=init_zoom_periods, yscale=ysc, v_zoom_scale=v_zoom_scale, enableMenu=False)
+        viewbox = FinViewBox(master, init_steps=init_zoom_periods, yscale=ysc, v_zoom_scale=1-y_pad, enableMenu=False)
         ax = prev_ax = _add_timestamp_plot(master=master, prev_ax=prev_ax, viewbox=viewbox, index=n, yscale=ysc)
         if axs:
             ax.setXLink(axs[0].vb)
@@ -1924,8 +1924,15 @@ def _ax_reset(ax):
     for item in list(ax.items):
         ax.removeItem(item)
         if ax.vb.master_viewbox and hasattr(item, 'name') and item.name():
-            ax.vb.master_viewbox.parent().legend.removeItem(item)
+            legend = ax.vb.master_viewbox.parent().legend
+            if legend:
+                legend.removeItem(item)
+    if ax.legend:
+        ax.legend.opts['offset'] = None
+        ax.legend.setParentItem(None)
+        ax.legend = None
     ax.vb.reset()
+    ax.vb.set_datasrc(None)
     if ax.crosshair is not None:
         ax.crosshair.show()
 
