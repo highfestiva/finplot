@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 '''A lengthy example that shows some more complex uses of finplot:
     - control panel in PyQt
-    - varying indicators, intervals, layout & colors
+    - varying indicators, intervals and layout
+    - toggle dark mode
+    - price line
+    - real-time updates via websocket
 
-   This example includes digging in to the internals of finplot and
+   This example includes dipping in to the internals of finplot and
    the underlying lib pyqtgraph, which is not part of the API per se,
    and may thus change in the future. If so happens, this example
    will be updated to reflect such changes.'''
@@ -27,14 +30,16 @@ class BinanceFutureWebsocket:
     def __init__(self):
         self.url = 'wss://fstream.binance.com/stream'
         self.symbol = None
+        self.interval = None
         self.ws = None
         self.df = None
 
-    def connect(self, symbol, df):
+    def connect(self, symbol, interval, df):
         self.df = df
-        if symbol.lower() == self.symbol:
+        if symbol.lower() == self.symbol and self.interval == interval:
             return
         self.symbol = symbol.lower()
+        self.interval = interval
         self.thread_connect = Thread(target=self._thread_connect)
         self.thread_connect.daemon = True
         self.thread_connect.start()
@@ -60,12 +65,12 @@ class BinanceFutureWebsocket:
         else:
             self.close()
             raise websocket.WebSocketTimeoutException('websocket connection failed')
-        self.subscribe(self.symbol)
+        self.subscribe(self.symbol, self.interval)
         print('websocket connected')
 
-    def subscribe(self, symbol):
+    def subscribe(self, symbol, interval):
         try:
-            data = '{"method":"SUBSCRIBE","params":["%s@kline_1m"],"id":1}' % symbol
+            data = '{"method":"SUBSCRIBE","params":["%s@kline_%s"],"id":1}' % (symbol, interval)
             self.ws.send(data)
         except Exception as e:
             print('websocket subscribe error:', type(e), e)
@@ -115,13 +120,16 @@ def do_load_price_history(symbol, interval):
 
 @lru_cache(maxsize=5)
 def cache_load(symbol, interval):
-    return now(), do_load_price_history(symbol, interval)
+    return do_load_price_history(symbol, interval)
 
 
 def load_price_history(symbol, interval):
-    t, df = cache_load(symbol, interval)
-    # check if cache is older than N seconds
-    if now()-t > 30:
+    df = cache_load(symbol, interval)
+    # check if cache's newest candle is current
+    t0 = df.index[-2].timestamp()
+    t1 = df.index[-1].timestamp()
+    t2 = t1 + (t1 - t0)
+    if now() >= t2:
         df = do_load_price_history(symbol, interval)
     return df
 
@@ -206,22 +214,34 @@ def calc_plot_data(df, indicators):
         sar = calc_parabolic_sar(df)
         rsi = calc_rsi(df.Close)
         stoch,stoch_s = calc_stochastic_oscillator(df)
-    return dict(price=price, volume=volume, ma50=ma50, ma200=ma200, vema24=vema24, sar=sar, rsi=rsi, stoch=stoch, stoch_s=stoch_s)
+    plot_data = dict(price=price, volume=volume, ma50=ma50, ma200=ma200, vema24=vema24, sar=sar, rsi=rsi, \
+                     stoch=stoch, stoch_s=stoch_s)
+    # for price line
+    last_close = price.iloc[-1].Close
+    last_col = fplt.candle_bull_color if last_close > price.iloc[-2].Close else fplt.candle_bear_color
+    price_data = dict(last_close=last_close, last_col=last_col)
+    return plot_data, price_data
 
 
 def update_plot():
     if ws.df is None:
         return
+
+    # calculate the new plot data
     indicators = ctrl_panel.indicators.currentText().lower()
-    data = calc_plot_data(ws.df, indicators)
+    data,price_data = calc_plot_data(ws.df, indicators)
+
+    # first update all data, then graphics (for zoom rigidity)
     for k in data:
         if data[k] is not None:
-            plots[k].update_data(data[k])
-    price = data['price']
-    close = price.iloc[-1].Close
-    col = fplt.candle_bull_color if close > price.iloc[-2].Close else fplt.candle_bear_color
-    ax.price_line.setPos(data['price'].iloc[-1]['Close'])
-    ax.price_line.pen.setColor(pg.mkColor(col))
+            plots[k].update_data(data[k], gfx=False)
+    for k in data:
+        if data[k] is not None:
+            plots[k].update_gfx()
+
+    # place and color price line
+    ax.price_line.setPos(price_data['last_close'])
+    ax.price_line.pen.setColor(pg.mkColor(price_data['last_col']))
 
 
 def change_asset(*args, **kwargs):
@@ -232,7 +252,7 @@ def change_asset(*args, **kwargs):
     interval = ctrl_panel.interval.currentText()
     ws.df = None
     df = load_price_history(symbol, interval=interval)
-    ws.connect(symbol, df)
+    ws.connect(symbol, interval, df)
 
     # remove any previous plots
     ax.reset()
@@ -241,7 +261,7 @@ def change_asset(*args, **kwargs):
 
     # calculate plot data
     indicators = ctrl_panel.indicators.currentText().lower()
-    data = calc_plot_data(df, indicators)
+    data,price_data = calc_plot_data(df, indicators)
 
     # some space for legend
     ctrl_panel.move(100 if 'clean' in indicators else 200, 0)
@@ -267,11 +287,12 @@ def change_asset(*args, **kwargs):
     else:
         ax.set_visible(xaxis=True)
         ax_rsi.hide()
+
     # price line
     ax.price_line = pg.InfiniteLine(angle=0, movable=False, pen=fplt._makepen(fplt.candle_bull_body_color, style='.'))
-    ax.price_line.setPos(data['price'].iloc[-1]['Close'])
+    ax.price_line.setPos(price_data['last_close'])
+    ax.price_line.pen.setColor(pg.mkColor(price_data['last_col']))
     ax.addItem(ax.price_line, ignoreBounds=True)
-
 
     # restores saved zoom position, if in range
     fplt.refresh()
@@ -280,6 +301,7 @@ def change_asset(*args, **kwargs):
 def dark_mode_toggle(dark):
     '''Digs into the internals of finplot and pyqtgraph to change the colors of existing
        plots, axes, backgronds, etc.'''
+    # first set the colors we'll be using
     if dark:
         fplt.foreground = '#777'
         fplt.background = '#090c0e'
@@ -301,18 +323,21 @@ def dark_mode_toggle(dark):
     fplt.cross_hair_color = fplt.foreground+'8'
 
     pg.setConfigOptions(foreground=fplt.foreground, background=fplt.background)
+    # control panel color
+    if ctrl_panel is not None:
+        p = ctrl_panel.palette()
+        p.setColor(ctrl_panel.darkmode.foregroundRole(), pg.mkColor(fplt.foreground))
+        ctrl_panel.darkmode.setPalette(p)
+
+    # window background
+    for win in fplt.windows:
+        win.setBackground(fplt.background)
+
+    # axis, crosshair, candlesticks, volumes
     axs = [ax for win in fplt.windows for ax in win.axs]
     vbs = set([ax.vb for ax in axs])
     axs += fplt.overlay_axs
     axis_pen = fplt._makepen(color=fplt.foreground)
-    if ctrl_panel is not None:
-        p = ctrl_panel.palette()
-        p.setColor(ctrl_panel.darkmode.foregroundRole(), pg.mkColor(fplt.foreground))
-        p.setColor(ctrl_panel.backgroundRole(), pg.mkColor(fplt.background))
-        ctrl_panel.darkmode.setPalette(p)
-        ctrl_panel.setPalette(p)
-    for win in fplt.windows:
-        win.setBackground(fplt.background)
     for ax in axs:
         ax.axes['left']['item'].setPen(axis_pen)
         ax.axes['left']['item'].setTextPen(axis_pen)
@@ -386,11 +411,13 @@ fplt.autoviewrestore()
 ax,ax_rsi = fplt.create_plot('Big', rows=2, init_zoom_periods=1000)
 axo = ax.overlay()
 
+# use websocket for real-time
+ws = BinanceFutureWebsocket()
+
 # hide rsi chart to begin with; show x-axis of top plot
 ax_rsi.hide()
-ax_rsi.vb.setBackgroundColor(None)
+ax_rsi.vb.setBackgroundColor(None) # don't use odd background color
 ax.set_visible(xaxis=True)
-ws = BinanceFutureWebsocket()
 
 ctrl_panel = create_ctrl_panel(ax.vb.win)
 dark_mode_toggle(True)
