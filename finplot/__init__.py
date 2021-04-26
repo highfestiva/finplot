@@ -2570,7 +2570,12 @@ def _draw_line_segment_text(polyline, segment, pos0, pos1):
     ysc = polyline.vb.yscale
     if polyline.vb.y_positive:
         y0,y1 = ysc.xform(pos0.y()), ysc.xform(pos1.y())
-        value = '%+.2f %%' % (100 * y1 / y0 - 100)
+        if y0:
+            value = '%+.2f %%' % (100 * y1 / y0 - 100)
+        elif not y1:
+            value = '0'
+        else:
+            value = '+∞' if y1>0 else '-∞'
     else:
         dy = ysc.xform(diff.y())
         if dy and (abs(dy) >= 1e4 or abs(dy) <= 1e-2):

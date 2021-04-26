@@ -3,3 +3,4 @@ dist/
 build/
 dumb/
 *.egg-info/
+screenshot.png
