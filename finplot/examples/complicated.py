@@ -9,7 +9,11 @@
    This example includes dipping in to the internals of finplot and
    the underlying lib pyqtgraph, which is not part of the API per se,
    and may thus change in the future. If so happens, this example
-   will be updated to reflect such changes.'''
+   will be updated to reflect such changes.
+
+   Included is also some third-party libraries to make the example
+   more realistic.
+   '''
 
 
 import finplot as fplt
@@ -34,7 +38,8 @@ class BinanceFutureWebsocket:
         self.ws = None
         self.df = None
 
-    def connect(self, symbol, interval, df):
+    def reconnect(self, symbol, interval, df):
+        '''Connect and subscribe, if not already done so.'''
         self.df = df
         if symbol.lower() == self.symbol and self.interval == interval:
             return
@@ -53,7 +58,7 @@ class BinanceFutureWebsocket:
 
     def _thread_connect(self):
         self.close(reset_symbol=False)
-        print('websocket connecting to %s' % self.url)
+        print('websocket connecting to %s...' % self.url)
         self.ws = websocket.WebSocketApp(self.url, on_message=self.on_message, on_error=self.on_error)
         self.thread_io = Thread(target=self.ws.run_forever)
         self.thread_io.daemon = True
@@ -77,33 +82,32 @@ class BinanceFutureWebsocket:
             raise e
 
     def on_message(self, msg):
-        if self.df is None:
+        df = self.df
+        if df is None:
             return
         msg = json.loads(msg)
-        try:
-            if 'stream' not in msg:
-                return
-            stream = msg['stream']
-            if '@kline_' in stream:
-                k = msg['data']['k']
-                t = k['t']
-                df = self.df
-                t0 = int(df.index[-2].timestamp()) * 1000
-                t1 = int(df.index[-1].timestamp()) * 1000
-                t2 = t1 + (t1-t0)
-                if t < t2:
-                    i = df.index[-1]
-                    df.loc[i, 'Close']  = float(k['c'])
-                    df.loc[i, 'High']   = max(df.loc[i, 'High'], float(k['h']))
-                    df.loc[i, 'Low']    = min(df.loc[i, 'Low'],  float(k['l']))
-                    df.loc[i, 'Volume'] = float(k['v'])
-                else:
-                    data = [pd.to_datetime(t, unit='ms')] + [float(k[i]) for i in ['o','c','h','l','v']]
-                    candle = pd.DataFrame([data], columns='Time Open Close High Low Volume'.split())
-                    candle.set_index('Time', inplace=True)
-                    self.df = df.append(candle)
-        except Exception as e:
-            print('websocket error, unable to parse stream:', type(e), e)
+        if 'stream' not in msg:
+            return
+        stream = msg['stream']
+        if '@kline_' in stream:
+            k = msg['data']['k']
+            t = k['t']
+            t0 = int(df.index[-2].timestamp()) * 1000
+            t1 = int(df.index[-1].timestamp()) * 1000
+            t2 = t1 + (t1-t0)
+            if t < t2:
+                # update last candle
+                i = df.index[-1]
+                df.loc[i, 'Close']  = float(k['c'])
+                df.loc[i, 'High']   = max(df.loc[i, 'High'], float(k['h']))
+                df.loc[i, 'Low']    = min(df.loc[i, 'Low'],  float(k['l']))
+                df.loc[i, 'Volume'] = float(k['v'])
+            else:
+                # create a new candle
+                data = [t] + [float(k[i]) for i in ['o','c','h','l','v']]
+                candle = pd.DataFrame([data], columns='Time Open Close High Low Volume'.split()).astype({'Time':'datetime64[ms]'})
+                candle.set_index('Time', inplace=True)
+                self.df = df.append(candle)
 
     def on_error(self, error):
         print('websocket error: %s' % error)
@@ -111,7 +115,7 @@ class BinanceFutureWebsocket:
 
 def do_load_price_history(symbol, interval):
     url = 'https://www.binance.com/fapi/v1/klines?symbol=%s&interval=%s&limit=%s' % (symbol, interval, 1000)
-    print('loading binance future: %s' % url)
+    print('loading binance future %s %s' % (symbol, interval))
     d = requests.get(url).json()
     df = pd.DataFrame(d, columns='Time Open High Low Close Volume a b c d e f'.split())
     df = df.astype({'Time':'datetime64[ms]', 'Open':float, 'High':float, 'Low':float, 'Close':float, 'Volume':float})
@@ -119,12 +123,14 @@ def do_load_price_history(symbol, interval):
 
 
 @lru_cache(maxsize=5)
-def cache_load(symbol, interval):
+def cache_load_price_history(symbol, interval):
+    '''Stupid caching, but works sometimes.'''
     return do_load_price_history(symbol, interval)
 
 
 def load_price_history(symbol, interval):
-    df = cache_load(symbol, interval)
+    '''Use memoized, and if too old simply load the data.'''
+    df = cache_load_price_history(symbol, interval)
     # check if cache's newest candle is current
     t0 = df.index[-2].timestamp()
     t1 = df.index[-1].timestamp()
@@ -203,14 +209,15 @@ def calc_stochastic_oscillator(df, n=14, m=3, smooth=3):
 
 
 def calc_plot_data(df, indicators):
+    '''Returns data for all plots and for the price line.'''
     price = df['Open Close High Low'.split()]
     volume = df['Open Close Volume'.split()]
     ma50 = ma200 = vema24 = sar = rsi = stoch = stoch_s = None
-    if 'clean' not in indicators:
+    if 'few' in indicators or 'moar' in indicators:
         ma50  = price.Close.rolling(50).mean()
         ma200 = price.Close.rolling(200).mean()
         vema24 = volume.Volume.ewm(span=24).mean()
-    if 'many' in indicators:
+    if 'moar' in indicators:
         sar = calc_parabolic_sar(df)
         rsi = calc_rsi(df.Close)
         stoch,stoch_s = calc_stochastic_oscillator(df)
@@ -223,7 +230,8 @@ def calc_plot_data(df, indicators):
     return plot_data, price_data
 
 
-def update_plot():
+def realtime_update_plot():
+    '''Called at regular intervals by a timer.'''
     if ws.df is None:
         return
 
@@ -235,6 +243,8 @@ def update_plot():
     for k in data:
         if data[k] is not None:
             plots[k].update_data(data[k], gfx=False)
+    if len(data[k]) > 1000:
+        assert False
     for k in data:
         if data[k] is not None:
             plots[k].update_gfx()
@@ -245,6 +255,7 @@ def update_plot():
 
 
 def change_asset(*args, **kwargs):
+    '''Resets and recalculates everything, and plots for the first time.'''
     # save window zoom position before resetting
     fplt._savewindata(fplt.windows[0])
 
@@ -252,7 +263,7 @@ def change_asset(*args, **kwargs):
     interval = ctrl_panel.interval.currentText()
     ws.df = None
     df = load_price_history(symbol, interval=interval)
-    ws.connect(symbol, interval, df)
+    ws.reconnect(symbol, interval, df)
 
     # remove any previous plots
     ax.reset()
@@ -308,19 +319,17 @@ def dark_mode_toggle(dark):
         fplt.candle_bull_color = fplt.candle_bull_body_color = '#0b0'
         fplt.candle_bear_color = '#a23'
         volume_transparency = '6'
-        fplt.draw_line_color = '#fff'
-        fplt.draw_done_color = '#aaa'
     else:
         fplt.foreground = '#444'
         fplt.background = fplt.candle_bull_body_color = '#fff'
         fplt.candle_bull_color = '#380'
         fplt.candle_bear_color = '#c50'
         volume_transparency = 'c'
-        fplt.draw_line_color = '#000'
-        fplt.draw_done_color = '#555'
     fplt.volume_bull_color = fplt.volume_bull_body_color = fplt.candle_bull_color + volume_transparency
     fplt.volume_bear_color = fplt.candle_bear_color + volume_transparency
     fplt.cross_hair_color = fplt.foreground+'8'
+    fplt.draw_line_color = '#888'
+    fplt.draw_done_color = '#555'
 
     pg.setConfigOptions(foreground=fplt.foreground, background=fplt.background)
     # control panel color
@@ -389,14 +398,14 @@ def create_ctrl_panel(win):
     layout.setColumnMinimumWidth(3, 30)
 
     panel.indicators = QComboBox(panel)
-    [panel.indicators.addItem(i) for i in 'Clean:Few indicators:Many indicators'.split(':')]
+    [panel.indicators.addItem(i) for i in 'Clean:Few indicators:Moar indicators'.split(':')]
     layout.addWidget(panel.indicators, 0, 4)
     panel.indicators.currentTextChanged.connect(change_asset)
 
     layout.setColumnMinimumWidth(5, 30)
 
     panel.darkmode = QCheckBox(panel)
-    panel.darkmode.setText('Dark mode')
+    panel.darkmode.setText('Haxxor mode')
     panel.darkmode.setCheckState(2)
     panel.darkmode.toggled.connect(dark_mode_toggle)
     layout.addWidget(panel.darkmode, 0, 6)
@@ -405,7 +414,7 @@ def create_ctrl_panel(win):
 
 
 plots = {}
-fplt.y_pad = 0.07 # pad some more (for control panel)
+fplt.y_pad = 0.07 # pad some extra (for control panel)
 fplt.max_zoom_points = 7
 fplt.autoviewrestore()
 ax,ax_rsi = fplt.create_plot('Big', rows=2, init_zoom_periods=1000)
@@ -422,5 +431,5 @@ ax.set_visible(xaxis=True)
 ctrl_panel = create_ctrl_panel(ax.vb.win)
 dark_mode_toggle(True)
 change_asset()
-fplt.timer_callback(update_plot, 1) # update every second
+fplt.timer_callback(realtime_update_plot, 1) # update every second
 fplt.show()
