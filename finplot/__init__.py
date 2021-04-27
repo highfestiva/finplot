@@ -1904,6 +1904,10 @@ def _ax_set_visible(ax, crosshair=None, xaxis=None, yaxis=None, xgrid=None, ygri
         ax.getAxis('left').setStyle(showValues=yaxis)
     if xgrid is not None or ygrid is not None:
         ax.showGrid(x=xgrid, y=ygrid)
+        if ax.getAxis('left'):
+            ax.getAxis('left').setEnabled(False)
+        if ax.getAxis('bottom'):
+            ax.getAxis('bottom').setEnabled(False)
 
 
 def _ax_decouple(ax):
