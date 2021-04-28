@@ -197,7 +197,7 @@ class PandasDataSource:
         self.pre_update = lambda df: df
         self.post_update = lambda df: df
         self._period = None
-        self.is_sparse = self.df[self.df.columns[self.col_data_offset]].isnull().sum() > len(self.df)/2
+        self.is_sparse = self.df[self.df.columns[self.col_data_offset]].isnull().sum().max() > len(self.df)//2
 
     @property
     def period(self):
@@ -294,8 +294,8 @@ class PandasDataSource:
         self._period = None
         datasrc._period = None
         ldf2 = len(self.df) / 2
-        self.is_sparse = self.is_sparse or self.df[self.df.columns[self.col_data_offset]].isnull().sum() > ldf2
-        datasrc.is_sparse = datasrc.is_sparse or datasrc.df[datasrc.df.columns[datasrc.col_data_offset]].isnull().sum() > ldf2
+        self.is_sparse = self.is_sparse or self.df[self.df.columns[self.col_data_offset]].isnull().sum().max() > ldf2
+        datasrc.is_sparse = datasrc.is_sparse or datasrc.df[datasrc.df.columns[datasrc.col_data_offset]].isnull().sum().max() > ldf2
 
     def update(self, datasrc):
         df = self.pre_update(self.df)
@@ -641,7 +641,7 @@ class FinViewBox(pg.ViewBox):
             self.remove_last_roi()
         self.draw_line = None
         self.drawing = False
-        self.standalones = []
+        self.standalones = set()
         self.updating_linked = False
         self.set_datasrc(None)
         self.setMouseEnabled(x=True, y=False)
@@ -664,7 +664,7 @@ class FinViewBox(pg.ViewBox):
     def datasrc_or_standalone(self):
         ds = self.datasrc
         if not ds and self.standalones:
-            ds = self.standalones[-1]
+            ds = next(iter(self.standalones))
         return ds
 
     def wheelEvent(self, ev, axis=None):
@@ -2014,7 +2014,7 @@ def _create_datasrc(ax, *args):
     return datasrc
 
 
-def _set_datasrc(ax, datasrc):
+def _set_datasrc(ax, datasrc, addcols=True):
     viewbox = ax.vb
     if not datasrc.standalone:
         if viewbox.datasrc is None:
@@ -2022,7 +2022,10 @@ def _set_datasrc(ax, datasrc):
             _set_x_limits(ax, datasrc)
         else:
             t0 = viewbox.datasrc.x.loc[0]
-            viewbox.datasrc.addcols(datasrc)
+            if addcols:
+                viewbox.datasrc.addcols(datasrc)
+            else:
+                viewbox.datasrc.df = datasrc.df
             # check if we need to re-render previous plots due to changed indices
             indices_updated = viewbox.datasrc.timebased() and t0 != viewbox.datasrc.x.loc[0]
             for item in ax.items:
@@ -2034,7 +2037,7 @@ def _set_datasrc(ax, datasrc):
             _set_x_limits(ax, datasrc)
             viewbox.set_datasrc(viewbox.datasrc) # update zoom
     else:
-        viewbox.standalones.append(datasrc)
+        viewbox.standalones.add(datasrc)
         datasrc.update_init_x(viewbox.init_steps)
         ## if not viewbox.x_indexed:
             ## _set_x_limits(ax, datasrc)
@@ -2152,9 +2155,9 @@ def _update_data(preadjustfunc, adjustfunc, item, ds, gfx=True):
     if adjustfunc:
         adjustfunc(ds)
     cs = list(item.datasrc.df.columns[:1]) + list(item.datasrc.df.columns[item.datasrc.col_data_offset:])
-    if len(cs) >= len(ds.df.columns):
-        ds.df.columns = cs[:len(ds.df.columns)]
+    ds.df.columns = cs[:len(ds.df.columns)]
     item.datasrc.update(ds)
+    _set_datasrc(item.ax, item.datasrc, addcols=False)
     if gfx:
         item.update_gfx()
 
@@ -2178,6 +2181,7 @@ def _update_gfx(item):
             for c in c1:
                 df_clipped[c] = i.datasrc.df[c]
         i.datasrc.set_df(df_clipped)
+        break
     update_sigdig = False
     if not item.datasrc.standalone:
         # new limits when extending/reducing amount of data
