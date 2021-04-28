@@ -372,6 +372,8 @@ class PandasDataSource:
     def __eq__(self, other):
         return id(self) == id(other) or id(self.df) == id(other.df)
 
+    def __hash__(self):
+        return id(self)
 
 
 class FinWindow(pg.GraphicsLayoutWidget):
@@ -2029,7 +2031,7 @@ def _set_datasrc(ax, datasrc, addcols=True):
             # check if we need to re-render previous plots due to changed indices
             indices_updated = viewbox.datasrc.timebased() and t0 != viewbox.datasrc.x.loc[0]
             for item in ax.items:
-                if hasattr(item, 'datasrc'):
+                if hasattr(item, 'datasrc') and not item.datasrc.standalone:
                     item.datasrc.set_df(viewbox.datasrc.df) # every plot here now has the same time-frame
                     if indices_updated:
                         _start_visual_update(item)
@@ -2155,7 +2157,8 @@ def _update_data(preadjustfunc, adjustfunc, item, ds, gfx=True):
     if adjustfunc:
         adjustfunc(ds)
     cs = list(item.datasrc.df.columns[:1]) + list(item.datasrc.df.columns[item.datasrc.col_data_offset:])
-    ds.df.columns = cs[:len(ds.df.columns)]
+    if len(cs) >= len(ds.df.columns):
+        ds.df.columns = cs[:len(ds.df.columns)]
     item.datasrc.update(ds)
     _set_datasrc(item.ax, item.datasrc, addcols=False)
     if gfx:
