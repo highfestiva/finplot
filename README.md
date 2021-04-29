@@ -113,13 +113,46 @@ fplt.show()
 ```
 
 
-## Realtime updating with realistic indicator
+## Real-time examples
 
 Included in this repo are [a 40-liner Bitfinex example](https://github.com/highfestiva/finplot/blob/master/finplot/examples/bfx.py)
 and [a slightly longer BitMEX websocket example](https://github.com/highfestiva/finplot/blob/master/finplot/examples/bitmex-ws.py),
-which both update in realtime with Bitcoin/Dollar pulled from the exchange. They also shows realistic and useful indicators (TD
-Sequential for BFX; and Bollinger Bands and orderbook for BitMEX). The
-[S&P500 example](https://github.com/highfestiva/finplot/blob/master/finplot/examples/snp500.py) shows you how to display MACD.
+which both update in realtime with Bitcoin/Dollar pulled from the exchange.
+[A more complicated example](https://github.com/highfestiva/finplot/blob/master/finplot/examples/complicated.py) show real-time
+updates and interactively varying of asset, time scales, indicators and color scheme.
+
+finplot is mainly intended for backtesting, so the API is clunky for real-time applications. The
+[examples/complicated.py](https://github.com/highfestiva/finplot/blob/master/finplot/examples/complicated.py) was written a result
+of popular demand.
+
+
+## MACD, Parabolic SAR, RSI, volume profile and others
+
+There are plenty of examples that show different indicators.
+
+| Indicator | Example |
+|-----------|---------|
+| MACD | [S&P 500](https://github.com/highfestiva/finplot/blob/master/finplot/examples/snp500.py) |
+| RSI | [Analyze](https://github.com/highfestiva/finplot/blob/master/finplot/examples/analyze.py) |
+| SMA | [Analyze 2](https://github.com/highfestiva/finplot/blob/master/finplot/examples/analyze-2.py) |
+| EMA | [Analyze](https://github.com/highfestiva/finplot/blob/master/finplot/examples/analyze.py) |
+| TD sequential | [Bitfinex](https://github.com/highfestiva/finplot/blob/master/finplot/examples/bfx.py) |
+| Bollinger bands | [BitMEX](https://github.com/highfestiva/finplot/blob/master/finplot/examples/bitmex-ws.py) |
+| Parabolic SAR | [BitMEX](https://github.com/highfestiva/finplot/blob/master/finplot/examples/complicated.py) |
+| Heikin ashi | [Analyze](https://github.com/highfestiva/finplot/blob/master/finplot/examples/analyze.py) |
+| Renko | [Renko dark mode](https://github.com/highfestiva/finplot/blob/master/finplot/examples/renko-dark-mode.py) |
+| Accumulation/distribution | [Analyze](https://github.com/highfestiva/finplot/blob/master/finplot/examples/analyze.py) |
+| On balance volume | [Analyze](https://github.com/highfestiva/finplot/blob/master/finplot/examples/analyze.py) |
+| Heat map | [Heatmap](https://github.com/highfestiva/finplot/blob/master/finplot/examples/heatmap.py) |
+| Volume profile | [Volume profile](https://github.com/highfestiva/finplot/blob/master/finplot/examples/volume-profile.py) |
+| VWAP | [Volume profile](https://github.com/highfestiva/finplot/blob/master/finplot/examples/volume-profile.py) |
+| Period returns | [Analyze 2](https://github.com/highfestiva/finplot/blob/master/finplot/examples/analyze-2.py) |
+| Asset correlation | [Overlay correlate](https://github.com/highfestiva/finplot/blob/master/finplot/examples/overlay-correlate.py) |
+| Lines | [Bitcoin long term](https://github.com/highfestiva/finplot/blob/master/finplot/examples/btc-long-term.py) |
+| ms time resolution | [Line](https://github.com/highfestiva/finplot/blob/master/finplot/examples/line.py) |
+
+For interactively modifying what indicators are shown, see
+[examples/complicated.py](https://github.com/highfestiva/finplot/blob/master/finplot/examples/complicated.py).
 
 
 ## Snippets

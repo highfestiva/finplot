@@ -383,6 +383,7 @@ def create_ctrl_panel(win):
 
     panel.symbol = QComboBox(panel)
     [panel.symbol.addItem(i+'USDT') for i in 'BTC ETH XRP DOGE BNB SOL ADA LTC LINK DOT TRX BCH'.split()]
+    panel.symbol.setCurrentIndex(1)
     layout.addWidget(panel.symbol, 0, 0)
     panel.symbol.currentTextChanged.connect(change_asset)
 
@@ -390,6 +391,7 @@ def create_ctrl_panel(win):
 
     panel.interval = QComboBox(panel)
     [panel.interval.addItem(i) for i in '1d 4h 1h 30m 15m 5m 1m'.split()]
+    panel.interval.setCurrentIndex(6)
     layout.addWidget(panel.interval, 0, 2)
     panel.interval.currentTextChanged.connect(change_asset)
 
@@ -397,6 +399,7 @@ def create_ctrl_panel(win):
 
     panel.indicators = QComboBox(panel)
     [panel.indicators.addItem(i) for i in 'Clean:Few indicators:Moar indicators'.split(':')]
+    panel.indicators.setCurrentIndex(1)
     layout.addWidget(panel.indicators, 0, 4)
     panel.indicators.currentTextChanged.connect(change_asset)
 
@@ -415,7 +418,7 @@ plots = {}
 fplt.y_pad = 0.07 # pad some extra (for control panel)
 fplt.max_zoom_points = 7
 fplt.autoviewrestore()
-ax,ax_rsi = fplt.create_plot('Complicated Binance Futures Example', rows=2, init_zoom_periods=1000)
+ax,ax_rsi = fplt.create_plot('Complicated Binance Futures Example', rows=2, init_zoom_periods=300)
 axo = ax.overlay()
 
 # use websocket for real-time
