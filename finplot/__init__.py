@@ -769,6 +769,8 @@ class FinViewBox(pg.ViewBox):
             self.rbScaleBox.hide()
             ax = QtCore.QRectF(pg.Point(ev.buttonDownPos(ev.button())), pg.Point(ev.pos()))
             ax = self.childGroup.mapRectFromParent(ax)
+            if ax.width() < 2: # zooming this narrow is probably a mistake
+                ax.adjust(-1, 0, +1, 0)
             self.showAxRect(ax)
             self.axHistoryPointer += 1
             self.axHistory = self.axHistory[:self.axHistoryPointer] + [ax]
