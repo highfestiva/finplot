@@ -1276,6 +1276,13 @@ def close():
             win.close()
         except Exception as e:
             print('Window closing error:', type(e), e)
+    global last_ax
+    windows.clear()
+    overlay_axs.clear()
+    _clear_timers()
+    sounds.clear()
+    master_data.clear()
+    last_ax = None
 
 
 def price_colorfilter(item, datasrc, df):
@@ -1676,6 +1683,7 @@ def timer_callback(update_func, seconds, single_shot=False):
         timer.setSingleShot(True)
     timer.start(int(seconds*1000))
     timers.append(timer)
+    return timer
 
 
 def autoviewrestore(enable=True):
