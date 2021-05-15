@@ -1283,6 +1283,22 @@ def close():
     sounds.clear()
     master_data.clear()
     last_ax = None
+   
+    
+def close_widget(widget):
+    """ create_plot_widget returns a plot_widget, which can be attached to a QGraphicsView layout for showing in PyQt5 application. 
+        Everytime when a window is created, it is added to a global list, if it is not there. That means, to attach a plot_widget
+        in QgraphicsView, we need re-use same QGraphicsView widget else it will keep on adding to window list, thus leaking memory.
+        Freeing the widget leads to C/C++ object of ViewBox has been deleted error (or comment of fplt.show)
+        
+        Solution: remove item from windows list since fplt.show goes through it completely."""
+    global windows
+    if widget in windows:
+        windows.remove(widget)
+            # widget.deleteLater() / sip.delete(widget) can be manually added depending on use-case.
+            # if creating a new chart just after deleting, use deleteLater. sip.delete removes window completely
+            # leading to a few milliseconds of blank screen
+       
 
 
 def price_colorfilter(item, datasrc, df):
