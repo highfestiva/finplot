@@ -620,7 +620,7 @@ class FinRect(pg.RectROI):
 
 
 class FinViewBox(pg.ViewBox):
-    def __init__(self, win, init_steps=300, yscale=YScale('linear', 1), v_zoom_scale=1, *args, **kwargs):
+    def __init__(self, win, init_steps=300, yscale=YScale('linear', 1), v_zoom_scale=1, restore = False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.win = win
         self.init_steps = init_steps
@@ -628,6 +628,8 @@ class FinViewBox(pg.ViewBox):
         self.v_zoom_scale = v_zoom_scale
         self.master_viewbox = None
         self.rois = []
+        self.curr_rect = None
+        self.restore = restore
         self.reset()
 
     def reset(self):
@@ -913,7 +915,8 @@ class FinViewBox(pg.ViewBox):
             return
         _y0 = self.yscale.invxform(y0, verify=True)
         _y1 = self.yscale.invxform(y1, verify=True)
-        self.setRange(QtCore.QRectF(pg.Point(x0, _y0), pg.Point(x1, _y1)), padding=0)
+        self.curr_rect = QtCore.QRectF(pg.Point(x0, _y0), pg.Point(x1, _y1))
+        self.setRange(self.curr_rect, padding=0)
         return True
 
     def remove_last_roi(self):
@@ -1242,7 +1245,7 @@ def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=T
     return ax0
 
 
-def create_plot_widget(master, rows=1, init_zoom_periods=1e10, yscale='linear'):
+def create_plot_widget(master, rows=1, init_zoom_periods=1e10, yscale='linear', restore=False):
     pg.setConfigOptions(foreground=foreground, background=background)
     global last_ax
     if master not in windows:
@@ -1252,7 +1255,7 @@ def create_plot_widget(master, rows=1, init_zoom_periods=1e10, yscale='linear'):
     for n in range(rows):
         ysc = yscale[n] if type(yscale) in (list,tuple) else yscale
         ysc = YScale(ysc, 1)
-        viewbox = FinViewBox(master, init_steps=init_zoom_periods, yscale=ysc, v_zoom_scale=1-y_pad, enableMenu=False)
+        viewbox = FinViewBox(master, init_steps=init_zoom_periods, yscale=ysc, v_zoom_scale=1-y_pad, enableMenu=False, restore=restore)
         ax = prev_ax = _add_timestamp_plot(master=master, prev_ax=prev_ax, viewbox=viewbox, index=n, yscale=ysc)
         if axs:
             ax.setXLink(axs[0].vb)
@@ -1283,22 +1286,13 @@ def close():
     sounds.clear()
     master_data.clear()
     last_ax = None
-   
-    
-def close_widget(widget):
-    """ create_plot_widget returns a plot_widget, which can be attached to a QGraphicsView layout for showing in PyQt5 application. 
-        Everytime when a window is created, it is added to a global list, if it is not there. That means, to attach a plot_widget
-        in QgraphicsView, we need re-use same QGraphicsView widget else it will keep on adding to window list, thus leaking memory.
-        Freeing the widget leads to C/C++ object of ViewBox has been deleted error (or comment of fplt.show)
-        
-        Solution: remove item from windows list since fplt.show goes through it completely."""
+
+def close_widget(win):
     global windows
-    if widget in windows:
-        windows.remove(widget)
-            # widget.deleteLater() / sip.delete(widget) can be manually added depending on use-case.
-            # if creating a new chart just after deleting, use deleteLater. sip.delete removes window completely
-            # leading to a few milliseconds of blank screen
-       
+    if win in windows:
+        windows.remove(win)
+
+
 
 
 def price_colorfilter(item, datasrc, df):
@@ -1726,6 +1720,36 @@ def refresh():
     for win in windows:
         _mouse_moved(win, None)
 
+def refresh_widget(win):
+    if win in windows:
+        vbs = [ax.vb for ax in win.axs] + [ax.vb for ax in overlay_axs if ax.vb.win==win]
+        for vb in vbs:
+            vb.pre_process_data()
+        _set_max_zoom(vbs)
+        for vb in vbs:
+            datasrc = vb.datasrc_or_standalone
+            if datasrc and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None or vb.master_viewbox):
+                if vb.restore and vb.curr_rect is not None:
+                    vb.setRange(vb.curr_rect)
+                else:
+                    vb.update_y_zoom(datasrc.init_x0, datasrc.init_x1)
+    _repaint_candles()
+    if win in windows:
+        _mouse_moved(win, None)
+
+
+def show_widget(win, qt_exec=False):
+    """ to show the graphics view widget inside other widget"""
+    refresh_widget(win)
+    if win in windows:
+       win.show()
+
+def enable_widget_restore(win, ax):
+    ax.vb.restore=True
+
+def disable_widget_restore(win, ax):
+    ax.vb.restore = False
+    show_widget(win)
 
 def show(qt_exec=True):
     refresh()
@@ -2222,6 +2246,8 @@ def _update_gfx(item):
             x0 = x1 = None
         prev_top = item.ax.vb.targetRect().top()
         item.ax.vb.update_y_zoom(x0, x1)
+        # if item.ax.vb.restore:
+        #     item.ax.vb.setRange(rect = item.ax.vb.curr_rect)
         this_top = item.ax.vb.targetRect().top()
         if this_top and not (0.99 < abs(prev_top/this_top) < 1.01):
             update_sigdig = True
