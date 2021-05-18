@@ -1,0 +1,36 @@
+---
+name: Bug report
+about: Create a report to improve finplot
+title: "[BUG]"
+labels: bug
+assignees: ''
+
+---
+
+### Requirements (place an `x` in each of the `[ ]`)**
+* [ ] I've read the [README](../README.md) and not found what I'm looking for.
+* [ ] I've searched for any related issues and avoided creating a duplicate issue.
+* [ ] I've updated finplot (`pip install -U finplot`).
+
+### Code to reproduce
+<!-- Please provide a minimal working example that reproduces the issue in the code block below.
+     This should be a full example someone else could run without additional setup. -->
+```python
+import finplot as fplt
+import pandas as pd
+```
+
+### Describe the bug
+A clear and concise description of what the bug is.
+
+### Expected behavior
+A clear and concise description of what you expected to happen instead.
+
+#### Screenshots
+If applicable, add screenshots to help explain your problem.
+
+#### Reproducible in:
+
+*finplot version*:
+*pyqtgraph version*:
+*pyqt version*:
