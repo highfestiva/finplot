@@ -1,0 +1,3 @@
+[submodule "finplot.wiki"]
+	path = finplot.wiki
+	url = git@github.com:highfestiva/finplot.wiki.git
