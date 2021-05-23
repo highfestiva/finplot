@@ -8,7 +8,8 @@ assignees: ''
 ---
 
 ### Requirements (place an `x` in each of the `[ ]`)**
-* [ ] I've read the [README](../README.md) and not found what I'm looking for.
+* [ ] I realize finplot is not a web lib. (Hint: it's native!)
+* [ ] I've read the [snippets](https://github.com/highfestiva/finplot/wiki/Snippets) and not found what I'm looking for.
 * [ ] I've searched for any related issues and avoided creating a duplicate issue.
 * [ ] I've updated finplot (`pip install -U finplot`).
 
@@ -31,6 +32,7 @@ If applicable, add screenshots to help explain your problem.
 
 #### Reproducible in:
 
+*OS*:
 *finplot version*:
 *pyqtgraph version*:
 *pyqt version*:
