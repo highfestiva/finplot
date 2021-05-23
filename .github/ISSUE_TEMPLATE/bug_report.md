@@ -12,10 +12,12 @@ assignees: ''
 * [ ] I've read the [snippets](https://github.com/highfestiva/finplot/wiki/Snippets) and not found what I'm looking for.
 * [ ] I've searched for any related issues and avoided creating a duplicate issue.
 * [ ] I've updated finplot (`pip install -U finplot`).
+* [ ] I've supplied the required data to run my code below.
 
 ### Code to reproduce
 <!-- Please provide a minimal working example that reproduces the issue in the code block below.
-     This should be a full example someone else could run without additional setup. -->
+     This should be a full example someone else could run without additional setup. If you load
+	 internal data, zip the code to reproduce along with a snippet of your data, and attach. -->
 ```python
 import finplot as fplt
 import pandas as pd
