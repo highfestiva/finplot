@@ -2466,11 +2466,14 @@ def _millisecond_wrap(s):
 
 
 def _x2local_t(datasrc, x):
+    if display_timezone == None:
+        return _x2utc(datasrc, x)
     return _x2t(datasrc, x, lambda t: _millisecond_wrap(datetime.fromtimestamp(t/1e9, tz=display_timezone).isoformat(sep=' ').partition('+')[0]))
 
 
 def _x2utc(datasrc, x):
-    return _x2t(datasrc, x, lambda t: _millisecond_wrap(datetime.utcfromtimestamp(t/1e9).isoformat(sep=' ')))
+    # using pd.to_datetime allow for pre-1970 dates
+    return _x2t(datasrc, x, lambda t: pd.to_datetime(t, unit='ns').strftime('%Y-%m-%d %H:%M:%S.%f'))
 
 
 def _x2t(datasrc, x, ts2str):
