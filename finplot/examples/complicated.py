@@ -81,7 +81,7 @@ class BinanceFutureWebsocket:
             print('websocket subscribe error:', type(e), e)
             raise e
 
-    def on_message(self, msg):
+    def on_message(self, ws, msg):
         df = self.df
         if df is None:
             return
@@ -109,7 +109,7 @@ class BinanceFutureWebsocket:
                 candle.set_index('Time', inplace=True)
                 self.df = df.append(candle)
 
-    def on_error(self, error):
+    def on_error(self, error, *args, **kwargs):
         print('websocket error: %s' % error)
 
 
