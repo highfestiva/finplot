@@ -1005,7 +1005,7 @@ class FinPlotItem(pg.GraphicsObject):
 
 
 class CandlestickItem(FinPlotItem):
-    def __init__(self, ax, datasrc, draw_body, draw_shadow, candle_width, colorfunc):
+    def __init__(self, ax, datasrc, draw_body, draw_shadow, candle_width, shadow_width, colorfunc):
         self.colors = dict(bull_shadow      = candle_bull_color,
                            bull_frame       = candle_bull_color,
                            bull_body        = candle_bull_body_color,
@@ -1021,7 +1021,7 @@ class CandlestickItem(FinPlotItem):
         self.draw_body = draw_body
         self.draw_shadow = draw_shadow
         self.candle_width = candle_width
-        self.shadow_width = 1
+        self.shadow_width = shadow_width
         self.colorfunc = colorfunc
         self.x_offset = 0
         super().__init__(ax, datasrc, lod=True)
@@ -1336,12 +1336,12 @@ def horizvol_colorfilter(sections=[]):
     return partial(_colorfilter, sections)
 
 
-def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6, ax=None, colorfunc=price_colorfilter):
+def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6, shadow_width=1, ax=None, colorfunc=price_colorfilter):
     ax = _create_plot(ax=ax, maximize=False)
     datasrc = _create_datasrc(ax, datasrc)
     datasrc.scale_cols = [3,4] # only hi+lo scales
     _set_datasrc(ax, datasrc)
-    item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width, colorfunc=colorfunc)
+    item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width, shadow_width=shadow_width, colorfunc=colorfunc)
     _update_significants(ax, datasrc, force=True)
     item.update_data = partial(_update_data, None, None, item)
     item.update_gfx = partial(_update_gfx, item)
@@ -1366,12 +1366,12 @@ def renko(x, y=None, bins=None, step=None, ax=None, colorfunc=price_colorfilter)
     return item
 
 
-def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter):
+def volume_ocv(datasrc, candle_width=0.8, shadow_width=1, ax=None, colorfunc=volume_colorfilter):
     ax = _create_plot(ax=ax, maximize=False)
     datasrc = _create_datasrc(ax, datasrc)
     _adjust_volume_datasrc(datasrc)
     _set_datasrc(ax, datasrc)
-    item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=True, draw_shadow=False, candle_width=candle_width, colorfunc=colorfunc)
+    item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=True, draw_shadow=False, candle_width=candle_width, shadow_width=shadow_width, colorfunc=colorfunc)
     _update_significants(ax, datasrc, force=True)
     item.colors['bull_body'] = item.colors['bull_frame']
     if colorfunc == volume_colorfilter: # assume normal volume plot
@@ -2420,7 +2420,7 @@ def _pdtime2index(ax, ts, any_end=False, require_time=False):
             ts = ts.astype('float64') * 1e6
         elif h < 1e16: # handle us epochs
             ts = ts.astype('float64') * 1e3
-    
+
     datasrc = _get_datasrc(ax)
     xs = datasrc.x
 
@@ -2428,7 +2428,7 @@ def _pdtime2index(ax, ts, any_end=False, require_time=False):
     exact = datasrc.index[xs.isin(ts)].to_list()
     if len(exact) == len(ts):
         return exact
-    
+
     r = []
     for i,t in enumerate(ts):
         xss = xs.loc[xs>t]
@@ -2486,7 +2486,7 @@ def _x2t(datasrc, x, ts2str):
             if not datasrc.timebased():
                 return '%g' % t, False
             s = ts2str(t)
-            
+
             if epoch_period >= 23*60*60: # daylight savings, leap seconds, etc
                 i = s.index(' ')
             elif epoch_period >= 59: # consider leap seconds
