@@ -1664,8 +1664,10 @@ def set_time_inspector(inspector, ax=None, when='click'):
     win = ax.vb.win
     if when == 'hover':
         win.proxy_hover = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=15, slot=partial(_inspect_pos, ax, inspector))
+    elif when in ('dclick', 'double-click'):
+        win.proxy_dclick = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, inspector, when_double_click=True))
     else:
-        win.proxy_click = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, inspector))
+        win.proxy_click = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, inspector, when_double_click=False))
 
 
 def add_crosshair_info(infofunc, ax=None):
@@ -2341,8 +2343,8 @@ def _wheel_event_wrapper(self, orig_func, ev):
     orig_func(self, ev)
 
 
-def _inspect_clicked(ax, inspector, evs):
-    if evs[-1].accepted:
+def _inspect_clicked(ax, inspector, when_double_click, evs):
+    if evs[-1].accepted or when_double_click != evs[-1].double():
         return
     pos = evs[-1].scenePos()
     return _inspect_pos(ax, inspector, (pos,))
