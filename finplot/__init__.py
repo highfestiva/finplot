@@ -40,6 +40,7 @@ odd_plot_background = '#fff'
 candle_bull_color = '#26a69a'
 candle_bear_color = '#ef5350'
 candle_bull_body_color = background
+candle_shadow_width = 1
 volume_bull_color = '#92d2cc'
 volume_bear_color = '#f7a9a7'
 volume_bull_body_color = volume_bull_color
@@ -1021,7 +1022,7 @@ class CandlestickItem(FinPlotItem):
         self.draw_body = draw_body
         self.draw_shadow = draw_shadow
         self.candle_width = candle_width
-        self.shadow_width = 1
+        self.shadow_width = candle_shadow_width
         self.colorfunc = colorfunc
         self.x_offset = 0
         super().__init__(ax, datasrc, lod=True)
@@ -2665,6 +2666,7 @@ try:
     user32 = ctypes.windll.user32
     user32.SetProcessDPIAware()
     lod_candles = int(user32.GetSystemMetrics(0) * 1.6)
+    candle_shadow_width = int(user32.GetSystemMetrics(0) // 2100 + 1) # 2560 and resolutions above -> wider shadows
 except:
     pass
 
