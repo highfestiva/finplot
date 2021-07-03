@@ -39,7 +39,8 @@ background = '#fff'
 odd_plot_background = '#fff'
 candle_bull_color = '#26a69a'
 candle_bear_color = '#ef5350'
-candle_bull_body_color = background
+candle_bull_body_color = '#228822'
+candle_bear_body_color = '#AA2222'
 volume_bull_color = '#92d2cc'
 volume_bear_color = '#f7a9a7'
 volume_bull_body_color = volume_bull_color
@@ -1011,7 +1012,7 @@ class CandlestickItem(FinPlotItem):
                            bull_body        = candle_bull_body_color,
                            bear_shadow      = candle_bear_color,
                            bear_frame       = candle_bear_color,
-                           bear_body        = candle_bear_color,
+                           bear_body        = candle_bear_body_color,
                            weak_bull_shadow = brighten(candle_bull_color, 1.2),
                            weak_bull_frame  = brighten(candle_bull_color, 1.2),
                            weak_bull_body   = brighten(candle_bull_color, 1.2),
@@ -2420,7 +2421,7 @@ def _pdtime2index(ax, ts, any_end=False, require_time=False):
             ts = ts.astype('float64') * 1e6
         elif h < 1e16: # handle us epochs
             ts = ts.astype('float64') * 1e3
-    
+
     datasrc = _get_datasrc(ax)
     xs = datasrc.x
 
@@ -2428,7 +2429,7 @@ def _pdtime2index(ax, ts, any_end=False, require_time=False):
     exact = datasrc.index[xs.isin(ts)].to_list()
     if len(exact) == len(ts):
         return exact
-    
+
     r = []
     for i,t in enumerate(ts):
         xss = xs.loc[xs>t]
@@ -2486,7 +2487,7 @@ def _x2t(datasrc, x, ts2str):
             if not datasrc.timebased():
                 return '%g' % t, False
             s = ts2str(t)
-            
+
             if epoch_period >= 23*60*60: # daylight savings, leap seconds, etc
                 i = s.index(' ')
             elif epoch_period >= 59: # consider leap seconds
