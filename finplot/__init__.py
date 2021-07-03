@@ -2518,7 +2518,8 @@ def _round_to_significant(rng, rngmax, x, significant_decimals, significant_eps)
     if is_highres and abs(x)>0:
         exp10 = floor(np.log10(abs(x)))
         x = x / (10**exp10)
-        sd = min(3, sd+int(abs(np.log10(rngmax))))
+        rm = int(abs(np.log10(rngmax))) if rngmax>0 else 0
+        sd = min(3, sd+rm)
         fmt = '%%%i.%ife%%i' % (sd, sd)
         r = fmt % (x, exp10)
     else:
