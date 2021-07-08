@@ -869,16 +869,16 @@ class FinViewBox(pg.ViewBox):
             x0 = tr.left()
             x1 = tr.right()
         # make edges rigid
-        xl = max(round(x0-side_margin)+side_margin, -side_margin)
-        xr = min(round(x1-side_margin)+side_margin, datasrc.xlen-side_margin)
+        xl = max(_round(x0-side_margin)+side_margin, -side_margin)
+        xr = min(_round(x1-side_margin)+side_margin, datasrc.xlen-side_margin)
         dxl = xl-x0
         dxr = xr-x1
         if dxl > 0:
             x1 += dxl
         if dxr < 0:
             x0 += dxr
-        x0 = max(round(x0-side_margin)+side_margin, -side_margin)
-        x1 = min(round(x1-side_margin)+side_margin, datasrc.xlen-side_margin)
+        x0 = max(_round(x0-side_margin)+side_margin, -side_margin)
+        x1 = min(_round(x1-side_margin)+side_margin, datasrc.xlen-side_margin)
         # fetch hi-lo and set range
         _,_,hi,lo,cnt = datasrc.hilo(x0, x1)
         vr = self.viewRect()
@@ -2546,7 +2546,7 @@ def _clamp_xy(ax, x, y):
         ds = ax.vb.datasrc
         if x < 0 or (ds and x > len(ds.df)-1):
             x = 0 if x < 0 else len(ds.df)-1
-        x = round(x)
+        x = _round(x)
         eps = ax.significant_eps
         if eps > 1e-8:
             eps2 = np.sign(y) * 0.5 * eps
@@ -2646,6 +2646,10 @@ def _makepen(color, style=None, width=1):
             if dash:
                 dash[-1] += 2
     return pg.mkPen(color=color, style=QtCore.Qt.CustomDashLine, dash=dash, width=width)
+
+
+def _round(v):
+    return ceil(v-0.5)
 
 
 try:
