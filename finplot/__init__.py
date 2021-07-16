@@ -387,7 +387,7 @@ class FinWindow(pg.GraphicsLayoutWidget):
         self.setGeometry(winx, winy, winw, winh)
         winx += 40
         winy += 40
-        self.centralWidget.installEventFilter(self)
+        self.installEventFilter(self)
         self.ci.setContentsMargins(0, 0, 0, 0)
         self.ci.setSpacing(-1)
         self.closing = False
@@ -403,9 +403,19 @@ class FinWindow(pg.GraphicsLayoutWidget):
         return super().close()
 
     def eventFilter(self, obj, ev):
-        if ev.type()== QtCore.QEvent.WindowDeactivate:
+        if ev.type() == QtCore.QEvent.Enter:
+            for ax in self.ci.items:
+                if isinstance(ax, pg.PlotItem):
+                    if ax.crosshair is not None:
+                        ax.crosshair.show()
+        elif ev.type() == QtCore.QEvent.Leave:
+            for ax in self.ci.items:
+                if isinstance(ax, pg.PlotItem):
+                    if ax.crosshair is not None:
+                        ax.crosshair.hide()
+        elif ev.type() == QtCore.QEvent.WindowDeactivate:
             _savewindata(self)
-        return False
+        return super(FinWindow, self).eventFilter(obj, ev)
 
     def leaveEvent(self, ev):
         if not self.closing:
