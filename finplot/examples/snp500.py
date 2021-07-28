@@ -13,7 +13,7 @@ start_t = end_t - 12*30*24*60*60 # twelve months
 symbol = 'SPY'
 interval = '1d'
 url = 'https://query1.finance.yahoo.com/v7/finance/download/%s?period1=%s&period2=%s&interval=%s&events=history' % (symbol, start_t, end_t, interval)
-r = requests.get(url)
+r = requests.get(url, headers={'user-agent':'Mozilla/5.0'})
 df = pd.read_csv(StringIO(r.text))
 df['Date'] = pd.to_datetime(df['Date']).astype('int64') # use finplot's internal representation, which is ns
 

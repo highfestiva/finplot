@@ -230,7 +230,7 @@ class PandasDataSource:
 
     @property
     def xlen(self):
-        return len(self.df)+right_margin_candles
+        return len(self.df)
 
     def calc_significant_decimals(self):
         ser = self.z if len(self.scale_cols)>1 else self.y
@@ -313,7 +313,7 @@ class PandasDataSource:
         input_df = self.post_update(input_df)
         input_df = input_df.reset_index()
         self.df = input_df[[input_df.columns[0]]+orig_cols] if orig_cols else input_df
-        self.init_x1 = self.xlen - side_margin
+        self.init_x1 = self.xlen + right_margin_candles - side_margin
         self.cache_hilo = OrderedDict()
         self._period = None
 
@@ -845,7 +845,7 @@ class FinViewBox(pg.ViewBox):
         tr = self.targetRect()
         x1 = tr.right() + steps
         startx = -side_margin
-        endx = self.datasrc.xlen - side_margin
+        endx = self.datasrc.xlen + right_margin_candles - side_margin
         if x1 > endx:
             x1 = endx
         x0 = x1 - tr.width()
@@ -875,7 +875,7 @@ class FinViewBox(pg.ViewBox):
             x1 = tr.right()
         # make edges rigid
         xl = max(_round(x0-side_margin)+side_margin, -side_margin)
-        xr = min(_round(x1-side_margin)+side_margin, datasrc.xlen-side_margin)
+        xr = min(_round(x1-side_margin)+side_margin, datasrc.xlen+right_margin_candles-side_margin)
         dxl = xl-x0
         dxr = xr-x1
         if dxl > 0:
@@ -883,7 +883,7 @@ class FinViewBox(pg.ViewBox):
         if dxr < 0:
             x0 += dxr
         x0 = max(_round(x0-side_margin)+side_margin, -side_margin)
-        x1 = min(_round(x1-side_margin)+side_margin, datasrc.xlen-side_margin)
+        x1 = min(_round(x1-side_margin)+side_margin, datasrc.xlen+right_margin_candles-side_margin)
         # fetch hi-lo and set range
         _,_,hi,lo,cnt = datasrc.hilo(x0, x1)
         vr = self.viewRect()
@@ -1787,6 +1787,7 @@ def _loadwindata(win):
                 x0,x1 = ds.x.loc[ds.x>=kvs['min_x']].index[0], ds.x.loc[ds.x<=kvs['max_x']].index[-1]
                 if x1 == len(ds.x)-1:
                     x1 += right_margin_candles
+                x1 += 0.5
                 zoom_set = vb.update_y_zoom(x0, x1)
     return zoom_set
 
@@ -2210,6 +2211,8 @@ def _update_gfx(item):
         # scroll all plots if we're at the far right
         tr = item.ax.vb.targetRect()
         x0 = x1 - tr.width()
+        if x0 < right_margin_candles + side_margin:
+            x0 = -side_margin
         if tr.right() < x1 - 5 - 2*right_margin_candles:
             x0 = x1 = None
         prev_top = item.ax.vb.targetRect().top()
@@ -2249,11 +2252,11 @@ def _xminmax(datasrc, x_indexed, init_steps=None, extra_margin=0):
     if x_indexed and init_steps:
         # initial zoom
         x0 = max(datasrc.xlen-init_steps, 0) - side_margin - extra_margin
-        x1 = datasrc.xlen - side_margin + extra_margin
+        x1 = datasrc.xlen + right_margin_candles + side_margin + extra_margin
     elif x_indexed:
         # total x size for indexed data
         x0 = -side_margin - extra_margin
-        x1 = datasrc.xlen - 1 + side_margin + right_margin_candles + extra_margin# add another margin to get the "snap back" sensation
+        x1 = datasrc.xlen + right_margin_candles - 1 + side_margin + extra_margin # add another margin to get the "snap back" sensation
     else:
         # x size for plain Y-over-X data (i.e. not indexed)
         x0 = datasrc.x.min()
