@@ -439,7 +439,14 @@ class FinCrossHair:
         self.hline.setZValue(50)
         self.xtext.setZValue(50)
         self.ytext.setZValue(50)
-        self.show()
+        self.vline.hide()
+        self.hline.hide()
+        self.xtext.hide()
+        self.ytext.hide()
+        self.ax.addItem(self.vline, ignoreBounds=True)
+        self.ax.addItem(self.hline, ignoreBounds=True)
+        self.ax.addItem(self.xtext, ignoreBounds=True)
+        self.ax.addItem(self.ytext, ignoreBounds=True)
 
     def update(self, point=None):
         if point is not None:
@@ -500,16 +507,16 @@ class FinCrossHair:
         self.ytext.setText(ytext)
 
     def show(self):
-        self.ax.addItem(self.vline, ignoreBounds=True)
-        self.ax.addItem(self.hline, ignoreBounds=True)
-        self.ax.addItem(self.xtext, ignoreBounds=True)
-        self.ax.addItem(self.ytext, ignoreBounds=True)
+        self.vline.show()
+        self.hline.show()
+        self.xtext.show()
+        self.ytext.show()
 
     def hide(self):
-        self.ax.removeItem(self.xtext)
-        self.ax.removeItem(self.ytext)
-        self.ax.removeItem(self.vline)
-        self.ax.removeItem(self.hline)
+        self.vline.hide()
+        self.hline.hide()
+        self.xtext.hide()
+        self.ytext.hide()
 
 
 
