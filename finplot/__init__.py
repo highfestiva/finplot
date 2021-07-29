@@ -439,14 +439,8 @@ class FinCrossHair:
         self.hline.setZValue(50)
         self.xtext.setZValue(50)
         self.ytext.setZValue(50)
-        self.vline.hide()
-        self.hline.hide()
-        self.xtext.hide()
-        self.ytext.hide()
-        self.ax.addItem(self.vline, ignoreBounds=True)
-        self.ax.addItem(self.hline, ignoreBounds=True)
-        self.ax.addItem(self.xtext, ignoreBounds=True)
-        self.ax.addItem(self.ytext, ignoreBounds=True)
+        self.hide()  # hide crosshair until user intentionally moves mouse pointer over the plot.
+        self.addToPlot()
 
     def update(self, point=None):
         if point is not None:
@@ -506,11 +500,20 @@ class FinCrossHair:
         self.xtext.setText(xtext)
         self.ytext.setText(ytext)
 
+    def addToPlot(self):
+        self.ax.addItem(self.vline, ignoreBounds=True)
+        self.ax.addItem(self.hline, ignoreBounds=True)
+        self.ax.addItem(self.xtext, ignoreBounds=True)
+        self.ax.addItem(self.ytext, ignoreBounds=True)
+        
     def show(self):
-        self.vline.show()
-        self.hline.show()
-        self.xtext.show()
-        self.ytext.show()
+        if self.vline in self.ax.items:
+            self.vline.show()
+            self.hline.show()
+            self.xtext.show()
+            self.ytext.show()
+        else:
+            self.addToPlot()
 
     def hide(self):
         self.vline.hide()
