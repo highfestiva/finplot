@@ -629,7 +629,7 @@ class FinViewBox(pg.ViewBox):
         self.v_zoom_scale = v_zoom_scale
         self.master_viewbox = None
         self.rois = []
-        self.isMouseLeftDrag = False
+        self.win._isMouseLeftDrag = False
         self.reset()
 
     def reset(self):
@@ -710,9 +710,9 @@ class FinViewBox(pg.ViewBox):
         if ev.modifiers() != QtCore.Qt.ControlModifier:
             super().mouseDragEvent(ev, axis)
             if ev.isFinish():
-                self.isMouseLeftDrag = False
+                self.win._isMouseLeftDrag = False
             else:
-                self.isMouseLeftDrag = True
+                self.win._isMouseLeftDrag = True
             if ev.isFinish() or self.drawing:
                 self.refresh_all_y_zoom()
             if not self.drawing:
@@ -2205,7 +2205,7 @@ def _update_gfx(item):
         i.datasrc.set_df(df_clipped)
         break
     update_sigdig = False
-    if not item.datasrc.standalone and not item.ax.vb.isMouseLeftDrag:
+    if not item.datasrc.standalone and not item.ax.vb.win._isMouseLeftDrag:
         # new limits when extending/reducing amount of data
         x_min,x1 = _set_x_limits(item.ax, item.datasrc)
         # scroll all plots if we're at the far right

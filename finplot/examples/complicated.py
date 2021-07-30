@@ -81,11 +81,11 @@ class BinanceFutureWebsocket:
             print('websocket subscribe error:', type(e), e)
             raise e
 
-    def on_message(self, ws, msg):
+    def on_message(self, *args, **kwargs):
         df = self.df
         if df is None:
             return
-        msg = json.loads(msg)
+        msg = json.loads(args[-1])
         if 'stream' not in msg:
             return
         stream = msg['stream']
