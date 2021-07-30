@@ -2657,7 +2657,7 @@ def _makepen(color, style=None, width=1):
 
 
 def _round(v):
-    return ceil(v-0.5)
+    return floor(v+0.5)
 
 
 try:
