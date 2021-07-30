@@ -439,6 +439,7 @@ class FinCrossHair:
         self.hline.setZValue(50)
         self.xtext.setZValue(50)
         self.ytext.setZValue(50)
+        self._isEnabled = True  # by default crosshair is enabled.
         self.hide()  # hide crosshair until user intentionally moves mouse pointer over the plot.
         self.addToPlot()
 
@@ -506,14 +507,32 @@ class FinCrossHair:
         self.ax.addItem(self.xtext, ignoreBounds=True)
         self.ax.addItem(self.ytext, ignoreBounds=True)
         
-    def show(self):
-        if self.vline in self.ax.items:
-            self.vline.show()
-            self.hline.show()
-            self.xtext.show()
-            self.ytext.show()
-        else:
+    def enable(self):
+        if self._isEnabled:
+            return
+        self._isEnabled = True
+        if self.vline not in self.ax.items:
             self.addToPlot()
+
+    def disable(self):
+        if self._isEnabled == False:
+            return
+        self._isEnabled = False
+        if self.vline in self.ax.items:
+            self.ax.removeItem(self.xtext)
+            self.ax.removeItem(self.ytext)
+            self.ax.removeItem(self.vline)
+            self.ax.removeItem(self.hline)
+
+    def show(self):
+        if self._isEnabled:
+            if self.vline in self.ax.items:
+                self.vline.show()
+                self.hline.show()
+                self.xtext.show()
+                self.ytext.show()
+            else:
+                self.addToPlot()
 
     def hide(self):
         self.vline.hide()
@@ -1935,9 +1954,11 @@ def _ax_overlay(ax, scale=0.25, yaxis=False):
     return axo
 
 
-def _ax_set_visible(ax, crosshair=None, xaxis=None, yaxis=None, xgrid=None, ygrid=None):
-    if crosshair == False:
-        ax.crosshair.hide()
+def _ax_set_visible(ax, crosshair=True, xaxis=None, yaxis=None, xgrid=None, ygrid=None):
+    if crosshair == True:
+        ax.crosshair.enable()
+    else:
+        ax.crosshair.disable()
     if xaxis is not None:
         ax.getAxis('bottom').setStyle(showValues=xaxis)
     if yaxis is not None:
