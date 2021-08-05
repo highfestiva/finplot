@@ -873,6 +873,8 @@ class FinViewBox(pg.ViewBox):
             tr = self.targetRect()
             x0 = tr.left()
             x1 = tr.right()
+            if x1-x0 <= 1:
+                return
         # make edges rigid
         xl = max(_round(x0-side_margin)+side_margin, -side_margin)
         xr = min(_round(x1-side_margin)+side_margin, datasrc.xlen+right_margin_candles-side_margin)
