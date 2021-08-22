@@ -2,15 +2,13 @@
 
 import finplot as fplt
 from functools import lru_cache
-from PyQt5.QtWidgets import QGraphicsView, QComboBox, QLabel
-from PyQt5.QtGui import QApplication, QGridLayout
-from PyQt5 import QtGui
+from PyQt5.QtWidgets import QApplication, QGridLayout, QMainWindow, QGraphicsView, QComboBox, QLabel
 from pyqtgraph.dockarea import DockArea, Dock
 from threading import Thread
 import yfinance as yf
 
 app = QApplication([])
-win = QtGui.QMainWindow()
+win = QMainWindow()
 area = DockArea()
 win.setCentralWidget(area)
 win.resize(1600,800)
