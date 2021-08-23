@@ -259,6 +259,7 @@ def change_asset(*args, **kwargs):
 
     symbol = ctrl_panel.symbol.currentText()
     interval = ctrl_panel.interval.currentText()
+    ws.close()
     ws.df = None
     df = load_price_history(symbol, interval=interval)
     ws.reconnect(symbol, interval, df)

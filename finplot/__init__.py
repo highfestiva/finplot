@@ -1493,7 +1493,7 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
     _set_datasrc(ax, datasrc)
     if legend is not None:
         _create_legend(ax)
-    x = datasrc.x if datasrc.standalone or not ax.vb.x_indexed else datasrc.index
+    x = datasrc.x if not ax.vb.x_indexed else datasrc.index
     y = datasrc.y / ax.vb.yscale.scalef
     if style is None or any(ch in style for ch in '-_.'):
         connect_dots = 'finite' # same as matplotlib; use datasrc.standalone=True if you want to keep separate intervals on a plot
@@ -2062,6 +2062,11 @@ def _set_datasrc(ax, datasrc, addcols=True):
     else:
         viewbox.standalones.add(datasrc)
         datasrc.update_init_x(viewbox.init_steps)
+        if datasrc.timebased() and viewbox.datasrc is not None:
+            ## print('WARNING: re-indexing standalone, time-based plot')
+            vdf = viewbox.datasrc.df
+            d = {v:k for k,v in enumerate(vdf[vdf.columns[0]])}
+            datasrc.df.index = [d[i] for i in datasrc.df[datasrc.df.columns[0]]]
         ## if not viewbox.x_indexed:
             ## _set_x_limits(ax, datasrc)
     # update period if this datasrc has higher time resolution
