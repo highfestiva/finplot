@@ -1132,7 +1132,7 @@ class HorizontalTimeVolumeItem(CandlestickItem):
         volumes = (volumes * f / divvol).T
         p = self.painter
         h = 1e-10
-        for i in self.datasrc.df.index:
+        for i in range(len(prices)):
             prcr = prices[i]
             prv = prcr[~np.isnan(prcr)]
             if len(prv) > 1:
