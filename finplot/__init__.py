@@ -1994,7 +1994,7 @@ def _update_significants(ax, datasrc, force):
     if force or (default_dec and default_eps):
         try:
             sd,se = datasrc.calc_significant_decimals()
-            if sd:
+            if sd or se != significant_eps:
                 if force or default_dec or sd > ax.significant_decimals:
                     ax.significant_decimals = sd
                 if force or default_eps or se < ax.significant_eps:
