@@ -25,5 +25,5 @@ df_volume_heatmap = pd.DataFrame(index=times, columns=prices, data=vol_matrix)
 # plot
 fplt.create_plot('BitMEX BTC 15m orderbook heatmap')
 fplt.candlestick_ochl(df_candles)
-fplt.heatmap(df_volume_heatmap, filter_limit=0.2, whiteout=0.3)
+fplt.heatmap(df_volume_heatmap, filter_limit=0.1, whiteout=0.1)
 fplt.show()

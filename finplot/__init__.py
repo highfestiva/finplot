@@ -1096,7 +1096,7 @@ class HeatmapItem(FinPlotItem):
         values = df.values
         # normalize
         values -= np.nanmin(values)
-        values /= np.nanmax(values) / (1+self.whiteout) # overshoot for coloring
+        values = values / (np.nanmax(values) / (1+self.whiteout)) # overshoot for coloring
         lim = self.filter_limit * (1+self.whiteout)
         p = self.painter
         for t,row in enumerate(values):
@@ -2426,7 +2426,7 @@ def _get_color(ax, style, wanted_color):
 def _pdtime2epoch(t):
     if isinstance(t, pd.Series):
         if isinstance(t.iloc[0], pd.Timestamp):
-            return t.astype('int64')
+            return t.view('int64')
         h = np.nanmax(t.values)
         if h < 1e10: # handle s epochs
             return (t*1e9).astype('int64')
@@ -2440,7 +2440,7 @@ def _pdtime2epoch(t):
 
 def _pdtime2index(ax, ts, any_end=False, require_time=False):
     if isinstance(ts.iloc[0], pd.Timestamp):
-        ts = ts.astype('int64')
+        ts = ts.view('int64')
     else:
         h = np.nanmax(ts.values)
         if h < 1e7:
