@@ -664,6 +664,7 @@ class FinViewBox(pg.ViewBox):
         self.updating_linked = False
         self.set_datasrc(None)
         self.setMouseEnabled(x=True, y=False)
+        self.setRange(QtCore.QRectF(pg.Point(0, 0), pg.Point(1, 1)))
 
     def set_datasrc(self, datasrc):
         self.datasrc = datasrc
