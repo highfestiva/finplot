@@ -50,6 +50,10 @@ band_color = '#d2dfe6'
 cross_hair_color = '#0007'
 draw_line_color = '#000'
 draw_done_color = '#555'
+arrow_bull_color = '#20FF20'
+arrow_bull_outline_color = '#222222'
+arrow_bear_color = '#f7a9a7'
+arrow_bear_outline_color = '#f7a9a7'
 significant_decimals = 8
 significant_eps = 1e-8
 max_zoom_points = 20 # number of visible candles when maximum zoomed in
@@ -634,6 +638,39 @@ class FinRect(pg.RectROI):
         if self.resizable:
             super().addScaleHandle(*args, **kwargs)
 
+class FinArrow(pg.ArrowItem):
+    def __init__(self, ax, direction, brushColor='', brushWidth=1, penColor='', penWidth=1, *args, **kwargs):
+
+        if direction.lower() == "buy":
+            if brushColor == '':
+                brushColor = arrow_bull_color
+            if penColor == '':
+                penColor = arrow_bull_outline_color
+            kwargs['angle']=90
+            kwargs['tipAngle']=30
+            kwargs['baseAngle']=20
+        elif direction.lower() == "sell":
+            if brushColor == '':
+                brushColor = arrow_bear_color
+            if penColor == '':
+                penColor = arrow_bear_outline_color
+            kwargs['angle']=-90
+            kwargs['tipAngle']=30
+            kwargs['baseAngle']=20
+
+        kwargs['headLen']=10
+        kwargs['tailLen']=5
+        kwargs['tailWidth']=10
+            
+        kwargs['pen']={'color': penColor, 'width': penWidth}
+
+        brush = pg.mkBrush(brushColor)
+        brush.width = brushWidth
+        kwargs['brush'] = brush
+
+        self.ax = ax
+
+        super().__init__(*args, **kwargs)
 
 class FinViewBox(pg.ViewBox):
     def __init__(self, win, init_steps=300, yscale=YScale('linear', 1), v_zoom_scale=1, *args, **kwargs):
@@ -1199,6 +1236,15 @@ class HorizontalTimeVolumeItem(CandlestickItem):
                 p.drawLine(QtCore.QPointF(t, y), QtCore.QPointF(t+f*self.draw_poc, y))
 
 
+class Arrow():
+    def __init__(self, buy, color, anchor ):
+        self.color = color
+        self.text_items = {}
+        self.anchor = anchor
+        self.show = False
+
+
+
 
 class ScatterLabelItem(FinPlotItem):
     def __init__(self, ax, datasrc, color, anchor):
@@ -1613,6 +1659,18 @@ def add_band(y0, y1, color=band_color, ax=None):
     ax.addItem(lr)
     return lr
 
+def add_arrow(pos, direction="buy",  arrow_color='', arrow_brush_width=1, arrow_outline_color='', arrow_outline_width=1, interactive=False, ax=None):
+    ax = _create_plot(ax=ax, maximize=False)
+    arrow = FinArrow(ax, direction, arrow_color, arrow_brush_width, arrow_outline_color, arrow_outline_width)
+    x = pos[0]
+    if ax.vb.datasrc is not None:
+        x = _pdtime2index(ax, pd.Series([pos[0]]))[0]
+    y = ax.vb.yscale.invxform(pos[1])
+    arrow.setPos(x, y)
+    arrow.setZValue(50)
+    arrow.ax = ax
+    ax.addItem(arrow, ignoreBounds=True)
+    return arrow
 
 def add_rect(p0, p1, color=band_color, interactive=False, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
@@ -1628,7 +1686,6 @@ def add_rect(p0, p1, color=band_color, interactive=False, ax=None):
     rect.ax = ax
     ax.addItem(rect)
     return rect
-
 
 def add_line(p0, p1, color=draw_line_color, width=1, style=None, interactive=False, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
