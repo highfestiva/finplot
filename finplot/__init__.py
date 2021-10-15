@@ -658,9 +658,10 @@ class FinArrow(pg.ArrowItem):
             kwargs['tipAngle']=30
             kwargs['baseAngle']=20
 
-        kwargs['headLen']=10
-        kwargs['tailLen']=5
-        kwargs['tailWidth']=10
+        kwargs['headLen']=8
+        kwargs['headWidth']=8
+        kwargs['tailLen']=6
+        kwargs['tailWidth']=5
             
         kwargs['pen']={'color': penColor, 'width': penWidth}
 
