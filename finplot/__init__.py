@@ -639,32 +639,23 @@ class FinRect(pg.RectROI):
             super().addScaleHandle(*args, **kwargs)
 
 class FinArrow(pg.ArrowItem):
-    def __init__(self, ax, direction, brushColor='', brushWidth=1, penColor='', penWidth=1, *args, **kwargs):
+    def __init__(self, ax, angle, brushColor='',  penColor='', brushWidth=1, penWidth=1, *args, **kwargs):
 
-        if direction.lower() == "buy":
-            if brushColor == '':
-                brushColor = arrow_bull_color
-            if penColor == '':
-                penColor = arrow_bull_outline_color
-            kwargs['angle']=90
-            kwargs['tipAngle']=30
-            kwargs['baseAngle']=20
-        elif direction.lower() == "sell":
-            if brushColor == '':
-                brushColor = arrow_bear_color
-            if penColor == '':
-                penColor = arrow_bear_outline_color
-            kwargs['angle']=-90
-            kwargs['tipAngle']=30
-            kwargs['baseAngle']=20
+        kwargs['angle']=angle
+        kwargs['tipAngle']=30
+        kwargs['baseAngle']=20
 
         kwargs['headLen']=8
         kwargs['headWidth']=8
         kwargs['tailLen']=6
         kwargs['tailWidth']=5
             
-        kwargs['pen']={'color': penColor, 'width': penWidth}
+        if brushColor=='':
+            brushColor='#3030ff';
+        if penColor=='':
+            penColor='#000';
 
+        kwargs['pen']={'color': penColor, 'width': penWidth}
         brush = pg.mkBrush(brushColor)
         brush.width = brushWidth
         kwargs['brush'] = brush
@@ -1609,6 +1600,40 @@ def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
         ax.vb.v_zoom_scale = 0.9
     return item
 
+def add_trade(posOpen, posClose, direction = "buy", profit = 0):
+    
+    # Open trade arrow
+    if direction.lower() == "buy":
+        brushColor = arrow_bull_color
+        penColor = arrow_bull_outline_color
+        add_arrow(posOpen, 90, brushColor, penColor)
+
+        brushColor = arrow_bear_color
+        penColor = arrow_bear_outline_color
+        add_arrow(posClose, -90, brushColor, penColor)
+
+    elif direction.lower() == "sell":
+        brushColor = arrow_bear_color
+        penColor = arrow_bear_outline_color
+        add_arrow(posOpen, -90, brushColor, penColor)
+
+        # Close trade arrow
+        brushColor = arrow_bull_color
+        penColor = arrow_bull_outline_color
+        add_arrow(posClose, 90, brushColor, penColor)
+
+    # Add dashed line
+    if profit > 0:
+        add_line(posOpen, posClose, "#30FF30", 2, style="-" )
+    else:
+        add_line(posOpen, posClose, "#FF3030", 2, style=".")
+
+    # Add label
+    mid = (posClose[0]-posOpen[0],posClose[1]-posOpen[1])
+    textPos = (posOpen[0] + mid[0], posOpen[1] + mid[1])
+    add_text(textPos,"+500")
+
+    return 
 
 def add_legend(text, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
@@ -1660,9 +1685,9 @@ def add_band(y0, y1, color=band_color, ax=None):
     ax.addItem(lr)
     return lr
 
-def add_arrow(pos, direction="buy",  arrow_color='', arrow_brush_width=1, arrow_outline_color='', arrow_outline_width=1, interactive=False, ax=None):
+def add_arrow(pos, angle,  arrow_color='', arrow_outline_color='', arrow_brush_width=1, arrow_outline_width=1, interactive=False, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
-    arrow = FinArrow(ax, direction, arrow_color, arrow_brush_width, arrow_outline_color, arrow_outline_width)
+    arrow = FinArrow(ax, angle, arrow_color, arrow_outline_color, arrow_brush_width, arrow_outline_width)
     x = pos[0]
     if ax.vb.datasrc is not None:
         x = _pdtime2index(ax, pd.Series([pos[0]]))[0]
@@ -2736,10 +2761,8 @@ def _makepen(color, style=None, width=1):
                 dash[-1] += 2
     return pg.mkPen(color=color, style=QtCore.Qt.CustomDashLine, dash=dash, width=width)
 
-
 def _round(v):
     return floor(v+0.5)
-
 
 try:
     qtver = '%d.%d' % (QtCore.QT_VERSION//256//256, QtCore.QT_VERSION//256%256)
