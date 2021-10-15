@@ -53,7 +53,7 @@ draw_done_color = '#555'
 arrow_bull_color = '#20FF20'
 arrow_bull_outline_color = '#222222'
 arrow_bear_color = '#f7a9a7'
-arrow_bear_outline_color = '#f7a9a7'
+arrow_bear_outline_color = '#222222'
 significant_decimals = 8
 significant_eps = 1e-8
 max_zoom_points = 20 # number of visible candles when maximum zoomed in
@@ -1624,9 +1624,9 @@ def add_trade(posOpen, posClose, direction = "buy", profit = 0):
 
     # Add dashed line
     if profit > 0:
-        add_line(posOpen, posClose, "#30FF30", 2, style="-" )
+        add_line(posOpen, posClose, "#30FF30", 2, style="--" )
     else:
-        add_line(posOpen, posClose, "#FF3030", 2, style=".")
+        add_line(posOpen, posClose, "#FF3030", 2, style="..")
 
     # Add label
     mid = (posClose[0]-posOpen[0],posClose[1]-posOpen[1])
