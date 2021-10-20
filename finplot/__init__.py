@@ -65,6 +65,7 @@ y_label_width = 65
 long_time = 2*365*24*60*60*1e9
 display_timezone = None  # default to local
 winx,winy,winw,winh = 400,300,800,400
+log_plot_offset = -2.2222222e-16 # I could file a bug report, probably in PyQt, but this is more fun
 
 app = None
 windows = [] # no gc
@@ -1511,6 +1512,8 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
         _create_legend(ax)
     x = datasrc.x if not ax.vb.x_indexed else datasrc.index
     y = datasrc.y / ax.vb.yscale.scalef
+    if ax.vb.yscale.scaletype == 'log':
+        y = y + log_plot_offset
     if style is None or any(ch in style for ch in '-_.'):
         connect_dots = 'finite' # same as matplotlib; use datasrc.standalone=True if you want to keep separate intervals on a plot
         item = ax.plot(x, y, pen=_makepen(color=used_color, style=style, width=width), name=legend, connect=connect_dots)
@@ -2256,7 +2259,10 @@ def _start_visual_update(item):
         item.ax.removeItem(item)
         item.dirty = True
     else:
-        item.setData(item.datasrc.index, item.datasrc.y)
+        y = item.datasrc.y
+        if item.ax.vb.yscale.scaletype == 'log':
+            y = y + log_plot_offset
+        item.setData(item.datasrc.index, y)
 
 
 def _end_visual_update(item):
