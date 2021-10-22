@@ -16,7 +16,10 @@
    '''
 
 
+import sys
+sys.path.append('D:/perso/trading/anaconda3/finplot')
 import finplot as fplt
+
 from functools import lru_cache
 import json
 from math import nan

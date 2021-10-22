@@ -1600,27 +1600,49 @@ def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
         ax.vb.v_zoom_scale = 0.9
     return item
 
-def add_trade(posOpen, posClose, direction = "buy", profit = 0):
-    
+
+def add_order(datetime, price, direction = "buy", ax=None):
+
     # Open trade arrow
     if direction.lower() == "buy":
         brushColor = arrow_bull_color
         penColor = arrow_bull_outline_color
-        add_arrow(posOpen, 90, brushColor, penColor)
-
-        brushColor = arrow_bear_color
-        penColor = arrow_bear_outline_color
-        add_arrow(posClose, -90, brushColor, penColor)
+        angle = 90
 
     elif direction.lower() == "sell":
         brushColor = arrow_bear_color
         penColor = arrow_bear_outline_color
-        add_arrow(posOpen, -90, brushColor, penColor)
+        angle = -90
+    else:
+        brushColor = ""
+        penColor = ""
+        angle = 0
+
+    add_arrow((datetime,price), angle, brushColor, penColor, ax=ax)
+
+    return 
+
+def add_trade(posOpen, posClose, direction = "buy", profit = 0, ax=None):
+
+    # Open trade arrow
+    if direction.lower() == "buy":
+        brushColor = arrow_bull_color
+        penColor = arrow_bull_outline_color
+        add_arrow(posOpen, 90, brushColor, penColor, ax=ax)
+
+        brushColor = arrow_bear_color
+        penColor = arrow_bear_outline_color
+        add_arrow(posClose, -90, brushColor, penColor, ax=ax)
+
+    elif direction.lower() == "sell":
+        brushColor = arrow_bear_color
+        penColor = arrow_bear_outline_color
+        add_arrow(posOpen, -90, brushColor, penColor, ax=ax)
 
         # Close trade arrow
         brushColor = arrow_bull_color
         penColor = arrow_bull_outline_color
-        add_arrow(posClose, 90, brushColor, penColor)
+        add_arrow(posClose, 90, brushColor, penColor, ax=ax)
 
     # Add dashed line
     if profit > 0:

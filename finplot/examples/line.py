@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import sys
-sys.path.append('D:/perso/trading/anaconda3/finplot')
+sys.path.append('C:/perso/trading/anaconda3/finplot')
 import finplot as fplt
 import numpy as np
 import pandas as pd
@@ -12,13 +12,14 @@ prices = pd.Series(np.random.random(len(dates))).rolling(30).mean() + 4
 
 p = fplt.plot(dates, prices, width=3)
 
-line = fplt.add_line((dates[100], 4.4), (dates[1100], 4.6), color='#9900ff', interactive=True)
+#line = fplt.add_line((dates[100], 4.4), (dates[1100], 4.6), color='#9900ff', interactive=True)
 ## fplt.remove_primitive(line)
-text = fplt.add_text((dates[500], 4.6), "I'm here alright!", color='#bb7700')
+#text = fplt.add_text((dates[500], 4.6), "I'm here alright!", color='#bb7700')
 ## fplt.remove_primitive(text)
-rect = fplt.add_rect((dates[700], 4.5), (dates[850], 4.4), color='#8c8', interactive=True)
+#rect = fplt.add_rect((dates[700], 4.5), (dates[850], 4.4), color='#8c8', interactive=True)
+#arrow = fplt.add_arrow((dates[700], 4.3), 180, interactive=False)
 
-arrow = fplt.add_arrow((dates[700], 4.3), direction="sell", interactive=False)
+fplt.add_trade((dates[300], 4.42),(dates[700], 4.56), "buy", 300)
 
 ## fplt.remove_primitive(rect)
 
