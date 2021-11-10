@@ -21,6 +21,7 @@ import os.path
 import pandas as pd
 import pyqtgraph as pg
 from pyqtgraph import QtCore, QtGui
+from pyqtgraph.dockarea.DockArea import DockArea
 
 
 
@@ -1622,10 +1623,11 @@ def add_order(datetime, price, direction = "buy", ax=None):
 
     return 
 
-def add_trade(posOpen, posClose, direction = "buy", profit = 0, ax=None):
+def add_trade(posOpen, posClose, isLong, profit = 0, ax=None):
 
     # Open trade arrow
-    if direction.lower() == "buy":
+    if isLong:
+        
         brushColor = arrow_bull_color
         penColor = arrow_bull_outline_color
         add_arrow(posOpen, 90, brushColor, penColor, ax=ax)
@@ -1634,7 +1636,7 @@ def add_trade(posOpen, posClose, direction = "buy", profit = 0, ax=None):
         penColor = arrow_bear_outline_color
         add_arrow(posClose, -90, brushColor, penColor, ax=ax)
 
-    elif direction.lower() == "sell":
+    else:
         brushColor = arrow_bear_color
         penColor = arrow_bear_outline_color
         add_arrow(posOpen, -90, brushColor, penColor, ax=ax)
@@ -1787,17 +1789,21 @@ def remove_primitive(primitive):
             ax.vb.removeItem(txt)
 
 
-def set_time_inspector(inspector, ax=None, when='click'):
+def set_time_inspector(inspector, ax=None, when='click', data=None):
+    
     '''Callback when clicked like so: inspector(x, y).'''
     ax = ax if ax else last_ax
     win = ax.vb.win
-    if when == 'hover':
-        win.proxy_hover = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=15, slot=partial(_inspect_pos, ax, inspector))
-    elif when in ('dclick', 'double-click'):
-        win.proxy_dclick = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, inspector, True))
-    else:
-        win.proxy_click = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, inspector, False))
 
+    if (type(win) is DockArea):
+        win = ax.ax_widget
+
+    if when == 'hover':
+        win.proxy_hover = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=15, slot=partial(_inspect_pos, ax, data, inspector))
+    elif when in ('dclick', 'double-click'):
+        win.proxy_dclick = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, data, inspector, True))
+    else:
+        win.proxy_click = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, data, inspector, False))
 
 def add_crosshair_info(infofunc, ax=None):
     '''Callback when crosshair updated like so: info(ax,x,y,xtext,ytext); the info()
@@ -2479,15 +2485,13 @@ def _wheel_event_wrapper(self, orig_func, ev):
     ev = QtGui.QWheelEvent(ev.pos()+d, ev.globalPos()+d, ev.pixelDelta(), ev.angleDelta(), ev.angleDelta().y(), QtCore.Qt.Vertical, ev.buttons(), ev.modifiers())
     orig_func(self, ev)
 
-
-def _inspect_clicked(ax, inspector, when_double_click, evs):
+def _inspect_clicked(ax, data, inspector, when_double_click, evs):
     if evs[-1].accepted or when_double_click != evs[-1].double():
         return
     pos = evs[-1].scenePos()
-    return _inspect_pos(ax, inspector, (pos,))
+    return _inspect_pos(ax, data, inspector, (pos,))
 
-
-def _inspect_pos(ax, inspector, poss):
+def _inspect_pos(ax, data, inspector, poss):
     if not ax.vb.datasrc:
         return
     point = ax.vb.mapSceneToView(poss[-1])
@@ -2498,7 +2502,7 @@ def _inspect_pos(ax, inspector, poss):
         if clamp_grid:
             t = ax.vb.datasrc.x.iloc[-1 if t > 0 else 0]
     try:
-        inspector(t, point.y())
+        inspector(t, point.y(), ax, data ) # or directly ax.vb.datasrc ?
     except OSError as e:
         pass
     except Exception as e:

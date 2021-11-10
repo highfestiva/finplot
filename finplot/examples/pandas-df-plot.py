@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+sys.path.append('../finplot')
 import finplot as fplt
 import pandas as pd
 
