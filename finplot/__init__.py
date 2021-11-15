@@ -62,10 +62,11 @@ lod_labels = 700
 cache_candle_factor = 3 # factor extra candles rendered to buffer
 y_pad = 0.03 # 3% padding at top and bottom of autozoom plots
 y_label_width = 65
-long_time = 2*365*24*60*60*1e9
 display_timezone = datetime.now(timezone.utc).astimezone().tzinfo  # default to local
 winx,winy,winw,winh = 400,300,800,400
 log_plot_offset = -2.2222222e-16 # I could file a bug report, probably in PyQt, but this is more fun
+time_splits = [('years', 2*365*24*60*60, 'YS', 6), ('months', 3*30*24*60*60, 'MS', 6), ('days',      3*24*60*60, 'D', 6), ('hours',        3*60*60, 'H', 6),
+               ('minutes',         3*60, 'T',  6), ('seconds',            3, 'S',  6), ('milliseconds',       0, 'L', 5)]
 
 app = None
 windows = [] # no gc
@@ -91,8 +92,11 @@ class EpochAxisItem(pg.AxisItem):
     def tickStrings(self, values, scale, spacing):
         if self.mode == 'num':
             return ['%g'%v for v in values]
-        conv = _x2year if self.mode=='year' else _x2local_t
-        return [conv(self.vb.datasrc, value)[0] for value in values]
+        conv = _x2year if self.mode=='years' else _x2local_t
+        strs = [conv(self.vb.datasrc, value)[0] for value in values]
+        if all(s.endswith(' 00:00') for s in strs): # all at midnight -> round to days
+            strs = [s.partition(' ')[0] for s in strs]
+        return strs
 
     def tickValues(self, minVal, maxVal, size):
         self.mode = 'num'
@@ -100,26 +104,41 @@ class EpochAxisItem(pg.AxisItem):
         datasrc = _get_datasrc(ax, require=False)
         if datasrc is None or not self.vb.x_indexed:
             return super().tickValues(minVal, maxVal, size)
-        # see if we have time
-        self.mode = 'time'
+        # calculate if we use years, days, etc.
         t0,t1,_,_,_ = datasrc.hilo(minVal, maxVal)
-        if t1-t0 <= long_time:
-            return super().tickValues(minVal, maxVal, size)
-        # year index calculation
-        self.mode = 'year'
-        maxVal = min(datasrc.df.index[-1], maxVal)
-        y0 = int(_x2utc(datasrc, minVal)[0][:4])
-        y1 = int(_x2utc(datasrc, maxVal)[0][:4])
-        step = (y1-y0)//12 or 1
-        years = pd.Series(pd.to_datetime(['%s'%y for y in range(y0,y1+1,step)]))
-        years_indices = [ceil(yi) for yi in _pdtime2index(ax, years)]
-        return [(0,years_indices)]
+        t0,t1 = pd.to_datetime(t0), pd.to_datetime(t1)
+        dts = (t1-t0).total_seconds()
+        for mode, dtt, freq, count in time_splits:
+            if dts > dtt:
+                self.mode = mode
+                roundfreq = 'D' if freq in ('YS','MS') else freq
+                tz = display_timezone if roundfreq=='D' else None # for shorter timeframes, timezone seems buggy
+                rng = pd.date_range(t0, t1, tz=tz, freq=freq)
+                rng = rng[::len(rng)//count or 1]
+                try:    rng = rng.round(freq=roundfreq)
+                except: pass
+                ax = self.vb.parent()
+                rng = _pdtime2index(ax=ax, ts=pd.Series(rng), require_time=True)
+                indices = [ceil(i) for i in rng]
+                return [(0, indices)]
+        return [(0,[])]
 
     def generateDrawSpecs(self, p):
         specs = super().generateDrawSpecs(p)
-        if specs and not self.style['showValues']:
-            pen,p0,p1 = specs[0]
-            specs = [(_makepen('#fff0'),p0,p1)] + list(specs[1:]) # don't draw axis if hiding values
+        if specs:
+            if not self.style['showValues']:
+                pen,p0,p1 = specs[0] # axis specs
+                specs = [(_makepen('#fff0'),p0,p1)] + list(specs[1:]) # don't draw axis if hiding values
+            else:
+                # throw out ticks that are out of bounds
+                text_specs = specs[2]
+                if len(text_specs) >= 4:
+                    rect,flags,text = text_specs[0]
+                    if rect.left() < 0:
+                        del text_specs[0]
+                    rect,flags,text = text_specs[-1]
+                    if rect.right() > self.viewRect().right():
+                        del text_specs[-1]
         return specs
 
 
