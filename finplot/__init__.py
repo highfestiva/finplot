@@ -139,6 +139,13 @@ class EpochAxisItem(pg.AxisItem):
                     rect,flags,text = text_specs[-1]
                     if rect.right() > self.viewRect().right():
                         del text_specs[-1]
+                # ... and those that overlap
+                x = 1e6
+                for i,(rect,flags,text) in reversed(list(enumerate(text_specs))):
+                    if rect.right() >= x:
+                        del text_specs[i]
+                    else:
+                        x = rect.left() - 10 # a little margin
         return specs
 
 
@@ -236,12 +243,12 @@ class PandasDataSource:
         self.is_sparse = self.df[self.df.columns[self.col_data_offset]].isnull().sum().max() > len(self.df)//2
 
     @property
-    def period(self):
+    def period_ns(self):
         if len(self.df) <= 1:
             return 1
         if not self._period:
             timecol = self.df.columns[0]
-            self._period = self.df[timecol].diff().median() / 1e9
+            self._period = self.df.loc[0:100, timecol].diff().median()
         return self._period
 
     @property
@@ -297,6 +304,9 @@ class PandasDataSource:
 
     def timebased(self):
         return self.df.iloc[-1,0] > 1e7
+
+    def is_smooth_time(self):
+        return self.timebased() and (df.x.values[1:100].diff() == self.period).all()
 
     def addcols(self, datasrc):
         new_scale_cols = [c+len(self.df.columns)-datasrc.col_data_offset for c in datasrc.scale_cols]
@@ -857,7 +867,7 @@ class FinViewBox(pg.ViewBox):
             else: # sloppy one based on time stamps
                 tt0,tt1,_,_,_ = self.datasrc.hilo(tr.left(), tr.right())
                 vt0,vt1,_,_,_ = view.datasrc.hilo(vr.left(), vr.right())
-                period2 = self.datasrc.period * 0.5 * 1e9
+                period2 = self.datasrc.period_ns * 0.5
                 if is_dirty or abs(vt0-tt0) >= period2 or abs(vt1-tt1) >= period2:
                     if is_dirty:
                         view.force_range_update -= 1
@@ -1152,7 +1162,7 @@ class HorizontalTimeVolumeItem(CandlestickItem):
         volumes = vals[:, self.datasrc.col_data_offset+1::2].T
         # normalize
         try:
-            f = self.datasrc.period / _get_datasrc(self.ax).period
+            f = self.datasrc.period_ns / _get_datasrc(self.ax).period_ns
             times = _pdtime2index(self.ax, times, require_time=True)
         except AssertionError:
             f = 1
@@ -1822,8 +1832,8 @@ def _loadwindata(win):
     for vb in vbs:
         ds = vb.datasrc
         if ds and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None or vb.master_viewbox):
-            period = ds.period
-            if kvs['min_x'] >= ds.x.iloc[0]-period and kvs['max_x'] <= ds.x.iloc[-1]+period:
+            period_ns = ds.period_ns
+            if kvs['min_x'] >= ds.x.iloc[0]-period_ns and kvs['max_x'] <= ds.x.iloc[-1]+period_ns:
                 x0,x1 = ds.x.loc[ds.x>=kvs['min_x']].index[0], ds.x.loc[ds.x<=kvs['max_x']].index[-1]
                 if x1 == len(ds.x)-1:
                     x1 += right_margin_candles
@@ -2110,8 +2120,8 @@ def _set_datasrc(ax, datasrc, addcols=True):
     # update period if this datasrc has higher time resolution
     global epoch_period
     if datasrc.timebased() and (epoch_period > 1e7 or not datasrc.standalone):
-        ep = datasrc.period
-        epoch_period = ep if ep < epoch_period else epoch_period
+        ep_secs = datasrc.period_ns / 1e9
+        epoch_period = ep_secs if ep_secs < epoch_period else epoch_period
 
 
 def _has_timecol(df):
