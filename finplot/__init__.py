@@ -63,10 +63,13 @@ cache_candle_factor = 3 # factor extra candles rendered to buffer
 y_pad = 0.03 # 3% padding at top and bottom of autozoom plots
 y_label_width = 65
 display_timezone = datetime.now(timezone.utc).astimezone().tzinfo  # default to local
-winx,winy,winw,winh = 400,300,800,400
+winx,winy,winw,winh = 300,150,800,400
 log_plot_offset = -2.2222222e-16 # I could file a bug report, probably in PyQt, but this is more fun
-time_splits = [('years', 2*365*24*60*60, 'YS', 6), ('months', 3*30*24*60*60, 'MS', 6), ('days',      3*24*60*60, 'D', 6), ('hours',        3*60*60, 'H', 6),
-               ('minutes',         3*60, 'T',  6), ('seconds',            3, 'S',  6), ('milliseconds',       0, 'L', 5)]
+# format: mode, min-duration, pd-freq-fmt, tick-str-len
+time_splits = [('years', 2*365*24*60*60, 'YS',  4), ('months', 3*30*24*60*60, 'MS', 10), ('days',      3*24*60*60,   'D', 10),
+               ('hours',        9*60*60, '3H', 16), ('hours',        3*60*60,  'H', 16), ('minutes',        45*60, '15T', 16),
+               ('minutes',        15*60, '5T', 16), ('minutes',         3*60,  'T', 16), ('seconds',           45, '15S', 19),
+               ('seconds',           15, '5S', 19), ('seconds',            3,  'S', 19), ('milliseconds',       0,   'L', 23)]
 
 app = None
 windows = [] # no gc
@@ -108,13 +111,16 @@ class EpochAxisItem(pg.AxisItem):
         t0,t1,_,_,_ = datasrc.hilo(minVal, maxVal)
         t0,t1 = pd.to_datetime(t0), pd.to_datetime(t1)
         dts = (t1-t0).total_seconds()
-        for mode, dtt, freq, count in time_splits:
+        gfx_width = int(self.viewRect().right())
+        for mode, dtt, freq, ticklen in time_splits:
             if dts > dtt:
                 self.mode = mode
                 roundfreq = 'D' if freq in ('YS','MS') else freq
                 tz = display_timezone if roundfreq=='D' else None # for shorter timeframes, timezone seems buggy
                 rng = pd.date_range(t0, t1, tz=tz, freq=freq)
-                rng = rng[::len(rng)//count or 1]
+                count = gfx_width // ((ticklen+2) * 10) # an approximation is fine
+                count = max(count, 4)
+                rng = rng[::(len(rng)//count or 1)]
                 try:    rng = rng.round(freq=roundfreq)
                 except: pass
                 ax = self.vb.parent()
@@ -145,7 +151,7 @@ class EpochAxisItem(pg.AxisItem):
                     if rect.right() >= x:
                         del text_specs[i]
                     else:
-                        x = rect.left() - 10 # a little margin
+                        x = rect.left()
         return specs
 
 
