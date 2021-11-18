@@ -66,10 +66,11 @@ display_timezone = datetime.now(timezone.utc).astimezone().tzinfo  # default to 
 winx,winy,winw,winh = 300,150,800,400
 log_plot_offset = -2.2222222e-16 # I could file a bug report, probably in PyQt, but this is more fun
 # format: mode, min-duration, pd-freq-fmt, tick-str-len
-time_splits = [('years', 2*365*24*60*60, 'YS',  4), ('months', 3*30*24*60*60, 'MS', 10), ('days',      3*24*60*60,   'D', 10),
-               ('hours',        9*60*60, '3H', 16), ('hours',        3*60*60,  'H', 16), ('minutes',        45*60, '15T', 16),
-               ('minutes',        15*60, '5T', 16), ('minutes',         3*60,  'T', 16), ('seconds',           45, '15S', 19),
-               ('seconds',           15, '5S', 19), ('seconds',            3,  'S', 19), ('milliseconds',       0,   'L', 23)]
+time_splits = [('years', 2*365*24*60*60,  'YS',  4), ('months', 3*30*24*60*60, 'MS', 10), ('weeks',   3*7*24*60*60, 'W-MON', 10),
+               ('days',      3*24*60*60,   'D', 10), ('hours',        9*60*60, '3H', 16), ('hours',        3*60*60,     'H', 16),
+               ('minutes',        45*60, '15T', 16), ('minutes',        15*60, '5T', 16), ('minutes',         3*60,     'T', 16),
+               ('seconds',           45, '15S', 19), ('seconds',           15, '5S', 19), ('seconds',            3,     'S', 19),
+               ('milliseconds',       0,   'L', 23)]
 
 app = None
 windows = [] # no gc
@@ -97,7 +98,7 @@ class EpochAxisItem(pg.AxisItem):
             return ['%g'%v for v in values]
         conv = _x2year if self.mode=='years' else _x2local_t
         strs = [conv(self.vb.datasrc, value)[0] for value in values]
-        if all(s.endswith(' 00:00') for s in strs): # all at midnight -> round to days
+        if all(s.endswith(' 00:00') for s in strs if s): # all at midnight -> round to days
             strs = [s.partition(' ')[0] for s in strs]
         return strs
 
@@ -111,18 +112,21 @@ class EpochAxisItem(pg.AxisItem):
         t0,t1,_,_,_ = datasrc.hilo(minVal, maxVal)
         t0,t1 = pd.to_datetime(t0), pd.to_datetime(t1)
         dts = (t1-t0).total_seconds()
-        gfx_width = int(self.viewRect().right())
+        gfx_width = int(size)
         for mode, dtt, freq, ticklen in time_splits:
             if dts > dtt:
                 self.mode = mode
-                roundfreq = 'D' if freq in ('YS','MS') else freq
-                tz = display_timezone if roundfreq=='D' else None # for shorter timeframes, timezone seems buggy
-                rng = pd.date_range(t0, t1, tz=tz, freq=freq)
-                count = gfx_width // ((ticklen+2) * 10) # an approximation is fine
-                count = max(count, 4)
-                rng = rng[::(len(rng)//count or 1)]
-                try:    rng = rng.round(freq=roundfreq)
-                except: pass
+                desired_ticks = int(gfx_width / ((ticklen+2) * 10)) # an approximation is fine
+                if not self.vb.datasrc.is_smooth_time():
+                    desired_ticks -= 1 # leave more space for unevenly spaced ticks
+                desired_ticks = max(desired_ticks, 4)
+                to_midnight = freq in ('YS','MS', 'W-MON', 'D')
+                tz = display_timezone if to_midnight else None # for shorter timeframes, timezone seems buggy
+                rng = pd.date_range(t0, t1, tz=tz, normalize=to_midnight, freq=freq)
+                rng = rng[::(int(len(rng)/desired_ticks) or 1)]
+                if not to_midnight:
+                    try:    rng = rng.round(freq=freq)
+                    except: pass
                 ax = self.vb.parent()
                 rng = _pdtime2index(ax=ax, ts=pd.Series(rng), require_time=True)
                 indices = [ceil(i) for i in rng]
@@ -246,6 +250,7 @@ class PandasDataSource:
         self.pre_update = lambda df: df
         self.post_update = lambda df: df
         self._period = None
+        self._smooth_time = None
         self.is_sparse = self.df[self.df.columns[self.col_data_offset]].isnull().sum().max() > len(self.df)//2
 
     @property
@@ -254,7 +259,8 @@ class PandasDataSource:
             return 1
         if not self._period:
             timecol = self.df.columns[0]
-            self._period = self.df.loc[0:100, timecol].diff().median()
+            times = self.df[timecol].iloc[0:100]
+            self._period = int(times.diff().median()) if len(times)>1 else 1
         return self._period
 
     @property
@@ -312,7 +318,10 @@ class PandasDataSource:
         return self.df.iloc[-1,0] > 1e7
 
     def is_smooth_time(self):
-        return self.timebased() and (df.x.values[1:100].diff() == self.period).all()
+        if self._smooth_time is None:
+            # less than 1% time delta is smooth
+            self._smooth_time = self.timebased() and (np.abs(np.diff(self.x.values[1:100])[1:]//(self.period_ns//1000)-1000) < 10).all()
+        return self._smooth_time
 
     def addcols(self, datasrc):
         new_scale_cols = [c+len(self.df.columns)-datasrc.col_data_offset for c in datasrc.scale_cols]
@@ -343,8 +352,8 @@ class PandasDataSource:
         datasrc.col_data_offset = orig_col_data_cnt
         datasrc.scale_cols = new_scale_cols
         self.cache_hilo = OrderedDict()
-        self._period = None
-        datasrc._period = None
+        self._period = self._smooth_time = None
+        datasrc._period = datasrc._smooth_time = None
         ldf2 = len(self.df) / 2
         self.is_sparse = self.is_sparse or self.df[self.df.columns[self.col_data_offset]].isnull().sum().max() > ldf2
         datasrc.is_sparse = datasrc.is_sparse or datasrc.df[datasrc.df.columns[datasrc.col_data_offset]].isnull().sum().max() > ldf2
@@ -366,12 +375,12 @@ class PandasDataSource:
         self.df = input_df[[input_df.columns[0]]+orig_cols] if orig_cols else input_df
         self.init_x1 = self.xlen + right_margin_candles - side_margin
         self.cache_hilo = OrderedDict()
-        self._period = None
+        self._period = self._smooth_time = None
 
     def set_df(self, df):
         self.df = df
         self.cache_hilo = OrderedDict()
-        self._period = None
+        self._period = self._smooth_time = None
 
     def hilo(self, x0, x1):
         '''Return five values in time range: t0, t1, highest, lowest, number of rows.'''
