@@ -116,14 +116,16 @@ class EpochAxisItem(pg.AxisItem):
         for mode, dtt, freq, ticklen in time_splits:
             if dts > dtt:
                 self.mode = mode
-                desired_ticks = int(gfx_width / ((ticklen+2) * 10)) # an approximation is fine
+                desired_ticks = gfx_width / ((ticklen+2) * 10) - 1 # an approximation is fine
                 if not self.vb.datasrc.is_smooth_time():
                     desired_ticks -= 1 # leave more space for unevenly spaced ticks
                 desired_ticks = max(desired_ticks, 4)
                 to_midnight = freq in ('YS','MS', 'W-MON', 'D')
                 tz = display_timezone if to_midnight else None # for shorter timeframes, timezone seems buggy
                 rng = pd.date_range(t0, t1, tz=tz, normalize=to_midnight, freq=freq)
-                rng = rng[::(int(len(rng)/desired_ticks) or 1)]
+                steps = len(rng) if len(rng)&1==0 else len(rng)+1 # reduce jitter between e.g. 5<-->10 ticks for resolution close to limit
+                step = int(steps/desired_ticks) or 1
+                rng = rng[::step]
                 if not to_midnight:
                     try:    rng = rng.round(freq=freq)
                     except: pass
@@ -147,7 +149,7 @@ class EpochAxisItem(pg.AxisItem):
                     if rect.left() < 0:
                         del text_specs[0]
                     rect,flags,text = text_specs[-1]
-                    if rect.right() > self.viewRect().right():
+                    if rect.right() > self.geometry().width():
                         del text_specs[-1]
                 # ... and those that overlap
                 x = 1e6
@@ -2545,14 +2547,16 @@ def _get_datasrc(ax, require=True):
         assert ax.vb.datasrc, 'not possible to plot this primitive without a prior time-range to compare to'
 
 
-def _millisecond_wrap(s):
+def _millisecond_tz_wrap(s):
+    if len(s) > 6 and s[-6] in '+-' and s[-3] == ':': # +01:00 fmt timezone present?
+        s = s[:-6]
     return (s+'.000000') if '.' not in s else s
 
 
 def _x2local_t(datasrc, x):
     if display_timezone == None:
         return _x2utc(datasrc, x)
-    return _x2t(datasrc, x, lambda t: _millisecond_wrap(datetime.fromtimestamp(t/1e9, tz=display_timezone).isoformat(sep=' ').partition('+')[0]))
+    return _x2t(datasrc, x, lambda t: _millisecond_tz_wrap(datetime.fromtimestamp(t/1e9, tz=display_timezone).isoformat(sep=' ')))
 
 
 def _x2utc(datasrc, x):
