@@ -15,9 +15,8 @@
    more realistic.
    '''
 
-
-import sys
-sys.path.append('D:/perso/trading/anaconda3/finplot')
+import sys, os
+sys.path.append(os.path.dirname(os.path.realpath(__file__)) + '/../../../finplot')
 import finplot as fplt
 
 from functools import lru_cache

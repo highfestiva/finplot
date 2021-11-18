@@ -1408,6 +1408,7 @@ def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6
     _update_significants(ax, datasrc, force=True)
     item.update_data = partial(_update_data, None, None, item)
     item.update_gfx = partial(_update_gfx, item)
+    item.setZValue(40) # Skinok : candle should always be on top of any indicators
     ax.addItem(item)
     return item
 
