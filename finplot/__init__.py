@@ -210,7 +210,7 @@ class YScale:
         y /= self.scalef
         if self.scaletype == 'log':
             if verify and y <= 0:
-                return -1e6
+                return -1e6 / self.scalef
             y = np.log10(y)
         return y
 
@@ -959,7 +959,7 @@ class FinViewBox(pg.ViewBox):
             hi = vr.bottom()
             lo = vr.top()
         if self.yscale.scaletype == 'log':
-            lo = max(1e-100, lo)
+            lo = max(0.05*self.yscale.scalef, lo) # strange QT log scale rendering, which I'm unable to compensate for
             rng = (hi / lo) ** (1/self.v_zoom_scale)
             rng = min(rng, 1e50) # avoid float overflow
             base = (hi*lo) ** self.v_zoom_baseline
@@ -1153,7 +1153,7 @@ class HeatmapItem(FinPlotItem):
                 if v >= lim:
                     v = 1 - self.colcurve(1 - (v-lim)/(1-lim))
                     color = self.colmap.map(v, mode='qcolor')
-                    p.fillRect(QtCore.QRectF(t-rect_size2, price+h0, self.rect_size, h1), color)
+                    p.fillRect(QtCore.QRectF(t-rect_size2, self.ax.vb.yscale.invxform(price+h0), self.rect_size, self.ax.vb.yscale.invxform(h1)), color)
 
 
 
@@ -2097,8 +2097,9 @@ def _create_datasrc(ax, *args):
             print('WARNING: input data source may cause performance penalty and crash.')
 
     # FIX: stupid QT bug causes rectangles larger than 2G to flicker, so scale rendering down some
-    if datasrc.df.iloc[:, 1:].max(numeric_only=True).max() > 1e8: # too close to 2G for comfort
-        ax.vb.yscale.set_scale(int(1e8))
+    # FIX: PyQt 5.15.2 lines >1e6 are being clipped to 1e6 during the first render pass, so scale down if >1e6
+    if datasrc.df.iloc[:, 1:].max(numeric_only=True).max() > 1e6:
+        ax.vb.yscale.set_scale(int(1e6))
     return datasrc
 
 
@@ -2305,7 +2306,7 @@ def _start_visual_update(item):
         item.ax.removeItem(item)
         item.dirty = True
     else:
-        y = item.datasrc.y
+        y = item.datasrc.y / item.ax.vb.yscale.scalef
         if item.ax.vb.yscale.scaletype == 'log':
             y = y + log_plot_offset
         item.setData(item.datasrc.index, y)
