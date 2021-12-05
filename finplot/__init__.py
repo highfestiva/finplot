@@ -959,7 +959,10 @@ class FinViewBox(pg.ViewBox):
             hi = vr.bottom()
             lo = vr.top()
         if self.yscale.scaletype == 'log':
-            lo = max(0.05*self.yscale.scalef, lo) # strange QT log scale rendering, which I'm unable to compensate for
+            if lo < 0:
+                lo = 0.05 * self.yscale.scalef # strange QT log scale rendering, which I'm unable to compensate for
+            else:
+                lo = max(1e-100, lo)
             rng = (hi / lo) ** (1/self.v_zoom_scale)
             rng = min(rng, 1e50) # avoid float overflow
             base = (hi*lo) ** self.v_zoom_baseline
