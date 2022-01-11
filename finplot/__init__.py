@@ -458,6 +458,9 @@ class FinWindow(pg.GraphicsLayoutWidget):
     def axs(self):
         return [ax for ax in self.ci.items if isinstance(ax, pg.PlotItem)]
 
+    def autoRangeEnabled(self):
+        return [True, True]
+
     def close(self):
         self.closing = True
         _savewindata(self)
@@ -1565,7 +1568,9 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
         y = y + log_plot_offset
     if style is None or any(ch in style for ch in '-_.'):
         connect_dots = 'finite' # same as matplotlib; use datasrc.standalone=True if you want to keep separate intervals on a plot
-        item = ax.plot(x, y, pen=_makepen(color=used_color, style=style, width=width), name=legend, connect=connect_dots)
+        cliparg = {'clipToView':True} if isinstance(ax.vb.win, pg.GraphicsLayoutWidget) else {}
+        item = ax.plot(x, y, pen=_makepen(color=used_color, style=style, width=width), name=legend, connect=connect_dots, **cliparg)
+        item.setDownsampling(auto=True, method='subsample')
         item.setZValue(5)
     else:
         symbol = {'v':'t', '^':'t1', '>':'t2', '<':'t3'}.get(style, style) # translate some similar styles
