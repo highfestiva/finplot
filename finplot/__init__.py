@@ -223,8 +223,6 @@ class PandasDataSource:
     def __init__(self, df):
         if type(df.index) == pd.DatetimeIndex or df.index[-1]>1e7 or '.RangeIndex' not in str(type(df.index)):
             df = df.reset_index()
-        elif len(df.columns) == 1:
-            df = df.reset_index()
         self.df = df.copy()
         # manage time column
         if _has_timecol(self.df):
@@ -2096,6 +2094,8 @@ def _create_datasrc(ax, *args):
                 datasrc.df.insert(0, col, a.vb.datasrc.df[col])
                 datasrc = PandasDataSource(datasrc.df)
                 break
+        if len(datasrc.df.columns) == 1:
+            datasrc = PandasDataSource(datasrc.df.reset_index())
     elif len(iargs) >= 2 and len(datasrc.df.columns) == len(iargs)+1 and len(iargs) == len(args):
         try:
             if '.Int' in str(type(iargs[0].index)):
