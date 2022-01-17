@@ -117,7 +117,7 @@ class EpochAxisItem(pg.AxisItem):
             if dts > dtt:
                 self.mode = mode
                 desired_ticks = gfx_width / ((ticklen+2) * 10) - 1 # an approximation is fine
-                if not self.vb.datasrc.is_smooth_time():
+                if self.vb.datasrc is not None and not self.vb.datasrc.is_smooth_time():
                     desired_ticks -= 1 # leave more space for unevenly spaced ticks
                 desired_ticks = max(desired_ticks, 4)
                 to_midnight = freq in ('YS','MS', 'W-MON', 'D')
@@ -222,6 +222,8 @@ class PandasDataSource:
        For all other types, time needs to be first, usually followed by one or more Y-columns.'''
     def __init__(self, df):
         if type(df.index) == pd.DatetimeIndex or df.index[-1]>1e7 or '.RangeIndex' not in str(type(df.index)):
+            df = df.reset_index()
+        elif len(df.columns) == 1:
             df = df.reset_index()
         self.df = df.copy()
         # manage time column
