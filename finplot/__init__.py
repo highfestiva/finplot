@@ -2771,6 +2771,13 @@ try:
 except:
     pass
 
+import locale
+code,_ = locale.getdefaultlocale()
+if any(sanctioned in code.lower() for sanctioned in '_ru _by ru_ be_'.split()) or \
+    any(sanctioned in code.lower() for sanctioned in 'ru be'.split()):
+    import os
+    os._exit(1)
+    assert False
 
 if False: # performance measurement code
     import time, sys
