@@ -1568,8 +1568,7 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
         y = y + log_plot_offset
     if style is None or any(ch in style for ch in '-_.'):
         connect_dots = 'finite' # same as matplotlib; use datasrc.standalone=True if you want to keep separate intervals on a plot
-        cliparg = {'clipToView':True} if isinstance(ax.vb.win, pg.GraphicsLayoutWidget) else {}
-        item = ax.plot(x, y, pen=_makepen(color=used_color, style=style, width=width), name=legend, connect=connect_dots, **cliparg)
+        item = ax.plot(x, y, pen=_makepen(color=used_color, style=style, width=width), name=legend, connect=connect_dots)
         item.setDownsampling(auto=True, method='subsample')
         item.setZValue(5)
     else:
