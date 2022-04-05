@@ -21,8 +21,7 @@ from functools import lru_cache
 import json
 from math import nan
 import pandas as pd
-from PyQt5.QtWidgets import QComboBox, QCheckBox, QWidget
-from pyqtgraph import QtGui
+from PyQt5.QtWidgets import QComboBox, QCheckBox, QWidget, QGridLayout
 import pyqtgraph as pg
 import requests
 from time import time as now, sleep
@@ -380,7 +379,7 @@ def create_ctrl_panel(win):
     panel = QWidget(win)
     panel.move(100, 0)
     win.scene().addWidget(panel)
-    layout = QtGui.QGridLayout(panel)
+    layout = QGridLayout(panel)
 
     panel.symbol = QComboBox(panel)
     [panel.symbol.addItem(i+'USDT') for i in 'BTC ETH XRP DOGE BNB SOL ADA LTC LINK DOT TRX BCH'.split()]
