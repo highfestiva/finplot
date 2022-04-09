@@ -13,6 +13,7 @@ region.
 from ast import literal_eval
 from collections import OrderedDict, defaultdict
 from datetime import datetime, timezone
+from dateutil.tz import tzlocal
 from decimal import Decimal
 from functools import partial, partialmethod
 from math import ceil, floor, fmod
@@ -62,7 +63,7 @@ lod_labels = 700
 cache_candle_factor = 3 # factor extra candles rendered to buffer
 y_pad = 0.03 # 3% padding at top and bottom of autozoom plots
 y_label_width = 65
-display_timezone = datetime.now(timezone.utc).astimezone().tzinfo  # default to local
+display_timezone = tzlocal() # default to local
 winx,winy,winw,winh = 300,150,800,400
 log_plot_offset = -2.2222222e-16 # I could file a bug report, probably in PyQt, but this is more fun
 # format: mode, min-duration, pd-freq-fmt, tick-str-len
