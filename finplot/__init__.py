@@ -2106,6 +2106,9 @@ def _create_datasrc(ax, *args):
         except:
             print('WARNING: input data source may cause performance penalty and crash.')
 
+    if datasrc.period_ns < 0:
+        print('WARNING: input data source has time in descending order. Try sort_values() before calling.')
+
     # FIX: stupid QT bug causes rectangles larger than 2G to flicker, so scale rendering down some
     # FIX: PyQt 5.15.2 lines >1e6 are being clipped to 1e6 during the first render pass, so scale down if >1e6
     if datasrc.df.iloc[:, 1:].max(numeric_only=True).max() > 1e6:
