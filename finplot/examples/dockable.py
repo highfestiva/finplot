@@ -43,17 +43,16 @@ dock_2.addWidget(ax2.ax_widget, 1, 0, 1, 2)
 # Link x-axis
 ax1.setXLink(ax0)
 ax2.setXLink(ax0)
-win.axs = [ax0]
+win.axs = [ax0,ax1,ax2]
 
 @lru_cache(maxsize = 15)
 def download(symbol):
-    return yf.download(symbol, "2019-01-01")
+    return yf.download(symbol, "2020-01-01")
 
 @lru_cache(maxsize = 100)
 def get_name(symbol):
     return yf.Ticker(symbol).info ["shortName"]
 
-plots = []
 def update(txt):
     df = download(txt)
     if len(df) < 20: # symbol does not exist
