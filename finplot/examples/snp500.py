@@ -9,7 +9,7 @@ from time import time
 
 # load data and convert date
 end_t = int(time()) 
-start_t = end_t - 12*30*24*60*60 # twelve months
+start_t = end_t - 24*30*24*60*60 # 24 months
 symbol = 'SPY'
 interval = '1d'
 url = 'https://query1.finance.yahoo.com/v7/finance/download/%s?period1=%s&period2=%s&interval=%s&events=history' % (symbol, start_t, end_t, interval)

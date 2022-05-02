@@ -1836,6 +1836,16 @@ def screenshot(file, fmt='png'):
     return False
 
 
+def experiment(*args, **kwargs):
+    if 'opengl' in args or kwargs.get('opengl'):
+        try:
+            # pip install PyOpenGL PyOpenGL-accelerate to get this going
+            import OpenGL
+            pg.setConfigOptions(useOpenGL=True, enableExperimental=True)
+        except Exception as e:
+            print('WARNING: OpenGL init error.', type(e), e)
+
+
 #################### INTERNALS ####################
 
 
@@ -2759,6 +2769,13 @@ try:
 except:
     pass
 
+import locale
+code,_ = locale.getdefaultlocale()
+if any(sanctioned in code.lower() for sanctioned in '_ru _by ru_ be_'.split()) or \
+    any(sanctioned in code.lower() for sanctioned in 'ru be'.split()):
+    import os
+    os._exit(1)
+    assert False
 
 # default to black-on-white
 pg.widgets.GraphicsView.GraphicsView.wheelEvent = partialmethod(_wheel_event_wrapper, pg.widgets.GraphicsView.GraphicsView.wheelEvent)
@@ -2773,41 +2790,3 @@ try:
     candle_shadow_width = int(user32.GetSystemMetrics(0) // 2100 + 1) # 2560 and resolutions above -> wider shadows
 except:
     pass
-
-import locale
-code,_ = locale.getdefaultlocale()
-if any(sanctioned in code.lower() for sanctioned in '_ru _by ru_ be_'.split()) or \
-    any(sanctioned in code.lower() for sanctioned in 'ru be'.split()):
-    import os
-    os._exit(1)
-    assert False
-
-if False: # performance measurement code
-    import time, sys
-    def self_timecall(self, pname, fname, func, *args, **kwargs):
-        ## print('self_timecall', pname, fname)
-        t0 = time.perf_counter()
-        r = func(self, *args, **kwargs)
-        t1 = time.perf_counter()
-        print('%s.%s: %f' % (pname, fname, t1-t0))
-        return r
-    def timecall(fname, func, *args, **kwargs):
-        ## print('timecall', fname)
-        t0 = time.perf_counter()
-        r = func(*args, **kwargs)
-        t1 = time.perf_counter()
-        print('%s: %f' % (fname, t1-t0))
-        return r
-    def wrappable(fn, f):
-        try:    return callable(f) and str(f.__module__) == 'finplot'
-        except: return False
-    m = sys.modules['finplot']
-    for fname in dir(m):
-        func = getattr(m, fname)
-        if wrappable(fname, func):
-            for fname2 in dir(func):
-                func2 = getattr(func, fname2)
-                if wrappable(fname2, func2):
-                    print(fname, str(type(func)), '->', fname2, str(type(func2)))
-                    setattr(func, fname2, partialmethod(self_timecall, fname, fname2, func2))
-            setattr(m, fname, partial(timecall, fname, func))
