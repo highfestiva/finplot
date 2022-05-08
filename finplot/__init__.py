@@ -37,7 +37,7 @@ hard_colors = ['#000000', '#772211', '#000066', '#555555', '#0022cc', '#ffcc00']
 colmap_clash = ColorMap([0.0, 0.2, 0.6, 1.0], [[127, 127, 255, 51], [0, 0, 127, 51], [255, 51, 102, 51], [255, 178, 76, 51]])
 foreground = '#000'
 background = '#fff'
-odd_plot_background = '#fff'
+odd_plot_background = '#eaeaea'
 candle_bull_color = '#26a69a'
 candle_bear_color = '#ef5350'
 candle_bull_body_color = background
@@ -180,7 +180,7 @@ class YAxisItem(pg.AxisItem):
         gs = ['%g'%xform(v) for v in vs[2][1]]
         maxdec = max([len((g).partition('.')[2].partition('e')[0]) for g in gs])
         if any(['e' in g for g in gs]):
-            self.next_fmt = '%%.%ig' % maxdec
+            self.next_fmt = '%%.%ie' % maxdec
         else:
             self.next_fmt = '%%.%if' % maxdec
         return vs
@@ -747,10 +747,11 @@ class FinViewBox(pg.ViewBox):
         else:
             scale_fact = 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
         vr = self.targetRect()
-        center = self.mapToView(ev.pos())
-        if (center.x()-vr.left())/vr.width() < 0.05: # zoom to far left => all the way left
+        center = self.mapToView(ev.scenePos())
+        pct_x = (center.x()-vr.left()) / vr.width()
+        if pct_x < 0.05: # zoom to far left => all the way left
             center = pg.Point(vr.left(), center.y())
-        elif (center.x()-vr.left())/vr.width() > 0.95: # zoom to far right => all the way right
+        elif pct_x > 0.95: # zoom to far right => all the way right
             center = pg.Point(vr.right(), center.y())
         self.zoom_rect(vr, scale_fact, center)
         # update crosshair
@@ -1315,7 +1316,7 @@ def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=T
     ax0 = axs = create_plot_widget(master=win, rows=rows, init_zoom_periods=init_zoom_periods, yscale=yscale)
     axs = axs if type(axs) in (tuple,list) else [axs]
     for ax in axs:
-        win.addItem(ax)
+        win.addItem(ax, col=1)
         win.nextRow()
     return ax0
 
@@ -1926,16 +1927,18 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
     if native_win and prev_ax is not None:
         prev_ax.set_visible(xaxis=False) # hide the whole previous axis
     axes = {'bottom': EpochAxisItem(vb=viewbox, orientation='bottom'),
-            'left':   YAxisItem(vb=viewbox, orientation='left')}
+            'right':  YAxisItem(vb=viewbox, orientation='right')}
     if native_win:
         ax = pg.PlotItem(viewBox=viewbox, axisItems=axes, name='plot-%i'%index, enableMenu=False)
     else:
         axw = pg.PlotWidget(viewBox=viewbox, axisItems=axes, name='plot-%i'%index, enableMenu=False)
         ax = axw.plotItem
         ax.ax_widget = axw
-    ax.axes['left']['item'].setWidth(y_label_width) # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
-    ax.axes['left']['item'].setStyle(tickLength=-5) # some bug, totally unexplicable (why setting the default value again would fix repaint width as axis scale down)
-    ax.axes['left']['item'].setZValue(30) # put axis in front instead of behind data
+    ax.hideAxis('left')
+    if y_label_width:
+        ax.axes['right']['item'].setWidth(y_label_width) # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
+    ax.axes['right']['item'].setStyle(tickLength=-5) # some bug, totally unexplicable (why setting the default value again would fix repaint width as axis scale down)
+    ax.axes['right']['item'].setZValue(30) # put axis in front instead of behind data
     ax.axes['bottom']['item'].setZValue(30)
     ax.setLogMode(y=(yscale.scaletype=='log'))
     ax.significant_decimals = significant_decimals
@@ -1987,14 +1990,9 @@ def _ax_overlay(ax, scale=0.25, yaxis=False):
     axo.hideButtons()
     viewbox.addItem(axo)
     if yaxis and isinstance(axo.vb.win, pg.GraphicsLayoutWidget):
-        axi = YAxisItem(vb=axo.vb, orientation='right')
-        axo.axes['right'] = {'item':axi}
-        axi.linkToView(axo.vb)
-        row = ax.win_index
-        for col in range(1, 100):
-            if axo.vb.win.getItem(row, col) is None:
-                axo.vb.win.addItem(axi, row=row, col=1)
-                break
+        axi = YAxisItem(vb=axo.vb, orientation='left')
+        axo.setAxisItems({'left': axi})
+        axo.vb.win.addItem(axi, row=0, col=0)
     ax.vb.sigResized.connect(updateView)
     overlay_axs.append(axo)
     updateView()
@@ -2007,11 +2005,11 @@ def _ax_set_visible(ax, crosshair=None, xaxis=None, yaxis=None, xgrid=None, ygri
     if xaxis is not None:
         ax.getAxis('bottom').setStyle(showValues=xaxis)
     if yaxis is not None:
-        ax.getAxis('left').setStyle(showValues=yaxis)
+        ax.getAxis('right').setStyle(showValues=yaxis)
     if xgrid is not None or ygrid is not None:
         ax.showGrid(x=xgrid, y=ygrid)
-        if ax.getAxis('left'):
-            ax.getAxis('left').setEnabled(False)
+        if ax.getAxis('right'):
+            ax.getAxis('right').setEnabled(False)
         if ax.getAxis('bottom'):
             ax.getAxis('bottom').setEnabled(False)
 

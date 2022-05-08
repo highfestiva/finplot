@@ -346,8 +346,8 @@ def dark_mode_toggle(dark):
     axs += fplt.overlay_axs
     axis_pen = fplt._makepen(color=fplt.foreground)
     for ax in axs:
-        ax.axes['left']['item'].setPen(axis_pen)
-        ax.axes['left']['item'].setTextPen(axis_pen)
+        ax.axes['right']['item'].setPen(axis_pen)
+        ax.axes['right']['item'].setTextPen(axis_pen)
         ax.axes['bottom']['item'].setPen(axis_pen)
         ax.axes['bottom']['item'].setTextPen(axis_pen)
         if ax.crosshair is not None:
