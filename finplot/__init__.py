@@ -874,11 +874,21 @@ class FinViewBox(pg.ViewBox):
         if ev.button() != QtCore.Qt.LeftButton or ev.modifiers() != QtCore.Qt.ControlModifier or not self.draw_line:
             return super().mouseClickEvent(ev)
         # add another segment to the currently drawn line
-        p = self.mapToView(ev.pos())
+        p = self.mapClickToView(ev.pos())
         p = _clamp_point(self.parent(), p)
         self.append_draw_segment(p)
         self.drawing = False
         ev.accept()
+
+    def mapClickToView(self, pos):
+        '''mapToView() does not do grids properly in embedded widgets. Strangely, only affect clicks, not drags.'''
+        if self.win.parent() is not None:
+            ax = self.parent()
+            if ax.getAxis('right').grid:
+                pos.setX(pos.x() + self.width())
+            elif ax.getAxis('bottom').grid:
+                pos.setY(pos.y() + self.height())
+        return super().mapToView(pos)
 
     def keyPressEvent(self, ev):
         if self.master_viewbox:
