@@ -1769,13 +1769,13 @@ def remove_primitive(primitive):
 def set_time_inspector(inspector, ax=None, when='click'):
     '''Callback when clicked like so: inspector(x, y).'''
     ax = ax if ax else last_ax
-    win = ax.vb.win
+    master = ax.ax_widget if hasattr(ax, 'ax_widget') else ax.vb.win
     if when == 'hover':
-        win.proxy_hover = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=15, slot=partial(_inspect_pos, ax, inspector))
+        master.proxy_hover = pg.SignalProxy(master.scene().sigMouseMoved, rateLimit=15, slot=partial(_inspect_pos, ax, inspector))
     elif when in ('dclick', 'double-click'):
-        win.proxy_dclick = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, inspector, True))
+        master.proxy_dclick = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, inspector, True))
     else:
-        win.proxy_click = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, inspector, False))
+        master.proxy_click = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, inspector, False))
 
 
 def add_crosshair_info(infofunc, ax=None):
