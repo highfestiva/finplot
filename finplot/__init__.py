@@ -642,6 +642,15 @@ class FinPolyLine(pg.PolyLineROI):
             self.update_text(text)
 
     def movePoint(self, handle, pos, modifiers=QtCore.Qt.KeyboardModifier(), finish=True, coords='parent'):
+
+        # Hold shift while dragging a point to force horizontal trend line; other points snap to the same height while keeping their x-value
+        if isinstance(handle, pg.UIGraphicsItem) and (modifiers == QtCore.Qt.ShiftModifier):
+            for handle_dict in self.handles:
+                if not handle_dict['item'] is handle:
+                    other_handle = handle_dict['item']
+                    other_pos = self.vb.mapViewToDevice(handle_dict['pos'])
+                    super().movePoint(other_handle, pg.Point(other_pos.x(), pos.y()), modifiers, finish, coords)
+
         super().movePoint(handle, pos, modifiers, finish, coords)
         self.update_texts()
 
