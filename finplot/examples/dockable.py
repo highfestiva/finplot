@@ -69,6 +69,9 @@ def update(txt):
     fplt.plot(ma20, legend = "MA-20", ax = ax1)
     fplt.plot(ma50, legend = "MA-50", ax = ax1)
     fplt.volume_ocv(volume, ax = ax2)
+
+    fplt.add_line(p0=(df.index[0], df.Close.iloc[0]), p1=(df.index[-1], df.Close.iloc[-1]), ax=ax0, color='#aaa')
+
     fplt.refresh() # refresh autoscaling when all plots complete
     Thread(target=lambda: info.setText(get_name(txt))).start() # slow, so use thread
 

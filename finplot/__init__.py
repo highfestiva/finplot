@@ -22,25 +22,17 @@ import os.path
 import pandas as pd
 import pyqtgraph as pg
 from pyqtgraph import QtCore, QtGui
-
-
+#from FP_Color_Setting import FP_Color_Setting
+import FP_Color_Setting
 
 # appropriate types
 ColorMap = pg.ColorMap
 
 # module definitions, mostly colors
-legend_border_color = '#777'
-legend_fill_color   = '#6668'
-legend_text_color   = '#ddd6'
-soft_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
-hard_colors = ['#000000', '#772211', '#000066', '#555555', '#0022cc', '#ffcc00']
-colmap_clash = ColorMap([0.0, 0.2, 0.6, 1.0], [[127, 127, 255, 51], [0, 0, 127, 51], [255, 51, 102, 51], [255, 178, 76, 51]])
-foreground = '#000'
-background = '#fff'
 odd_plot_background = '#eaeaea'
 candle_bull_color = '#26a69a'
 candle_bear_color = '#ef5350'
-candle_bull_body_color = background
+candle_bull_body_color = FP_Color_Setting.background
 candle_shadow_width = 1
 volume_bull_color = '#92d2cc'
 volume_bear_color = '#f7a9a7'
@@ -1107,8 +1099,8 @@ class FinPlotItem(pg.GraphicsObject):
     def _generate_dummy_picture(self, boundingRect):
         if self.datasrc.is_sparse:
             # just draw something to ensure PyQt will paint us again
-            self.painter.setPen(pg.mkPen(background))
-            self.painter.setBrush(pg.mkBrush(background))
+            self.painter.setPen(pg.mkPen(FP_Color_Setting.background))
+            self.painter.setBrush(pg.mkBrush(FP_Color_Setting.background))
             l,r = boundingRect.left(), boundingRect.right()
             self.painter.drawRect(QtCore.QRectF(l, boundingRect.top(), 1e-3, boundingRect.height()*1e-5))
             self.painter.drawRect(QtCore.QRectF(r, boundingRect.bottom(), -1e-3, -boundingRect.height()*1e-5))
@@ -1169,7 +1161,7 @@ class CandlestickItem(FinPlotItem):
 
 
 class HeatmapItem(FinPlotItem):
-    def __init__(self, ax, datasrc, rect_size=0.9, filter_limit=0, colmap=colmap_clash, whiteout=0.0, colcurve=lambda x:pow(x,4)):
+    def __init__(self, ax, datasrc, rect_size=0.9, filter_limit=0, colmap=FP_Color_Setting.colmap_clash, whiteout=0.0, colcurve=lambda x:pow(x,4)):
         self.rect_size = rect_size
         self.filter_limit = filter_limit
         self.colmap = colmap
@@ -1343,7 +1335,7 @@ class ScatterLabelItem(FinPlotItem):
 
 
 def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=True, yscale='linear'):
-    pg.setConfigOptions(foreground=foreground, background=background)
+    pg.setConfigOptions(foreground=FP_Color_Setting.foreground, background=FP_Color_Setting.background)
     win = FinWindow(title)
     # normally first graph is of higher significance, so enlarge
     win.ci.layout.setRowStretchFactor(0, top_graph_scale)
@@ -1357,7 +1349,7 @@ def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=T
 
 
 def create_plot_widget(master, rows=1, init_zoom_periods=1e10, yscale='linear'):
-    pg.setConfigOptions(foreground=foreground, background=background)
+    pg.setConfigOptions(foreground=FP_Color_Setting.foreground, background=FP_Color_Setting.background)
     global last_ax
     if master not in windows:
         windows.append(master)
@@ -1636,7 +1628,7 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
         for _,label in axm.legend.items:
             if label.text == legend:
                 label.setAttr('justify', 'left')
-                label.setText(label.text, color=legend_text_color)
+                label.setText(label.text, color=FP_Color_Setting.legend_text_color)
     return item
 
 
@@ -1660,7 +1652,7 @@ def add_legend(text, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
     _create_legend(ax)
     row = ax.legend.layout.rowCount()
-    label = pg.LabelItem(text, color=legend_text_color, justify='left')
+    label = pg.LabelItem(text, color=FP_Color_Setting.legend_text_color, justify='left')
     ax.legend.layout.addItem(label, row, 0, 1, 2)
     return label
 
@@ -2084,7 +2076,7 @@ def _create_legend(ax):
     if ax.vb.master_viewbox:
         ax = ax.vb.master_viewbox.parent()
     if ax.legend is None:
-        ax.legend = FinLegendItem(border_color=legend_border_color, fill_color=legend_fill_color, size=None, offset=(3,2))
+        ax.legend = FinLegendItem(border_color=FP_Color_Setting.legend_border_color, fill_color=FP_Color_Setting.legend_fill_color, size=None, offset=(3,2))
         ax.legend.setParentItem(ax.vb)
 
 
@@ -2522,9 +2514,9 @@ def _get_color(ax, style, wanted_color):
     is_line = lambda style: style is None or any(ch in style for ch in '-_.')
     this_line = is_line(style)
     if this_line:
-        colors = soft_colors
+        colors = FP_Color_Setting.soft_colors
     else:
-        colors = hard_colors
+        colors = FP_Color_Setting.hard_colors
     if index is None:
         avoid = set(i.opts['handed_color'] for i in ax.items if isinstance(i,pg.PlotDataItem) and i.opts['handed_color'] is not None and this_line==is_line(i.opts['symbol']))
         index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and i.opts['handed_color'] is None and this_line==is_line(i.opts['symbol'])])
