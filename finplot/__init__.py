@@ -29,20 +29,7 @@ import FP_Color_Setting
 ColorMap = pg.ColorMap
 
 # module definitions, mostly colors
-odd_plot_background = '#eaeaea'
-candle_bull_color = '#26a69a'
-candle_bear_color = '#ef5350'
-candle_bull_body_color = FP_Color_Setting.background
 candle_shadow_width = 1
-volume_bull_color = '#92d2cc'
-volume_bear_color = '#f7a9a7'
-volume_bull_body_color = volume_bull_color
-volume_neutral_color = '#bbb'
-poc_color = '#006'
-band_color = '#d2dfe6'
-cross_hair_color = '#0007'
-draw_line_color = '#000'
-draw_done_color = '#555'
 significant_decimals = 8
 significant_eps = 1e-8
 max_zoom_points = 20 # number of visible candles when maximum zoomed in
@@ -601,7 +588,7 @@ class FinPolyLine(pg.PolyLineROI):
 
     def addSegment(self, h1, h2, index=None):
         super().addSegment(h1, h2, index)
-        text = pg.TextItem(color=draw_line_color)
+        text = pg.TextItem(color=FP_Color_Setting.draw_line_color)
         text.setZValue(50)
         text.segment = self.segments[-1 if index is None else index]
         if index is None:
@@ -803,14 +790,14 @@ class FinViewBox(pg.ViewBox):
             if not self.drawing:
                 return
         if self.draw_line and not self.drawing:
-            self.set_draw_line_color(draw_done_color)
+            self.set_draw_line_color(FP_Color_Setting.draw_done_color)
         p1 = self.mapToView(ev.pos())
         p1 = _clamp_point(self.parent(), p1)
         if not self.drawing:
             # add new line
             p0 = self.mapToView(ev.lastPos())
             p0 = _clamp_point(self.parent(), p0)
-            self.draw_line = FinPolyLine(self, [p0, p1], closed=False, pen=pg.mkPen(draw_line_color), movable=False)
+            self.draw_line = FinPolyLine(self, [p0, p1], closed=False, pen=pg.mkPen(FP_Color_Setting.draw_line_color), movable=False)
             self.draw_line.setZValue(40)
             self.rois.append(self.draw_line)
             self.addItem(self.draw_line)
@@ -837,7 +824,7 @@ class FinViewBox(pg.ViewBox):
             p0 = _clamp_point(self.parent(), p0)
             s = nonzerosize(p0, p1)
             p0 = QtCore.QPointF(p0.x()-s.x()/2, p0.y()-s.y()/2)
-            self.draw_ellipse = FinEllipse(p0, s, pen=pg.mkPen(draw_line_color), movable=True)
+            self.draw_ellipse = FinEllipse(p0, s, pen=pg.mkPen(FP_Color_Setting.draw_line_color), movable=True)
             self.draw_ellipse.setZValue(80)
             self.rois.append(self.draw_ellipse)
             self.addItem(self.draw_ellipse)
@@ -1037,7 +1024,7 @@ class FinViewBox(pg.ViewBox):
             if self.rois:
                 if isinstance(self.rois[-1], pg.PolyLineROI):
                     self.draw_line = self.rois[-1]
-                    self.set_draw_line_color(draw_line_color)
+                    self.set_draw_line_color(FP_Color_Setting.draw_line_color)
             return True
 
     def append_draw_segment(self, p):
@@ -1112,18 +1099,18 @@ class FinPlotItem(pg.GraphicsObject):
 
 class CandlestickItem(FinPlotItem):
     def __init__(self, ax, datasrc, draw_body, draw_shadow, candle_width, colorfunc):
-        self.colors = dict(bull_shadow      = candle_bull_color,
-                           bull_frame       = candle_bull_color,
-                           bull_body        = candle_bull_body_color,
-                           bear_shadow      = candle_bear_color,
-                           bear_frame       = candle_bear_color,
-                           bear_body        = candle_bear_color,
-                           weak_bull_shadow = brighten(candle_bull_color, 1.2),
-                           weak_bull_frame  = brighten(candle_bull_color, 1.2),
-                           weak_bull_body   = brighten(candle_bull_color, 1.2),
-                           weak_bear_shadow = brighten(candle_bear_color, 1.5),
-                           weak_bear_frame  = brighten(candle_bear_color, 1.5),
-                           weak_bear_body   = brighten(candle_bear_color, 1.5))
+        self.colors = dict(bull_shadow      = FP_Color_Setting.candle_bull_color,
+                           bull_frame       = FP_Color_Setting.candle_bull_color,
+                           bull_body        = FP_Color_Setting.candle_bull_body_color,
+                           bear_shadow      = FP_Color_Setting.candle_bear_color,
+                           bear_frame       = FP_Color_Setting.candle_bear_color,
+                           bear_body        = FP_Color_Setting.candle_bear_color,
+                           weak_bull_shadow = brighten(FP_Color_Setting.candle_bull_color, 1.2),
+                           weak_bull_frame  = brighten(FP_Color_Setting.candle_bull_color, 1.2),
+                           weak_bull_body   = brighten(FP_Color_Setting.candle_bull_color, 1.2),
+                           weak_bear_shadow = brighten(FP_Color_Setting.candle_bear_color, 1.5),
+                           weak_bear_frame  = brighten(FP_Color_Setting.candle_bear_color, 1.5),
+                           weak_bear_body   = brighten(FP_Color_Setting.candle_bear_color, 1.5))
         self.draw_body = draw_body
         self.draw_shadow = draw_shadow
         self.candle_width = candle_width
@@ -1202,10 +1189,10 @@ class HorizontalTimeVolumeItem(CandlestickItem):
         colorfunc = colorfunc or horizvol_colorfilter() # resolve function lower down in source code
         super().__init__(ax, datasrc, draw_shadow=False, candle_width=candle_width, draw_body=draw_body, colorfunc=colorfunc)
         self.lod = False
-        self.colors.update(dict(neutral_shadow  = volume_neutral_color,
-                                neutral_frame   = volume_neutral_color,
-                                neutral_body    = volume_neutral_color,
-                                bull_body       = candle_bull_color))
+        self.colors.update(dict(neutral_shadow  = FP_Color_Setting.volume_neutral_color,
+                                neutral_frame   = FP_Color_Setting.volume_neutral_color,
+                                neutral_body    = FP_Color_Setting.volume_neutral_color,
+                                bull_body       = FP_Color_Setting.candle_bull_color))
 
     def generate_picture(self, boundingRect):
         times = self.datasrc.df.iloc[:, 0]
@@ -1259,7 +1246,7 @@ class HorizontalTimeVolumeItem(CandlestickItem):
                     if va <= vb: # NOTE both == is also ok
                         b = min(binc-1, bb)
                         v += vb
-                color = pg.mkColor(band_color)
+                color = pg.mkColor(FP_Color_Setting.band_color)
                 p.fillRect(QtCore.QRectF(t, prcr[a], f, prcr[b]-prcr[a]+h), color)
 
             # draw horizontal bars
@@ -1277,7 +1264,7 @@ class HorizontalTimeVolumeItem(CandlestickItem):
             # draw poc line
             if self.draw_poc:
                 y = prcr[pocidx] + h / 2
-                p.setPen(pg.mkPen(poc_color))
+                p.setPen(pg.mkPen(FP_Color_Setting.poc_color))
                 p.drawLine(QtCore.QPointF(t, y), QtCore.QPointF(t+f*self.draw_poc, y))
 
 
@@ -1481,14 +1468,14 @@ def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter)
     _update_significants(ax, datasrc, force=True)
     item.colors['bull_body'] = item.colors['bull_frame']
     if colorfunc == volume_colorfilter: # assume normal volume plot
-        item.colors['bull_frame'] = volume_bull_color
-        item.colors['bull_body']  = volume_bull_body_color
-        item.colors['bear_frame'] = volume_bear_color
-        item.colors['bear_body']  = volume_bear_color
+        item.colors['bull_frame'] = FP_Color_Setting.volume_bull_color
+        item.colors['bull_body']  = FP_Color_Setting.volume_bull_body_color
+        item.colors['bear_frame'] = FP_Color_Setting.volume_bear_color
+        item.colors['bear_body']  = FP_Color_Setting.volume_bear_color
         ax.vb.v_zoom_baseline = 0
     else:
-        item.colors['weak_bull_frame'] = brighten(volume_bull_color, 1.2)
-        item.colors['weak_bull_body']  = brighten(volume_bull_color, 1.2)
+        item.colors['weak_bull_frame'] = brighten(FP_Color_Setting.volume_bull_color, 1.2)
+        item.colors['weak_bull_body']  = brighten(FP_Color_Setting.volume_bull_color, 1.2)
     item.update_data = partial(_update_data, None, _adjust_volume_datasrc, item)
     item.update_gfx = partial(_update_gfx, item)
     ax.addItem(item)
@@ -1686,7 +1673,7 @@ def set_y_scale(yscale='linear', ax=None):
     ax.vb.yscale = YScale(yscale, ax.vb.yscale.scalef)
 
 
-def add_band(y0, y1, color=band_color, ax=None):
+def add_band(y0, y1, color=FP_Color_Setting.band_color, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
     color = _get_color(ax, None, color)
     ix = ax.vb.yscale.invxform
@@ -1699,7 +1686,7 @@ def add_band(y0, y1, color=band_color, ax=None):
     return lr
 
 
-def add_rect(p0, p1, color=band_color, interactive=False, ax=None):
+def add_rect(p0, p1, color=FP_Color_Setting.band_color, interactive=False, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
     x_pts = _pdtime2index(ax, pd.Series([p0[0], p1[0]]))
     ix = ax.vb.yscale.invxform
@@ -1715,7 +1702,7 @@ def add_rect(p0, p1, color=band_color, interactive=False, ax=None):
     return rect
 
 
-def add_line(p0, p1, color=draw_line_color, width=1, style=None, interactive=False, ax=None):
+def add_line(p0, p1, color=FP_Color_Setting.draw_line_color, width=1, style=None, interactive=False, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
     used_color = _get_color(ax, style, color)
     pen = _makepen(color=used_color, style=style, width=width)
@@ -1732,7 +1719,7 @@ def add_line(p0, p1, color=draw_line_color, width=1, style=None, interactive=Fal
     return line
 
 
-def add_text(pos, s, color=draw_line_color, anchor=(0,0), ax=None):
+def add_text(pos, s, color=FP_Color_Setting.draw_line_color, anchor=(0,0), ax=None):
     ax = _create_plot(ax=ax, maximize=False)
     color = _get_color(ax, None, color)
     text = pg.TextItem(s, color=color, anchor=anchor)
@@ -1970,7 +1957,7 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
     ax.setLogMode(y=(yscale.scaletype=='log'))
     ax.significant_decimals = significant_decimals
     ax.significant_eps = significant_eps
-    ax.crosshair = FinCrossHair(ax, color=cross_hair_color)
+    ax.crosshair = FinCrossHair(ax, color=FP_Color_Setting.cross_hair_color)
     ax.hideButtons()
     ax.overlay = partial(_ax_overlay, ax)
     ax.set_visible = partial(_ax_set_visible, ax)
@@ -1980,7 +1967,7 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
     ax.prev_ax = prev_ax
     ax.win_index = index
     if index%2:
-        viewbox.setBackgroundColor(odd_plot_background)
+        viewbox.setBackgroundColor(FP_Color_Setting.odd_plot_background)
     viewbox.setParent(ax)
     return ax
 
@@ -2415,7 +2402,7 @@ def _key_pressed(vb, ev):
             for ax in win.axs:
                 ax.crosshair.update()
     elif ev.text() in ('\r', ' '): # enter, space
-        vb.set_draw_line_color(draw_done_color)
+        vb.set_draw_line_color(FP_Color_Setting.draw_done_color)
         vb.draw_line = None
     elif ev.text() in ('\x7f', '\b'): # del, backspace
         if not vb.remove_last_roi():
