@@ -12,9 +12,8 @@ region.
 
 from ast import literal_eval
 from collections import OrderedDict, defaultdict
-from datetime import datetime, timezone
+from datetime import datetime
 from dateutil.tz import tzlocal
-from decimal import Decimal
 from functools import partial, partialmethod
 from math import ceil, floor, fmod
 import numpy as np
@@ -22,15 +21,13 @@ import os.path
 import pandas as pd
 import pyqtgraph as pg
 from pyqtgraph import QtCore, QtGui
-#from FP_Color_Setting import FP_Color_Setting
-import FP_Color_Setting
 
-# appropriate types
-ColorMap = pg.ColorMap
+import FP_Color_Setting
+import FP_Setting
+
 
 # module definitions, mostly colors
 candle_shadow_width = 1
-significant_decimals = 8
 significant_eps = 1e-8
 max_zoom_points = 20 # number of visible candles when maximum zoomed in
 top_graph_scale = 2
@@ -507,7 +504,7 @@ class FinCrossHair:
         self.ytext.setPos(x, y)
         rng = self.ax.vb.y_max - self.ax.vb.y_min
         rngmax = abs(self.ax.vb.y_min) + rng # any approximation is fine
-        sd,se = (self.ax.significant_decimals,self.ax.significant_eps) if clamp_grid else (significant_decimals,significant_eps)
+        sd,se = (FP_Setting.significant_decimals, self.ax.significant_eps) if clamp_grid else (FP_Setting.significant_decimals, significant_eps)
         timebased = False
         if self.ax.vb.x_indexed:
             xtext,timebased = _x2local_t(self.ax.vb.datasrc, x)
@@ -1955,7 +1952,7 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
     ax.axes['right']['item'].setZValue(30) # put axis in front instead of behind data
     ax.axes['bottom']['item'].setZValue(30)
     ax.setLogMode(y=(yscale.scaletype=='log'))
-    ax.significant_decimals = significant_decimals
+    ax.significant_decimals = FP_Setting.significant_decimals
     ax.significant_eps = significant_eps
     ax.crosshair = FinCrossHair(ax, color=FP_Color_Setting.cross_hair_color)
     ax.hideButtons()
@@ -1990,7 +1987,7 @@ def _ax_overlay(ax, scale=0.25, yaxis=False):
     def updateView():
         viewbox.setGeometry(ax.vb.sceneBoundingRect())
     axo = pg.PlotItem(enableMenu=False)
-    axo.significant_decimals = significant_decimals
+    axo.significant_decimals = FP_Setting.significant_decimals
     axo.significant_eps = significant_eps
     axo.vb = viewbox
     axo.prev_ax = None
@@ -2069,14 +2066,14 @@ def _create_legend(ax):
 
 def _update_significants(ax, datasrc, force):
     # check if no epsilon set yet
-    default_dec = 0.99 < ax.significant_decimals/significant_decimals < 1.01
+    default_dec = 0.99 < FP_Setting.significant_decimals / FP_Setting.significant_decimals < 1.01
     default_eps = 0.99 < ax.significant_eps/significant_eps < 1.01
     if force or (default_dec and default_eps):
         try:
             sd,se = datasrc.calc_significant_decimals()
             if sd or se != significant_eps:
-                if force or default_dec or sd > ax.significant_decimals:
-                    ax.significant_decimals = sd
+                if force or default_dec or sd > FP_Setting.significant_decimals:
+                    FP_Setting.significant_decimals = sd
                 if force or default_eps or se < ax.significant_eps:
                     ax.significant_eps = se
         except:
