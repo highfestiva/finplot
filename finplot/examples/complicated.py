@@ -14,8 +14,8 @@
    Included is also some third-party libraries to make the example
    more realistic.
    '''
-
-
+import FP_Time_Tools
+import FP_Tools
 import finplot as fplt
 from functools import lru_cache
 import json
@@ -254,7 +254,7 @@ def realtime_update_plot():
 def change_asset(*args, **kwargs):
     '''Resets and recalculates everything, and plots for the first time.'''
     # save window zoom position before resetting
-    fplt._savewindata(fplt.windows[0])
+    fplt._savewindata(FP_Time_Tools.windows[0])
 
     symbol = ctrl_panel.symbol.currentText()
     interval = ctrl_panel.interval.currentText()
@@ -298,7 +298,7 @@ def change_asset(*args, **kwargs):
         ax_rsi.hide()
 
     # price line
-    ax.price_line = pg.InfiniteLine(angle=0, movable=False, pen=fplt._makepen(fplt.candle_bull_body_color, style='.'))
+    ax.price_line = pg.InfiniteLine(angle=0, movable=False, pen=FP_Tools._makepen(fplt.candle_bull_body_color, style='.'))
     ax.price_line.setPos(price_data['last_close'])
     ax.price_line.pen.setColor(pg.mkColor(price_data['last_col']))
     ax.addItem(ax.price_line, ignoreBounds=True)
@@ -337,14 +337,14 @@ def dark_mode_toggle(dark):
         ctrl_panel.darkmode.setPalette(p)
 
     # window background
-    for win in fplt.windows:
+    for win in FP_Time_Tools.windows:
         win.setBackground(fplt.background)
 
     # axis, crosshair, candlesticks, volumes
-    axs = [ax for win in fplt.windows for ax in win.axs]
+    axs = [ax for win in FP_Time_Tools.windows for ax in win.axs]
     vbs = set([ax.vb for ax in axs])
     axs += fplt.overlay_axs
-    axis_pen = fplt._makepen(color=fplt.foreground)
+    axis_pen = FP_Tools._makepen(color=fplt.foreground)
     for ax in axs:
         ax.axes['right']['item'].setPen(axis_pen)
         ax.axes['right']['item'].setTextPen(axis_pen)

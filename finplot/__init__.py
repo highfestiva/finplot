@@ -12,10 +12,8 @@ region.
 
 from ast import literal_eval
 from collections import OrderedDict, defaultdict
-from datetime import datetime
-from dateutil.tz import tzlocal
 from functools import partial, partialmethod
-from math import ceil, floor, fmod
+from math import floor, fmod
 import numpy as np
 import os.path
 import pandas as pd
@@ -27,6 +25,12 @@ import FP_Setting
 
 
 # module definitions, mostly colors
+import FP_Time_Tools
+from FP_AxisItem import EpochAxisItem, YAxisItem, YScale
+from FP_Time_Tools import windows, epoch_period, _pdtime2epoch, _pdtime2index, _get_datasrc, _x2local_t
+from FP_Tools import _makepen
+
+
 candle_shadow_width = 1
 max_zoom_points = 20 # number of visible candles when maximum zoomed in
 top_graph_scale = 2
@@ -38,174 +42,17 @@ lod_labels = 700
 cache_candle_factor = 3 # factor extra candles rendered to buffer
 y_pad = 0.03 # 3% padding at top and bottom of autozoom plots
 y_label_width = 65
-display_timezone = tzlocal() # default to local
 winx,winy,winw,winh = 300,150,800,400
 log_plot_offset = -2.2222222e-16 # I could file a bug report, probably in PyQt, but this is more fun
 # format: mode, min-duration, pd-freq-fmt, tick-str-len
-time_splits = [('years', 2*365*24*60*60,  'YS',  4), ('months', 3*30*24*60*60, 'MS', 10), ('weeks',   3*7*24*60*60, 'W-MON', 10),
-               ('days',      3*24*60*60,   'D', 10), ('hours',        9*60*60, '3H', 16), ('hours',        3*60*60,     'H', 16),
-               ('minutes',        45*60, '15T', 16), ('minutes',        15*60, '5T', 16), ('minutes',         3*60,     'T', 16),
-               ('seconds',           45, '15S', 19), ('seconds',           15, '5S', 19), ('seconds',            3,     'S', 19),
-               ('milliseconds',       0,   'L', 23)]
 
 app = None
-windows = [] # no gc
 timers = [] # no gc
 sounds = {} # no gc
-epoch_period = 1e30
 last_ax = None # always assume we want to plot in the last axis, unless explicitly specified
 overlay_axs = [] # for keeping track of candlesticks in overlays
 viewrestore = False
 master_data = {}
-
-
-
-lerp = lambda t,a,b: t*b+(1-t)*a
-
-
-
-class EpochAxisItem(pg.AxisItem):
-    def __init__(self, vb, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.vb = vb
-
-    def tickStrings(self, values, scale, spacing):
-        if self.mode == 'num':
-            return ['%g'%v for v in values]
-        conv = _x2year if self.mode=='years' else _x2local_t
-        strs = [conv(self.vb.datasrc, value)[0] for value in values]
-        if all(s.endswith(' 00:00') for s in strs if s): # all at midnight -> round to days
-            strs = [s.partition(' ')[0] for s in strs]
-        return strs
-
-    def tickValues(self, minVal, maxVal, size):
-        self.mode = 'num'
-        ax = self.vb.parent()
-        datasrc = _get_datasrc(ax, require=False)
-        if datasrc is None or not self.vb.x_indexed:
-            return super().tickValues(minVal, maxVal, size)
-        # calculate if we use years, days, etc.
-        t0,t1,_,_,_ = datasrc.hilo(minVal, maxVal)
-        t0,t1 = pd.to_datetime(t0), pd.to_datetime(t1)
-        dts = (t1-t0).total_seconds()
-        gfx_width = int(size)
-        for mode, dtt, freq, ticklen in time_splits:
-            if dts > dtt:
-                self.mode = mode
-                desired_ticks = gfx_width / ((ticklen+2) * 10) - 1 # an approximation is fine
-                if self.vb.datasrc is not None and not self.vb.datasrc.is_smooth_time():
-                    desired_ticks -= 1 # leave more space for unevenly spaced ticks
-                desired_ticks = max(desired_ticks, 4)
-                to_midnight = freq in ('YS','MS', 'W-MON', 'D')
-                tz = display_timezone if to_midnight else None # for shorter timeframes, timezone seems buggy
-                rng = pd.date_range(t0, t1, tz=tz, normalize=to_midnight, freq=freq)
-                steps = len(rng) if len(rng)&1==0 else len(rng)+1 # reduce jitter between e.g. 5<-->10 ticks for resolution close to limit
-                step = int(steps/desired_ticks) or 1
-                rng = rng[::step]
-                if not to_midnight:
-                    try:    rng = rng.round(freq=freq)
-                    except: pass
-                ax = self.vb.parent()
-                rng = _pdtime2index(ax=ax, ts=pd.Series(rng), require_time=True)
-                indices = [ceil(i) for i in rng]
-                return [(0, indices)]
-        return [(0,[])]
-
-    def generateDrawSpecs(self, p):
-        specs = super().generateDrawSpecs(p)
-        if specs:
-            if not self.style['showValues']:
-                pen,p0,p1 = specs[0] # axis specs
-                specs = [(_makepen('#fff0'),p0,p1)] + list(specs[1:]) # don't draw axis if hiding values
-            else:
-                # throw out ticks that are out of bounds
-                text_specs = specs[2]
-                if len(text_specs) >= 4:
-                    rect,flags,text = text_specs[0]
-                    if rect.left() < 0:
-                        del text_specs[0]
-                    rect,flags,text = text_specs[-1]
-                    if rect.right() > self.geometry().width():
-                        del text_specs[-1]
-                # ... and those that overlap
-                x = 1e6
-                for i,(rect,flags,text) in reversed(list(enumerate(text_specs))):
-                    if rect.right() >= x:
-                        del text_specs[i]
-                    else:
-                        x = rect.left()
-        return specs
-
-
-
-class YAxisItem(pg.AxisItem):
-    def __init__(self, vb, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.vb = vb
-        self.hide_strings = False
-        self.style['autoExpandTextSpace'] = False
-        self.style['autoReduceTextSpace'] = False
-        self.next_fmt = '%g'
-
-    def tickValues(self, minVal, maxVal, size):
-        vs = super().tickValues(minVal, maxVal, size)
-        if len(vs) < 3:
-            return vs
-        return self.fmt_values(vs)
-
-    def logTickValues(self, minVal, maxVal, size, stdTicks):
-        v1 = int(floor(minVal))
-        v2 = int(ceil(maxVal))
-        minor = []
-        for v in range(v1, v2):
-            minor.extend([v+l for l in np.log10(np.linspace(1, 9.9, 90))])
-        minor = [x for x in minor if x>minVal and x<maxVal]
-        if len(minor) > 10:
-            minor = minor[::len(minor)//5]
-        vs = [(None, minor)]
-        return self.fmt_values(vs)
-
-    def tickStrings(self, values, scale, spacing):
-        if self.hide_strings:
-            return []
-        xform = self.vb.yscale.xform
-        return [self.next_fmt%xform(value) for value in values]
-
-    def fmt_values(self, vs):
-        xform = self.vb.yscale.xform
-        gs = ['%g'%xform(v) for v in vs[-1][1]]
-        if any(['e' in g for g in gs]):
-            maxdec = max([len((g).partition('.')[2].partition('e')[0]) for g in gs if 'e' in g])
-            self.next_fmt = '%%.%ie' % maxdec
-        else:
-            maxdec = max([len((g).partition('.')[2]) for g in gs])
-            self.next_fmt = '%%.%if' % maxdec
-        return vs
-
-
-
-class YScale:
-    def __init__(self, scaletype, scalef):
-        self.scaletype = scaletype
-        self.set_scale(scalef)
-
-    def set_scale(self, scale):
-        self.scalef = scale
-
-    def xform(self, y):
-        if self.scaletype == 'log':
-            y = 10**y
-        y = y * self.scalef
-        return y
-
-    def invxform(self, y, verify=False):
-        y /= self.scalef
-        if self.scaletype == 'log':
-            if verify and y <= 0:
-                return -1e6 / self.scalef
-            y = np.log10(y)
-        return y
-
 
 
 class PandasDataSource:
@@ -904,7 +751,7 @@ class FinViewBox(pg.ViewBox):
                     if is_dirty:
                         view.force_range_update -= 1
                     if self.parent():
-                        x0,x1 = _pdtime2index(self.parent(), pd.Series([vt0,vt1]), any_end=True)
+                        x0,x1 = _pdtime2index(self.parent(), pd.Series([vt0, vt1]), any_end=True)
                         self.update_y_zoom(x0, x1)
             self.updating_linked = False
 
@@ -1450,8 +1297,7 @@ def renko(x, y=None, bins=None, step=None, ax=None, colorfunc=price_colorfilter)
     item.colors['bull_body'] = item.colors['bull_frame']
     item.update_data = partial(_update_data, None, step_adjust_renko_datasrc, item)
     item.update_gfx = partial(_update_gfx, item)
-    global epoch_period
-    epoch_period = (origdf.iloc[1,0] - origdf.iloc[0,0]) // int(1e9)
+    FP_Time_Tools.epoch_period = (origdf.iloc[1,0] - origdf.iloc[0,0]) // int(1e9)
     return item
 
 
@@ -2167,10 +2013,9 @@ def _set_datasrc(ax, datasrc, addcols=True):
         ## if not viewbox.x_indexed:
             ## _set_x_limits(ax, datasrc)
     # update period if this datasrc has higher time resolution
-    global epoch_period
-    if datasrc.timebased() and (epoch_period > 1e7 or not datasrc.standalone):
+    if datasrc.timebased() and (FP_Time_Tools.epoch_period > 1e7 or not datasrc.standalone):
         ep_secs = datasrc.period_ns / 1e9
-        epoch_period = ep_secs if ep_secs < epoch_period else epoch_period
+        FP_Time_Tools.epoch_period = ep_secs if ep_secs < FP_Time_Tools.epoch_period else FP_Time_Tools.epoch_period
 
 
 def _has_timecol(df):
@@ -2508,127 +2353,6 @@ def _get_color(ax, style, wanted_color):
     return colors[index%len(colors)]
 
 
-def _pdtime2epoch(t):
-    if isinstance(t, pd.Series):
-        if isinstance(t.iloc[0], pd.Timestamp):
-            return t.view('int64')
-        h = np.nanmax(t.values)
-        if h < 1e10: # handle s epochs
-            return (t*1e9).astype('int64')
-        if h < 1e13: # handle ns epochs
-            return (t*1e6).astype('int64')
-        if h < 1e16: # handle us epochs
-            return (t*1e3).astype('int64')
-        return t.astype('int64')
-    return t
-
-
-def _pdtime2index(ax, ts, any_end=False, require_time=False):
-    if isinstance(ts.iloc[0], pd.Timestamp):
-        ts = ts.view('int64')
-    else:
-        h = np.nanmax(ts.values)
-        if h < 1e7:
-            if require_time:
-                assert False, 'not a time series'
-            return ts
-        if h < 1e10: # handle s epochs
-            ts = ts.astype('float64') * 1e9
-        elif h < 1e13: # handle ms epochs
-            ts = ts.astype('float64') * 1e6
-        elif h < 1e16: # handle us epochs
-            ts = ts.astype('float64') * 1e3
-    
-    datasrc = _get_datasrc(ax)
-    xs = datasrc.x
-
-    # try exact match before approximate match
-    exact = datasrc.index[xs.isin(ts)].to_list()
-    if len(exact) == len(ts):
-        return exact
-    
-    r = []
-    for i,t in enumerate(ts):
-        xss = xs.loc[xs>t]
-        if len(xss) == 0:
-            t0 = xs.iloc[-1]
-            if any_end or t0 == t:
-                r.append(len(xs)-1)
-                continue
-            if i > 0:
-                continue
-            assert t <= t0, 'must plot this primitive in prior time-range'
-        i1 = xss.index[0]
-        i0 = i1-1
-        if i0 < 0:
-            i0,i1 = 0,1
-        t0,t1 = xs.loc[i0], xs.loc[i1]
-        dt = (t-t0) / (t1-t0)
-        r.append(lerp(dt, i0, i1))
-    return r
-
-
-def _get_datasrc(ax, require=True):
-    if ax.vb.datasrc is not None or not ax.vb.x_indexed:
-        return ax.vb.datasrc
-    vbs = [ax.vb for win in windows for ax in win.axs]
-    for vb in vbs:
-        if vb.datasrc:
-            return vb.datasrc
-    if require:
-        assert ax.vb.datasrc, 'not possible to plot this primitive without a prior time-range to compare to'
-
-
-def _millisecond_tz_wrap(s):
-    if len(s) > 6 and s[-6] in '+-' and s[-3] == ':': # +01:00 fmt timezone present?
-        s = s[:-6]
-    return (s+'.000000') if '.' not in s else s
-
-
-def _x2local_t(datasrc, x):
-    if display_timezone == None:
-        return _x2utc(datasrc, x)
-    return _x2t(datasrc, x, lambda t: _millisecond_tz_wrap(datetime.fromtimestamp(t/1e9, tz=display_timezone).isoformat(sep=' ')))
-
-
-def _x2utc(datasrc, x):
-    # using pd.to_datetime allow for pre-1970 dates
-    return _x2t(datasrc, x, lambda t: pd.to_datetime(t, unit='ns').strftime('%Y-%m-%d %H:%M:%S.%f'))
-
-
-def _x2t(datasrc, x, ts2str):
-    if not datasrc:
-        return '',False
-    try:
-        x += 0.5
-        t,_,_,_,cnt = datasrc.hilo(x, x)
-        if cnt:
-            if not datasrc.timebased():
-                return '%g' % t, False
-            s = ts2str(t)
-            
-            if epoch_period >= 23*60*60: # daylight savings, leap seconds, etc
-                i = s.index(' ')
-            elif epoch_period >= 59: # consider leap seconds
-                i = s.rindex(':')
-            elif epoch_period >= 1:
-                i = s.index('.') if '.' in s else len(s)
-            elif epoch_period >= 0.001:
-                i = -3
-            else:
-                i = len(s)
-            return s[:i],True
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-    return '',datasrc.timebased()
-
-
-def _x2year(datasrc, x):
-    t,hasds = _x2local_t(datasrc, x)
-    return t[:4],hasds
-
-
 def _round_to_significant(rng, rngmax, x, significant_decimals, significant_eps):
     is_highres = (rng/significant_eps > 1e2 and rngmax<1e-2) or abs(rngmax) > 1e7 or rng < 1e-5
     sd = significant_decimals
@@ -2693,7 +2417,7 @@ def _draw_line_segment_text(polyline, segment, pos0, pos1):
             pass
     diff = pos1 - pos0
     if fsecs is None:
-        fsecs = abs(diff.x()*epoch_period)
+        fsecs = abs(diff.x() * epoch_period)
     secs = int(fsecs)
     mins = secs//60
     hours = mins//60
@@ -2746,23 +2470,6 @@ def _draw_line_extra_text(polyline, segment, pos0, pos1):
             return ' = 1:%.2f ' % change_part
         prev_text = text
     return ''
-
-
-def _makepen(color, style=None, width=1):
-    if style is None or style == '-':
-        return pg.mkPen(color=color, width=width)
-    dash = []
-    for ch in style:
-        if ch == '-':
-            dash += [4,2]
-        elif ch == '_':
-            dash += [10,2]
-        elif ch == '.':
-            dash += [1,2]
-        elif ch == ' ':
-            if dash:
-                dash[-1] += 2
-    return pg.mkPen(color=color, style=QtCore.Qt.CustomDashLine, dash=dash, width=width)
 
 
 def _round(v):
