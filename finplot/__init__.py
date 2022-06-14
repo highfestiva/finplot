@@ -1727,7 +1727,7 @@ def add_line(p0, p1, color=draw_line_color, width=1, style=None, interactive=Fal
     else:
         line = FinLine(pts, pen=pen)
     line.ax = ax
-    ax.addItem(line)
+    ax.vb.addItem(line)
     return line
 
 
