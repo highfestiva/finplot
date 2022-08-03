@@ -1942,6 +1942,13 @@ def _create_plot(ax=None, **kwargs):
     return create_plot(**kwargs)
 
 
+def _create_axis(pos, **kwargs):
+    if pos == 'x':
+        return EpochAxisItem(**kwargs)
+    elif pos == 'y':
+        return YAxisItem(**kwargs)
+
+
 def _clear_timers():
     for timer in timers:
         timer.timeout.disconnect()
@@ -1952,8 +1959,8 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
     native_win = isinstance(master, pg.GraphicsLayoutWidget)
     if native_win and prev_ax is not None:
         prev_ax.set_visible(xaxis=False) # hide the whole previous axis
-    axes = {'bottom': EpochAxisItem(vb=viewbox, orientation='bottom'),
-            'right':  YAxisItem(vb=viewbox, orientation='right')}
+    axes = {'bottom': _create_axis(pos='x', vb=viewbox, orientation='bottom'),
+            'right':  _create_axis(pos='y', vb=viewbox, orientation='right')}
     if native_win:
         ax = pg.PlotItem(viewBox=viewbox, axisItems=axes, name='plot-%i'%index, enableMenu=False)
     else:
@@ -2016,7 +2023,7 @@ def _ax_overlay(ax, scale=0.25, yaxis=False):
     axo.hideButtons()
     viewbox.addItem(axo)
     if yaxis and isinstance(axo.vb.win, pg.GraphicsLayoutWidget):
-        axi = YAxisItem(vb=axo.vb, orientation='left')
+        axi = _create_axis(pos='y', vb=axo.vb, orientation='left')
         axo.setAxisItems({'left': axi})
         axo.vb.win.addItem(axi, row=0, col=0)
     ax.vb.sigResized.connect(updateView)
