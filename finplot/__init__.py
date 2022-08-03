@@ -362,7 +362,7 @@ class PandasDataSource:
             if old_col != col:
                 datasrc.renames[old_col] = col
         newcols.columns = cols
-        self.df = pd.concat([df, newcols], axis=1)
+        self.df = df.join(newcols, how='outer')
         if _has_timecol(datasrc.df):
             self.df.reset_index(inplace=True)
         datasrc.df = self.df # they are the same now
