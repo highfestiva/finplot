@@ -1758,7 +1758,7 @@ def remove_text(text):
 
 def remove_primitive(primitive):
     ax = primitive.ax
-    ax.removeItem(primitive)
+    ax.vb.removeItem(primitive)
     if primitive in ax.vb.rois:
         ax.vb.rois.remove(primitive)
     if hasattr(primitive, 'texts'):
