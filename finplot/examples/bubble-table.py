@@ -3,6 +3,8 @@
    is composed of labels (text) and a heatmap (background color).'''
 
 import dateutil.parser
+
+import FP_Time_Tools
 import finplot as fplt
 import numpy as np
 import pandas as pd
@@ -92,7 +94,7 @@ prices, quotes = download_resample()
 fplt.max_zoom_points = 5
 fplt.right_margin_candles = 0
 ax,ax2 = fplt.create_plot(f'BitMEX {downsample}m quote bubble plot + quote table', rows=2, maximize=False)
-fplt.windows[0].ci.layout.setRowStretchFactor(0, 10) # make primary plot large, and implicitly table small
+FP_Time_Tools.windows[0].ci.layout.setRowStretchFactor(0, 10) # make primary plot large, and implicitly table small
 candles = fplt.candlestick_ochl(prices[['Open','Close','High','Low']], ax=ax)
 candles.colors.update(dict(bear_body='#fa8')) # bright red, to make bubbles visible
 fplt.volume_ocv(prices[['Open','Close','Volume']], ax=ax.overlay())
