@@ -199,6 +199,8 @@ class YAxisItem(pg.AxisItem):
     def fmt_values(self, vs):
         xform = self.vb.yscale.xform
         gs = ['%g'%xform(v) for v in vs[-1][1]]
+        if not gs:
+            return vs
         if any(['e' in g for g in gs]):
             maxdec = max([len((g).partition('.')[2].partition('e')[0]) for g in gs if 'e' in g])
             self.next_fmt = '%%.%ie' % maxdec
