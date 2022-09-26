@@ -1704,7 +1704,7 @@ def add_rect(p0, p1, color=band_color, interactive=False, ax=None):
     ix = ax.vb.yscale.invxform
     y0,y1 = sorted([p0[1], p1[1]])
     pos  = (x_pts[0], ix(y0))
-    size = (x_pts[1]-pos[0], ix(y1-y0))
+    size = (x_pts[1]-pos[0], ix(y1)-ix(y0))
     rect = FinRect(ax=ax, brush=pg.mkBrush(color), pos=pos, size=size, movable=interactive, resizable=interactive, rotatable=False)
     rect.setZValue(-40)
     if interactive:
