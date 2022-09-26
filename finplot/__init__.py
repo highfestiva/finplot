@@ -185,6 +185,8 @@ class YAxisItem(pg.AxisItem):
         for v in range(v1, v2):
             minor.extend([v+l for l in np.log10(np.linspace(1, 9.9, 90))])
         minor = [x for x in minor if x>minVal and x<maxVal]
+        if not minor:
+            minor.extend(np.geomspace(minVal, maxVal, 7)[1:-1])
         if len(minor) > 10:
             minor = minor[::len(minor)//5]
         vs = [(None, minor)]
