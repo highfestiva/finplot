@@ -16,6 +16,7 @@ from datetime import datetime
 from decimal import Decimal
 from functools import partial, partialmethod
 from math import ceil, floor, fmod
+from wsgiref.headers import tspecials
 import numpy as np
 import os.path
 import pandas as pd
@@ -2534,6 +2535,8 @@ def _get_color(ax, style, wanted_color):
     return colors[index%len(colors)]
 
 
+
+
 def _pdtime2epoch(t):
     if isinstance(t, pd.Series):
         if isinstance(t.iloc[0], pd.Timestamp):
@@ -2548,7 +2551,53 @@ def _pdtime2epoch(t):
         return t.astype('int64')
     return t
 
+# Skinok add
+def _dateStr2x(ax, dateStr, any_end=False, require_time=False):
+    ts = pd.Series(pd.to_datetime(dateStr))
+    if isinstance(ts.iloc[0], pd.Timestamp):
+        ts = ts.view('int64')
+    else:
+        h = np.nanmax(ts.values)
+        if h < 1e7:
+            if require_time:
+                assert False, 'not a time series'
+            return ts
+        if h < 1e10: # handle s epochs
+            ts = ts.astype('float64') * 1e9
+        elif h < 1e13: # handle ms epochs
+            ts = ts.astype('float64') * 1e6
+        elif h < 1e16: # handle us epochs
+            ts = ts.astype('float64') * 1e3
 
+    datasrc = _get_datasrc(ax)
+    xs = datasrc.x
+
+    # try exact match before approximate match
+    exact = datasrc.index[xs.isin(ts)].to_list()
+    if len(exact) == len(ts):
+        return exact
+    
+    r = []
+    for i,t in enumerate(ts):
+        xss = xs.loc[xs>t]
+        if len(xss) == 0:
+            t0 = xs.iloc[-1]
+            if any_end or t0 == t:
+                r.append(len(xs)-1)
+                continue
+            if i > 0:
+                continue
+            assert t <= t0, 'must plot this primitive in prior time-range'
+        i1 = xss.index[0]
+        i0 = i1-1
+        if i0 < 0:
+            i0,i1 = 0,1
+        t0,t1 = xs.loc[i0], xs.loc[i1]
+        dt = (t-t0) / (t1-t0)
+        r.append(lerp(dt, i0, i1))
+    return r
+
+# ts is "time series" here, not "timestamp"
 def _pdtime2index(ax, ts, any_end=False, require_time=False):
     if isinstance(ts.iloc[0], pd.Timestamp):
         ts = ts.view('int64')
