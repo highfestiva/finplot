@@ -389,13 +389,16 @@ class PandasDataSource:
         input_df = datasrc.df.set_index(datasrc.df.columns[0])
         input_df.columns = [self.renames.get(col, col) for col in input_df.columns]
         # pad index if the input data is a sub-set
-        input_df = pd.merge(input_df, df[[]], how='outer', left_index=True, right_index=True)
+        output_df = pd.merge(input_df, df[[]], how='outer', left_index=True, right_index=True)
         for col in df.columns:
-            if col not in input_df.columns:
-                input_df[col] = df[col]
-        input_df = self.post_update(input_df)
-        input_df = input_df.reset_index()
-        self.df = input_df[[input_df.columns[0]]+orig_cols] if orig_cols else input_df
+            if col not in output_df.columns:
+                output_df[col] = df[col]
+            else:
+                slc = slice(df.index[0], input_df.index[0]-1)
+                output_df.loc[slc, col] = df.loc[slc, col]
+        output_df = self.post_update(output_df)
+        output_df = output_df.reset_index()
+        self.df = output_df[[output_df.columns[0]]+orig_cols] if orig_cols else input_df
         self.init_x1 = self.xlen + right_margin_candles - side_margin
         self.cache_hilo = OrderedDict()
         self._period = self._smooth_time = None
