@@ -393,9 +393,15 @@ class PandasDataSource:
         for col in df.columns:
             if col not in output_df.columns:
                 output_df[col] = df[col]
-            else:
-                slc = slice(df.index[0], input_df.index[0]-1)
-                output_df.loc[slc, col] = df.loc[slc, col]
+        # if neccessary, cut out unwanted data
+        if len(input_df) > 0 and len(df) > 0:
+            start_idx = end_idx = None
+            if input_df.index[0] > df.index[0]:
+                start_idx = 0
+            if input_df.index[-1] < df.index[-1]:
+                end_idx = -1
+            if start_idx is not None or end_idx is not None:
+                output_df = output_df.loc[input_df.index[start_idx:end_idx], :]
         output_df = self.post_update(output_df)
         output_df = output_df.reset_index()
         self.df = output_df[[output_df.columns[0]]+orig_cols] if orig_cols else input_df
