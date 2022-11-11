@@ -106,7 +106,7 @@ class BinanceFutureWebsocket:
                 data = [t] + [float(k[i]) for i in ['o','c','h','l','v']]
                 candle = pd.DataFrame([data], columns='Time Open Close High Low Volume'.split()).astype({'Time':'datetime64[ms]'})
                 candle.set_index('Time', inplace=True)
-                self.df = df.append(candle)
+                self.df = pd.concat([df, candle])
 
     def on_error(self, error, *args, **kwargs):
         print('websocket error: %s' % error)

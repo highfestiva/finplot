@@ -59,7 +59,7 @@ def plot_bubble_pass(price, price_col, size_col, min_val, max_val, scale, color,
 def plot_quote_bubbles(quotes, ax):
     quotes['bidSize2'] = np.sqrt(quotes.bidSize) # linearize by circle area
     quotes['askSize2'] = np.sqrt(quotes.askSize)
-    size2 = quotes.bidSize2.append(quotes.askSize2)
+    size2 = pd.concat([quotes.bidSize2, quotes.askSize2])
     rng = np.linspace(size2.min(), size2.max(), 5)
     rng = list(zip(rng[:-1], rng[1:]))
     for a,b in reversed(rng):
