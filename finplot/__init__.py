@@ -41,6 +41,7 @@ odd_plot_background = '#eaeaea'
 candle_bull_color = '#26a69a'
 candle_bear_color = '#ef5350'
 candle_bull_body_color = background
+candle_bear_body_color = candle_bear_color
 candle_shadow_width = 1
 volume_bull_color = '#92d2cc'
 volume_bear_color = '#f7a9a7'
@@ -1129,7 +1130,7 @@ class CandlestickItem(FinPlotItem):
                            bull_body        = candle_bull_body_color,
                            bear_shadow      = candle_bear_color,
                            bear_frame       = candle_bear_color,
-                           bear_body        = candle_bear_color,
+                           bear_body        = candle_bear_body_color,
                            weak_bull_shadow = brighten(candle_bull_color, 1.2),
                            weak_bull_frame  = brighten(candle_bull_color, 1.2),
                            weak_bull_body   = brighten(candle_bull_color, 1.2),
