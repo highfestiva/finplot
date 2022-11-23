@@ -459,8 +459,9 @@ class PandasDataSource:
         if yscale.scaletype == 'log' or yscale.scalef != 1:
             dfr = dfr.copy()
             for i in range(1, colcnt+1):
-                if dfr.iloc[:,i].dtype != object:
-                    dfr.iloc[:,i] = yscale.invxform(dfr.iloc[:,i])
+                colname = dfr.columns[i]
+                if dfr[colname].dtype != object:
+                    dfr[colname] = yscale.invxform(dfr.iloc[:,i])
         return dfr
 
     def __eq__(self, other):
@@ -499,7 +500,7 @@ class FinWindow(pg.GraphicsLayoutWidget):
         return super().close()
 
     def eventFilter(self, obj, ev):
-        if ev.type()== QtCore.QEvent.WindowDeactivate:
+        if ev.type()== QtCore.QEvent.Type.WindowDeactivate:
             _savewindata(self)
         return False
 
@@ -516,7 +517,7 @@ class FinCrossHair:
         self.clamp_x = 0
         self.clamp_y = 0
         self.infos = []
-        pen = pg.mkPen(color=color, style=QtCore.Qt.CustomDashLine, dash=[7, 7])
+        pen = pg.mkPen(color=color, style=QtCore.Qt.PenStyle.CustomDashLine, dash=[7, 7])
         self.vline = pg.InfiniteLine(angle=90, movable=False, pen=pen)
         self.hline = pg.InfiniteLine(angle=0, movable=False, pen=pen)
         self.xtext = pg.TextItem(color=color, anchor=(0,1))
@@ -655,7 +656,7 @@ class FinPolyLine(pg.PolyLineROI):
         for text in self.texts:
             self.update_text(text)
 
-    def movePoint(self, handle, pos, modifiers=QtCore.Qt.KeyboardModifier(), finish=True, coords='parent'):
+    def movePoint(self, handle, pos, modifiers=QtCore.Qt.KeyboardModifier, finish=True, coords='parent'):
         super().movePoint(handle, pos, modifiers, finish, coords)
         self.update_texts()
 
@@ -704,7 +705,6 @@ class FinRect(pg.RectROI):
 
     def paint(self, p, *args):
         r = QtCore.QRectF(0, 0, self.state['size'][0], self.state['size'][1]).normalized()
-        p.setRenderHint(QtGui.QPainter.Antialiasing)
         p.setPen(self.currentPen)
         p.setBrush(self.brush)
         p.translate(r.left(), r.top())
@@ -771,7 +771,7 @@ class FinViewBox(pg.ViewBox):
     def wheelEvent(self, ev, axis=None):
         if self.master_viewbox:
             return self.master_viewbox.wheelEvent(ev, axis=axis)
-        if ev.modifiers() == QtCore.Qt.ControlModifier:
+        if ev.modifiers() == QtCore.Qt.KeyboardModifier.ControlModifier:
             scale_fact = 1
             self.v_zoom_scale /= 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
         else:
@@ -794,18 +794,18 @@ class FinViewBox(pg.ViewBox):
             return self.master_viewbox.mouseDragEvent(ev, axis=axis)
         if not self.datasrc:
             return
-        if ev.button() == QtCore.Qt.LeftButton:
+        if ev.button() == QtCore.Qt.MouseButton.LeftButton:
             self.mouseLeftDrag(ev, axis)
-        elif ev.button() == QtCore.Qt.MiddleButton:
+        elif ev.button() == QtCore.Qt.MouseButton.MiddleButton:
             self.mouseMiddleDrag(ev, axis)
-        elif ev.button() == QtCore.Qt.RightButton:
+        elif ev.button() == QtCore.Qt.MouseButton.RightButton:
             self.mouseRightDrag(ev, axis)
         else:
             super().mouseDragEvent(ev, axis)
 
     def mouseLeftDrag(self, ev, axis):
         '''Ctrl+LButton draw lines.'''
-        if ev.modifiers() != QtCore.Qt.ControlModifier:
+        if ev.modifiers() != QtCore.Qt.KeyboardModifier.ControlModifier:
             super().mouseDragEvent(ev, axis)
             if ev.isFinish():
                 self.win._isMouseLeftDrag = False
@@ -837,7 +837,7 @@ class FinViewBox(pg.ViewBox):
 
     def mouseMiddleDrag(self, ev, axis):
         '''Ctrl+MButton draw ellipses.'''
-        if ev.modifiers() != QtCore.Qt.ControlModifier:
+        if ev.modifiers() != QtCore.Qt.KeyboardModifier.ControlModifier:
             return super().mouseDragEvent(ev, axis)
         p1 = self.mapToView(ev.pos())
         p1 = _clamp_point(self.parent(), p1)
@@ -885,7 +885,7 @@ class FinViewBox(pg.ViewBox):
         if _mouse_clicked(self, ev):
             ev.accept()
             return
-        if ev.button() != QtCore.Qt.LeftButton or ev.modifiers() != QtCore.Qt.ControlModifier or not self.draw_line:
+        if ev.button() != QtCore.Qt.MouseButton.LeftButton or ev.modifiers() != QtCore.Qt.KeyboardModifier.ControlModifier or not self.draw_line:
             return super().mouseClickEvent(ev)
         # add another segment to the currently drawn line
         p = self.mapClickToView(ev.pos())
@@ -1845,8 +1845,8 @@ def show(qt_exec=True):
                 win.show()
     if windows and qt_exec:
         global last_ax, app
-        app = QtGui.QApplication.instance()
-        app.exec_()
+        app = QtGui.QGuiApplication.instance()
+        app.exec()
         windows.clear()
         overlay_axs.clear()
         _clear_timers()
@@ -2263,9 +2263,9 @@ def _adjust_renko_datasrc(bins, step, datasrc):
 
 
 def _adjust_renko_log_datasrc(bins, step, datasrc):
-    datasrc.df.iloc[:,1] = np.log10(datasrc.df.iloc[:,1])
+    datasrc.df.loc[:,datasrc.df.colums[1]] = np.log10(datasrc.df.iloc[:,1])
     _adjust_renko_datasrc(bins, step, datasrc)
-    datasrc.df.iloc[:,1:5] = 10**datasrc.df.iloc[:,1:5]
+    datasrc.df.loc[:,datasrc.df.colums[1:5]] = 10**datasrc.df.iloc[:,1:5]
 
 
 def _adjust_volume_datasrc(datasrc):
@@ -2296,7 +2296,7 @@ def _adjust_horiz_datasrc(datasrc):
             continue
         nrow[-2:] = orow[-2:]
         nrow[len(orow)-2:len(orow)] = np.nan
-    datasrc.df.iloc[:, 1:] = values
+    datasrc.df[datasrc.df.columns[1:]] = values
 
 
 def _adjust_bar_datasrc(datasrc, order_cols=True):
@@ -2440,17 +2440,17 @@ def _key_pressed(vb, ev):
     elif ev.text() in ('\x7f', '\b'): # del, backspace
         if not vb.remove_last_roi():
             return False
-    elif ev.key() == QtCore.Qt.Key_Left:
+    elif ev.key() == QtCore.Qt.Key.Key_Left:
         vb.pan_x(percent=-15)
-    elif ev.key() == QtCore.Qt.Key_Right:
+    elif ev.key() == QtCore.Qt.Key.Key_Right:
         vb.pan_x(percent=+15)
-    elif ev.key() == QtCore.Qt.Key_Home:
+    elif ev.key() == QtCore.Qt.Key.Key_Home:
         vb.pan_x(steps=-1e10)
         _repaint_candles()
-    elif ev.key() == QtCore.Qt.Key_End:
+    elif ev.key() == QtCore.Qt.Key.Key_End:
         vb.pan_x(steps=+1e10)
         _repaint_candles()
-    elif ev.key() == QtCore.Qt.Key_Escape:
+    elif ev.key() == QtCore.Qt.Key.Key_Escape:
         vb.win.close()
     else:
         return False
@@ -2491,8 +2491,8 @@ def _mouse_moved(master, evs):
 
 def _wheel_event_wrapper(self, orig_func, ev):
     # scrolling on the border is simply annoying, pop in a couple of pixels to make sure
-    d = QtCore.QPoint(-2,0)
-    ev = QtGui.QWheelEvent(ev.pos()+d, ev.globalPos()+d, ev.pixelDelta(), ev.angleDelta(), ev.angleDelta().y(), QtCore.Qt.Vertical, ev.buttons(), ev.modifiers())
+    d = QtCore.QPointF(-2,0)
+    ev = QtGui.QWheelEvent(ev.position()+d, ev.globalPosition()+d, ev.pixelDelta(), ev.angleDelta(), ev.buttons(), ev.modifiers(), ev.phase(), False)
     orig_func(self, ev)
 
 
@@ -2687,7 +2687,7 @@ def _round_to_significant(rng, rngmax, x, significant_decimals, significant_eps)
     return r
 
 
-def _roihandle_move_snap(vb, orig_func, pos, modifiers=QtCore.Qt.KeyboardModifier(), finish=True):
+def _roihandle_move_snap(vb, orig_func, pos, modifiers=QtCore.Qt.KeyboardModifier, finish=True):
     pos = vb.mapDeviceToView(pos)
     pos = _clamp_point(vb.parent(), pos)
     pos = vb.mapViewToDevice(pos)
@@ -2799,7 +2799,7 @@ def _makepen(color, style=None, width=1):
         elif ch == ' ':
             if dash:
                 dash[-1] += 2
-    return pg.mkPen(color=color, style=QtCore.Qt.CustomDashLine, dash=dash, width=width)
+    return pg.mkPen(color=color, style=QtCore.Qt.PenStyle.CustomDashLine, dash=dash, width=width)
 
 
 def _round(v):

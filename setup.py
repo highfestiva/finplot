@@ -14,7 +14,7 @@ setuptools.setup(
     long_description_content_type='text/markdown',
     url='https://github.com/highfestiva/finplot',
     packages=['finplot'],
-    install_requires=['numpy>=1.22.3', 'pandas', 'PyQt5', 'pyqtgraph>=0.11.1', 'python-dateutil'],
+    install_requires=['numpy>=1.23.5', 'pandas>=1.5.2', 'PyQt6>=6.4.0', 'pyqtgraph>=0.13.1', 'python-dateutil'],
     classifiers=[
         'Programming Language :: Python :: 3',
         'License :: OSI Approved :: MIT License',

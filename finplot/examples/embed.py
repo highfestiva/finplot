@@ -2,7 +2,7 @@
 
 import finplot as fplt
 from functools import lru_cache
-from PyQt5.QtWidgets import QApplication, QGridLayout, QGraphicsView, QComboBox, QLabel
+from PyQt6.QtWidgets import QApplication, QGridLayout, QGraphicsView, QComboBox, QLabel
 from threading import Thread
 import yfinance as yf
 
@@ -60,4 +60,4 @@ update(combo.currentText())
 
 fplt.show(qt_exec=False) # prepares plots when they're all setup
 win.show()
-app.exec_()
+app.exec()

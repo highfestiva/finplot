@@ -21,7 +21,7 @@ from functools import lru_cache
 import json
 from math import nan
 import pandas as pd
-from PyQt5.QtWidgets import QComboBox, QCheckBox, QWidget, QGridLayout
+from PyQt6.QtWidgets import QComboBox, QCheckBox, QWidget, QGridLayout
 import pyqtgraph as pg
 import requests
 from time import time as now, sleep
@@ -407,7 +407,7 @@ def create_ctrl_panel(win):
 
     panel.darkmode = QCheckBox(panel)
     panel.darkmode.setText('Haxxor mode')
-    panel.darkmode.setCheckState(2)
+    panel.darkmode.setCheckState(pg.Qt.QtCore.Qt.CheckState.Checked)
     panel.darkmode.toggled.connect(dark_mode_toggle)
     layout.addWidget(panel.darkmode, 0, 6)
 
