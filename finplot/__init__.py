@@ -207,9 +207,11 @@ class YAxisItem(pg.AxisItem):
         if any(['e' in g for g in gs]):
             maxdec = max([len((g).partition('.')[2].partition('e')[0]) for g in gs if 'e' in g])
             self.next_fmt = '%%.%ie' % maxdec
-        else:
+        elif gs:
             maxdec = max([len((g).partition('.')[2]) for g in gs])
             self.next_fmt = '%%.%if' % maxdec
+        else:
+            self.next_fmt = '%g'
         return vs
 
 
