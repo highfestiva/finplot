@@ -1859,8 +1859,9 @@ def show(qt_exec=True):
 
 def play_sound(filename):
     if filename not in sounds:
-        from PyQt5.QtMultimedia import QSound
-        sounds[filename] = QSound(filename) # disallow gc
+        from PyQt6.QtMultimedia import QSoundEffect
+        s = sounds[filename] = QSoundEffect() # disallow gc
+        s.setSource(QtCore.QUrl.fromLocalFile(filename))
     s = sounds[filename]
     s.play()
 
