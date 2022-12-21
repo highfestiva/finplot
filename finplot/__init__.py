@@ -787,7 +787,7 @@ class FinViewBox(pg.ViewBox):
             center = pg.Point(vr.right(), center.y())
         self.zoom_rect(vr, scale_fact, center)
         # update crosshair
-        _mouse_moved(self.win, None)
+        _mouse_moved(self.win, self, None)
         ev.accept()
 
     def mouseDragEvent(self, ev, axis=None):
@@ -973,7 +973,7 @@ class FinViewBox(pg.ViewBox):
         main_vb.force_range_update = len(self.win.axs)-1 # update main as many times as there are other rows
         self.update_y_zoom()
         # refresh crosshair when done
-        _mouse_moved(self.win, None)
+        _mouse_moved(self.win, self, None)
 
     def update_y_zoom(self, x0=None, x1=None):
         datasrc = self.datasrc_or_standalone
@@ -1380,13 +1380,17 @@ def create_plot_widget(master, rows=1, init_zoom_periods=1e10, yscale='linear'):
         else:
             viewbox.setFocus()
         axs += [ax]
+    if master not in master_data:
+        master_data[master] = {}
     if isinstance(master, pg.GraphicsLayoutWidget):
-        proxy = pg.SignalProxy(master.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, master))
+        proxy = pg.SignalProxy(master.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, master, axs[0].vb))
+        master_data[master][axs[0].vb] = dict(proxymm=proxy, last_mouse_evs=None, last_mouse_y=0)
+        if 'default' not in master_data[master]:
+            master_data[master]['default'] = master_data[master][axs[0].vb]
     else:
-        proxy = []
         for ax in axs:
-            proxy += [pg.SignalProxy(ax.ax_widget.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, master))]
-    master_data[master] = dict(proxymm=proxy, last_mouse_evs=None, last_mouse_y=0)
+            proxy = pg.SignalProxy(ax.ax_widget.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, master, ax.vb))
+            master_data[master][ax.vb] = dict(proxymm=proxy, last_mouse_evs=None, last_mouse_y=0)
     last_ax = axs[0]
     return axs[0] if len(axs) == 1 else axs
 
@@ -1833,8 +1837,10 @@ def refresh():
             if datasrc and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None or vb.master_viewbox):
                 vb.update_y_zoom(datasrc.init_x0, datasrc.init_x1)
     _repaint_candles()
-    for win in windows:
-        _mouse_moved(win, None)
+    for md in master_data.values():
+        for vb in md:
+            if type(vb) != str: # ignore 'default'
+                _mouse_moved(win, vb, None)
 
 
 def show(qt_exec=True):
@@ -2470,21 +2476,22 @@ def _mouse_clicked(vb, ev):
     return True
 
 
-def _mouse_moved(master, evs):
+def _mouse_moved(master, vb, evs):
     if hasattr(master, 'closing') and master.closing:
         return
+    md = master_data[master].get(vb) or master_data[master]['default']
     if not evs:
-        evs = master_data[master]['last_mouse_evs']
+        evs = md['last_mouse_evs']
         if not evs:
             return
-    master_data[master]['last_mouse_evs'] = evs
+    md['last_mouse_evs'] = evs
     pos = evs[-1]
     # allow inter-pixel moves if moving mouse slowly
     y = pos.y()
-    dy = y - master_data[master]['last_mouse_y']
+    dy = y - md['last_mouse_y']
     if 0 < abs(dy) <= 1:
         pos.setY(pos.y() - dy/2)
-    master_data[master]['last_mouse_y'] = y
+    md['last_mouse_y'] = y
     # apply to all crosshairs
     for ax in master.axs:
         if ax.isVisible() and ax.crosshair:

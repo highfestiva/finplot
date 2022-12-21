@@ -33,7 +33,7 @@ def download(symbol):
 
 @lru_cache(maxsize=100)
 def get_name(symbol):
-    return yf.Ticker(symbol).info['shortName']
+    return yf.Ticker(symbol).info.get('shortName') or symbol
 
 plots = []
 def update(txt):
