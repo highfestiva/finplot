@@ -28,7 +28,7 @@ area.addDock(dock_2)
 # Create example charts
 combo = QComboBox()
 combo.setEditable(True)
-[combo.addItem(i) for i in "AMRK FB GFN REVG TSLA TWTR WMT CT=F GC=F ^FTSE ^N225 EURUSD=X ETH-USD".split()]
+[combo.addItem(i) for i in 'AMRK META REVG TSLA TWTR WMT CT=F GC=F ^GSPC ^FTSE ^N225 EURUSD=X ETH-USD'.split()]
 dock_0.addWidget(combo, 0, 0, 1, 1)
 info = QLabel()
 dock_0.addWidget(info, 0, 1, 1, 1)

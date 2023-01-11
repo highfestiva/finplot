@@ -2763,7 +2763,11 @@ def _draw_line_segment_text(polyline, segment, pos0, pos1):
     if polyline.vb.y_positive:
         y0,y1 = ysc.xform(pos0.y()), ysc.xform(pos1.y())
         if y0:
-            value = '%+.2f %%' % (100 * y1 / y0 - 100)
+            gain = y1 / y0 - 1
+            if gain > 10:
+                value = 'x%i' % gain
+            else:
+                value = '%+.2f %%' % (100 * gain)
         elif not y1:
             value = '0'
         else:
