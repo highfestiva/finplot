@@ -8,8 +8,8 @@
 
    This example includes dipping in to the internals of finplot and
    the underlying lib pyqtgraph, which is not part of the API per se,
-   and may thus change in the future. If so happens, this example
-   will be updated to reflect such changes.
+   and may thus change in the. If so happens, this example will be
+   updated to reflect such changes.
 
    Included is also some third-party libraries to make the example
    more realistic.
@@ -29,9 +29,9 @@ from threading import Thread
 import websocket
 
 
-class BinanceFutureWebsocket:
+class BinanceWebsocket:
     def __init__(self):
-        self.url = 'wss://fstream.binance.com/stream'
+        self.url = 'wss://stream.binance.com/stream'
         self.symbol = None
         self.interval = None
         self.ws = None
@@ -113,8 +113,8 @@ class BinanceFutureWebsocket:
 
 
 def do_load_price_history(symbol, interval):
-    url = 'https://www.binance.com/fapi/v1/klines?symbol=%s&interval=%s&limit=%s' % (symbol, interval, 1000)
-    print('loading binance future %s %s' % (symbol, interval))
+    url = 'https://www.binance.com/api/v1/klines?symbol=%s&interval=%s&limit=%s' % (symbol, interval, 1000)
+    print('loading binance %s %s' % (symbol, interval))
     d = requests.get(url).json()
     df = pd.DataFrame(d, columns='Time Open High Low Close Volume a b c d e f'.split())
     df = df.astype({'Time':'datetime64[ms]', 'Open':float, 'High':float, 'Low':float, 'Close':float, 'Volume':float})
@@ -390,7 +390,7 @@ def create_ctrl_panel(win):
     layout.setColumnMinimumWidth(1, 30)
 
     panel.interval = QComboBox(panel)
-    [panel.interval.addItem(i) for i in '1d 4h 1h 30m 15m 5m 1m'.split()]
+    [panel.interval.addItem(i) for i in '1d 4h 1h 30m 15m 5m 1m 1s'.split()]
     panel.interval.setCurrentIndex(6)
     layout.addWidget(panel.interval, 0, 2)
     panel.interval.currentTextChanged.connect(change_asset)
@@ -418,11 +418,11 @@ plots = {}
 fplt.y_pad = 0.07 # pad some extra (for control panel)
 fplt.max_zoom_points = 7
 fplt.autoviewrestore()
-ax,ax_rsi = fplt.create_plot('Complicated Binance Futures Example', rows=2, init_zoom_periods=300)
+ax,ax_rsi = fplt.create_plot('Complicated Binance Example', rows=2, init_zoom_periods=300)
 axo = ax.overlay()
 
 # use websocket for real-time
-ws = BinanceFutureWebsocket()
+ws = BinanceWebsocket()
 
 # hide rsi chart to begin with; show x-axis of top plot
 ax_rsi.hide()
@@ -432,5 +432,5 @@ ax.set_visible(xaxis=True)
 ctrl_panel = create_ctrl_panel(ax.vb.win)
 dark_mode_toggle(True)
 change_asset()
-fplt.timer_callback(realtime_update_plot, 1) # update every second
+fplt.timer_callback(realtime_update_plot, 0.5) # update twice every second
 fplt.show()

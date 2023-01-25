@@ -1617,6 +1617,7 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
     if style is None or any(ch in style for ch in '-_.'):
         connect_dots = 'finite' # same as matplotlib; use datasrc.standalone=True if you want to keep separate intervals on a plot
         item = ax.plot(x, y, pen=_makepen(color=used_color, style=style, width=width), name=legend, connect=connect_dots)
+        item.setClipToView(True)
         item.setDownsampling(auto=True, method='subsample')
         item.setZValue(5)
     else:
