@@ -316,8 +316,16 @@ class PandasDataSource:
         ser = self.z if len(self.scale_cols)>1 else self.y
         absdiff = ser.diff().abs()
         absdiff[absdiff<1e-30] = 1e30
-        num = smallest_diff = absdiff.min()
-        for _ in range(2):
+        smallest_diff = absdiff.min()
+        smallest_remainder = [fmod(v,smallest_diff) for v in ser.iloc[:100]]
+        smallest_remainder = [v for v in smallest_remainder if v>0]
+        if smallest_remainder:
+            smallest_diff_r = min(smallest_remainder)
+            smallest_diff = min(smallest_diff, smallest_diff_r)
+        wanted_decimals = []
+        # retry with full numbers, to see if we can get the number of decimals down
+        for f,offset in [(1,0), (1, abs(ser.min())), (2, abs(ser.min()))]:
+            num = smallest_diff*f + offset
             s = '%e' % num
             base,_,exp = s.partition('e')
             base = base.rstrip('0')
@@ -326,10 +334,8 @@ class PandasDataSource:
             base_decimals = max(0, min(max_base_decimals, len(base)-2))
             decimals = exp + base_decimals
             decimals = max(0, min(10, decimals))
-            if decimals <= 3:
-                break
-            # retry with full number, to see if we can get the number of decimals down
-            num = smallest_diff + abs(ser.min())
+            wanted_decimals.append(decimals)
+        decimals = sorted(wanted_decimals)[1] # pick median
         smallest_diff = max(10**(-decimals), smallest_diff)
         return decimals, smallest_diff
 
