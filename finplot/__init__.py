@@ -1469,7 +1469,7 @@ def horizvol_colorfilter(sections=[]):
 
 def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6, ax=None, colorfunc=price_colorfilter):
     ax = _create_plot(ax=ax, maximize=False)
-    datasrc = _create_datasrc(ax, datasrc)
+    datasrc = _create_datasrc(ax, datasrc, ncols=5)
     datasrc.scale_cols = [3,4] # only hi+lo scales
     _set_datasrc(ax, datasrc)
     item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width, colorfunc=colorfunc)
@@ -1482,7 +1482,7 @@ def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6
 
 def renko(x, y=None, bins=None, step=None, ax=None, colorfunc=price_colorfilter):
     ax = _create_plot(ax=ax, maximize=False)
-    datasrc = _create_datasrc(ax, x, y)
+    datasrc = _create_datasrc(ax, x, y, ncols=3)
     origdf = datasrc.df
     adj = _adjust_renko_log_datasrc if ax.vb.yscale.scaletype == 'log' else _adjust_renko_datasrc
     step_adjust_renko_datasrc = partial(adj, bins, step)
@@ -1499,7 +1499,7 @@ def renko(x, y=None, bins=None, step=None, ax=None, colorfunc=price_colorfilter)
 
 def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter):
     ax = _create_plot(ax=ax, maximize=False)
-    datasrc = _create_datasrc(ax, datasrc)
+    datasrc = _create_datasrc(ax, datasrc, ncols=4)
     _adjust_volume_datasrc(datasrc)
     _set_datasrc(ax, datasrc)
     item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=True, draw_shadow=False, candle_width=candle_width, colorfunc=colorfunc)
@@ -1586,7 +1586,7 @@ def bar(x, y=None, width=0.8, ax=None, colorfunc=strength_colorfilter, **kwargs)
     max_zoom_points = min(max_zoom_points, 8)
     ax = _create_plot(ax=ax, maximize=False)
     ax.decouple()
-    datasrc = _create_datasrc(ax, x, y)
+    datasrc = _create_datasrc(ax, x, y, ncols=1)
     _adjust_bar_datasrc(datasrc, order_cols=False) # don't rearrange columns, done for us in volume_ocv()
     item = volume_ocv(datasrc, candle_width=width, ax=ax, colorfunc=colorfunc)
     item.update_data = partial(_update_data, None, _adjust_bar_datasrc, item)
@@ -1610,7 +1610,7 @@ def hist(x, bins, ax=None, **kwargs):
 def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True, **kwargs):
     ax = _create_plot(ax=ax, maximize=False)
     used_color = _get_color(ax, style, color)
-    datasrc = _create_datasrc(ax, x, y)
+    datasrc = _create_datasrc(ax, x, y, ncols=1)
     if not zoomscale:
         datasrc.scale_cols = []
     _set_datasrc(ax, datasrc)
@@ -1661,7 +1661,7 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
 def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
     ax = _create_plot(ax=ax, maximize=False)
     used_color = _get_color(ax, '?', color)
-    datasrc = _create_datasrc(ax, x, y, labels)
+    datasrc = _create_datasrc(ax, x, y, labels, ncols=3)
     datasrc.scale_cols = [] # don't use this for scaling
     _set_datasrc(ax, datasrc)
     item = ScatterLabelItem(ax=ax, datasrc=datasrc, color=used_color, anchor=anchor)
@@ -2141,7 +2141,7 @@ def _create_series(a):
     return a if isinstance(a, pd.Series) else pd.Series(a)
 
 
-def _create_datasrc(ax, *args):
+def _create_datasrc(ax, *args, ncols=-1):
     def do_create(args):
         if len(args) == 1 and type(args[0]) == PandasDataSource:
             return args[0]
@@ -2156,7 +2156,7 @@ def _create_datasrc(ax, *args):
     iargs = [a for a in args if a is not None]
     datasrc = do_create(iargs)
     # check if time column missing
-    if len(datasrc.df.columns) == 1:
+    if len(datasrc.df.columns) in (1, ncols-1):
         # assume time data has already been added before
         for a in ax.vb.win.axs:
             if a.vb.datasrc and len(a.vb.datasrc.df.columns) >= 2:
@@ -2165,7 +2165,10 @@ def _create_datasrc(ax, *args):
                 datasrc.df.insert(0, col, a.vb.datasrc.df[col])
                 datasrc = PandasDataSource(datasrc.df)
                 break
-        if len(datasrc.df.columns) == 1:
+        if len(datasrc.df.columns) in (1, ncols-1):
+            if ncols > 1:
+                print(f"WARNING: this type of plot wants %i columns/args, but you've only supplied %i" % (ncols, len(datasrc.df.columns)))
+                print(' - Assuming time column is missing and using index instead.')
             datasrc = PandasDataSource(datasrc.df.reset_index())
     elif len(iargs) >= 2 and len(datasrc.df.columns) == len(iargs)+1 and len(iargs) == len(args):
         try:
@@ -2173,9 +2176,11 @@ def _create_datasrc(ax, *args):
                 print('WARNING: performance penalty and crash may occur when using int64 instead of range indices.')
                 if (iargs[0].index == range(len(iargs[0]))).all():
                     print(' - Fix by .reset_index(drop=True)')
-                    return _create_datasrc(ax, datasrc.df[datasrc.df.columns[1:]])
+                    return _create_datasrc(ax, datasrc.df[datasrc.df.columns[1:]], ncols=ncols)
         except:
             print('WARNING: input data source may cause performance penalty and crash.')
+
+    assert len(datasrc.df.columns) >= ncols, 'ERROR: too few columns/args supplied for this plot'
 
     if datasrc.period_ns < 0:
         print('WARNING: input data source has time in descending order. Try sort_values() before calling.')

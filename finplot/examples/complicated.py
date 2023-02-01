@@ -13,6 +13,9 @@
 
    Included is also some third-party libraries to make the example
    more realistic.
+
+   You'll need to "pip install websocket-client" before running this
+   to be able to see real-time price action.
    '''
 
 
