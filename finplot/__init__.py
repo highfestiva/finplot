@@ -54,6 +54,7 @@ draw_line_color = '#000'
 draw_done_color = '#555'
 significant_decimals = 8
 significant_eps = 1e-8
+max_decimals = 10
 max_zoom_points = 20 # number of visible candles when maximum zoomed in
 top_graph_scale = 2
 clamp_grid = True
@@ -245,7 +246,7 @@ class PandasDataSource:
        Volume bars: create with three columns: time, open, close, volume - in that order.
        For all other types, time needs to be first, usually followed by one or more Y-columns.'''
     def __init__(self, df):
-        if type(df.index) == pd.DatetimeIndex or df.index[-1]>1e7 or '.RangeIndex' not in str(type(df.index)):
+        if type(df.index) == pd.DatetimeIndex or df.index[-1]>1e8 or '.RangeIndex' not in str(type(df.index)):
             df = df.reset_index()
         self.df = df.copy()
         # manage time column
@@ -312,32 +313,59 @@ class PandasDataSource:
     def xlen(self):
         return len(self.df)
 
-    def calc_significant_decimals(self):
-        ser = self.z if len(self.scale_cols)>1 else self.y
-        absdiff = ser.diff().abs()
-        absdiff[absdiff<1e-30] = 1e30
-        smallest_diff = absdiff.min()
-        smallest_remainder = [fmod(v,smallest_diff) for v in ser.iloc[:100]]
-        smallest_remainder = [v for v in smallest_remainder if v>0]
-        if smallest_remainder:
-            smallest_diff_r = min(smallest_remainder)
-            smallest_diff = min(smallest_diff, smallest_diff_r)
-        wanted_decimals = []
-        # retry with full numbers, to see if we can get the number of decimals down
-        for f,offset in [(1,0), (1, abs(ser.min())), (2, abs(ser.min()))]:
-            num = smallest_diff*f + offset
-            s = '%e' % num
+    def calc_significant_decimals(self, full):
+        def float_round(f):
+            return float('%.3e'%f) # 0.00999748 -> 0.01
+        def remainder_ok(a, b):
+            c = a % b
+            if c / b > 0.99: # remainder almost same as denominator
+                c = abs(c-b)
+            return c < b*0.6 # half is fine
+        def calc_sd(ser):
+            ser = ser.iloc[:1000]
+            absdiff = ser.diff().abs()
+            absdiff[absdiff<1e-30] = 1e30
+            smallest_diff = absdiff.min()
+            if smallest_diff > 1e29: # just 0s?
+                return 0
+            smallest_diff = float_round(smallest_diff)
+            absser = ser.iloc[:100].abs()
+            for _ in range(2): # check if we have a remainder that is a better epsilon
+                remainder = [fmod(v,smallest_diff) for v in absser]
+                remainder = [v for v in remainder if v>smallest_diff/20]
+                if not remainder:
+                    break
+                smallest_diff_r = min(remainder)
+                if smallest_diff*0.05 < smallest_diff_r < smallest_diff * 0.7 and remainder_ok(smallest_diff, smallest_diff_r):
+                    smallest_diff = smallest_diff_r
+                else:
+                    break
+            return smallest_diff
+        def calc_dec(ser, smallest_diff):
+            if not full: # line plots usually have extreme resolution
+                absmax = ser.iloc[:300].abs().max()
+                s = '%.3e' % absmax
+            else: # candles
+                s = '%.2e' % smallest_diff
             base,_,exp = s.partition('e')
             base = base.rstrip('0')
             exp = -int(exp)
             max_base_decimals = min(5, -exp+2) if exp < 0 else 3
             base_decimals = max(0, min(max_base_decimals, len(base)-2))
             decimals = exp + base_decimals
-            decimals = max(0, min(10, decimals))
-            wanted_decimals.append(decimals)
-        decimals = sorted(wanted_decimals)[1] # pick median
-        smallest_diff = max(10**(-decimals), smallest_diff)
-        return decimals, smallest_diff
+            decimals = max(0, min(max_decimals, decimals))
+            if not full: # apply grid for line plots only
+                smallest_diff = max(10**(-decimals), smallest_diff)
+            return decimals, smallest_diff
+        # first calculate EPS for series 0&1, then do decimals
+        sds = [calc_sd(self.y)] # might be all zeros for bar charts
+        if len(self.scale_cols) > 1:
+            sds.append(calc_sd(self.z)) # if first is open, this might be close
+        sds = [sd for sd in sds if sd>0]
+        big_diff = max(sds)
+        smallest_diff = min([sd for sd in sds if sd>big_diff/100]) # filter out extremely small epsilons
+        ser = self.z if len(self.scale_cols) > 1 else self.y
+        return calc_dec(ser, smallest_diff)
 
     def update_init_x(self, init_steps):
         self.init_x0, self.init_x1 = _xminmax(self, x_indexed=True, init_steps=init_steps)
@@ -2004,6 +2032,7 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
     ax.axes['right']['item'].setZValue(30) # put axis in front instead of behind data
     ax.axes['bottom']['item'].setZValue(30)
     ax.setLogMode(y=(yscale.scaletype=='log'))
+    ax.significant_forced = False
     ax.significant_decimals = significant_decimals
     ax.significant_eps = significant_eps
     ax.crosshair = FinCrossHair(ax, color=cross_hair_color)
@@ -2039,6 +2068,7 @@ def _ax_overlay(ax, scale=0.25, yaxis=False):
     def updateView():
         viewbox.setGeometry(ax.vb.sceneBoundingRect())
     axo = pg.PlotItem(enableMenu=False)
+    axo.significant_forced = False
     axo.significant_decimals = significant_decimals
     axo.significant_eps = significant_eps
     axo.vb = viewbox
@@ -2106,6 +2136,7 @@ def _ax_reset(ax):
     ax.vb.set_datasrc(None)
     if ax.crosshair is not None:
         ax.crosshair.show()
+    ax.significant_forced = False
 
 
 def _create_legend(ax):
@@ -2122,12 +2153,14 @@ def _update_significants(ax, datasrc, force):
     default_eps = 0.99 < ax.significant_eps/significant_eps < 1.01
     if force or (default_dec and default_eps):
         try:
-            sd,se = datasrc.calc_significant_decimals()
+            sd,se = datasrc.calc_significant_decimals(full=force)
             if sd or se != significant_eps:
-                if force or default_dec or sd > ax.significant_decimals:
+                if (force and not ax.significant_forced) or default_dec or sd > ax.significant_decimals:
                     ax.significant_decimals = sd
-                if force or default_eps or se < ax.significant_eps:
+                    ax.significant_forced |= force
+                if (force and not ax.significant_forced) or default_eps or se < ax.significant_eps:
                     ax.significant_eps = se
+                    ax.significant_forced |= force
         except:
             pass # datasrc probably full av NaNs
 
