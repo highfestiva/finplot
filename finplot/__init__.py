@@ -441,7 +441,7 @@ class PandasDataSource:
                 output_df = output_df.loc[input_df.index[start_idx:end_idx], :]
         output_df = self.post_update(output_df)
         output_df = output_df.reset_index()
-        self.df = output_df[[output_df.columns[0]]+orig_cols] if orig_cols else input_df
+        self.df = output_df[[output_df.columns[0]]+orig_cols] if orig_cols else output_df
         self.init_x1 = self.xlen + right_margin_candles - side_margin
         self.cache_hilo = OrderedDict()
         self._period = self._smooth_time = None
