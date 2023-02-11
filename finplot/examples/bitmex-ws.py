@@ -13,7 +13,6 @@ from time import time
 
 
 baseurl = 'https://www.bitmex.com/api'
-plots = []
 orderbook = None
 
 
@@ -42,37 +41,19 @@ def update_plot():
     candlesticks = df['t o c h l'.split()]
     bollband_hi = df['t bbh'.split()]
     bollband_lo = df['t bbl'.split()]
-    if not plots: # 1st time
-        candlestick_plot = fplt.candlestick_ochl(candlesticks)
-        plots.append(candlestick_plot)
-        plots.append(fplt.plot(bollband_hi, color='#4e4ef1'))
-        plots.append(fplt.plot(bollband_lo, color='#4e4ef1'))
-        fplt.fill_between(plots[1], plots[2], color='#9999fa')
+    if orderbook is None:
         # generate dummy orderbook plot, which we update next time
         x = len(candlesticks)+0.5
         y = candlesticks.c.iloc[-1]
         orderbook = [[x,[(y,1)]]]
-        orderbook_colorfunc = fplt.horizvol_colorfilter([(0,'bull'),(10,'bear')])
-        orderbook_plot = fplt.horiz_time_volume(orderbook, candle_width=1, draw_body=10, colorfunc=orderbook_colorfunc)
-        plots.append(orderbook_plot)
-        # use bitmex colors
-        candlestick_plot.colors.update(dict(
-                bull_shadow = '#388d53',
-                bull_frame  = '#205536',
-                bull_body   = '#52b370',
-                bear_shadow = '#d56161',
-                bear_frame  = '#5c1a10',
-                bear_body   = '#e8704f'))
-        orderbook_plot.colors.update(dict(
-                bull_frame  = '#52b370',
-                bull_body   = '#bae1c6',
-                bear_frame  = '#e8704f',
-                bear_body   = '#f6c6b9'))
-    else: # update
-        plots[0].update_data(candlesticks)
-        plots[1].update_data(bollband_hi)
-        plots[2].update_data(bollband_lo)
-        plots[3].update_data(orderbook)
+
+    plot_candles.candlestick_ochl(candlesticks)
+    plot_bb_hi.plot(bollband_hi, color='#4e4ef1')
+    plot_bb_lo.plot(bollband_lo, color='#4e4ef1')
+    fplt.fill_between(plot_bb_hi.item, plot_bb_lo.item, color='#9999fa')
+
+    orderbook_colorfunc = fplt.horizvol_colorfilter([(0,'bull'),(10,'bear')])
+    plot_orderbook.horiz_time_volume(orderbook, candle_width=1, draw_body=10, colorfunc=orderbook_colorfunc)
 
 
 def update_candlestick_data(trade, interval_mins=1):
@@ -132,6 +113,20 @@ if __name__ == '__main__':
     thread.daemon = True
     thread.start()
     fplt.create_plot('Realtime Bitcoin/Dollar 1m (BitMEX websocket)', init_zoom_periods=75, maximize=False)
+    plot_candles, plot_bb_hi, plot_bb_lo, plot_orderbook = fplt.live(4)
+    # use bitmex colors
+    plot_candles.colors.update(dict(
+            bull_shadow = '#388d53',
+            bull_frame  = '#205536',
+            bull_body   = '#52b370',
+            bear_shadow = '#d56161',
+            bear_frame  = '#5c1a10',
+            bear_body   = '#e8704f'))
+    plot_orderbook.colors.update(dict(
+            bull_frame  = '#52b370',
+            bull_body   = '#bae1c6',
+            bear_frame  = '#e8704f',
+            bear_body   = '#f6c6b9'))
     update_plot()
     fplt.timer_callback(update_plot, 0.5) # update in 2 Hz
     fplt.show()

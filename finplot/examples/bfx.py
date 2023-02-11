@@ -40,23 +40,16 @@ def update():
     volumes = df['time open close volume'.split()]
     td_up_labels = df['time high tdup'.split()]
     td_dn_labels = df['time low tddn'.split()]
-    if not plots:
-        # first time we create the plots
-        global ax
-        plots.append(fplt.candlestick_ochl(candlesticks))
-        plots.append(fplt.volume_ocv(volumes, ax=ax.overlay()))
-        plots.append(fplt.labels(td_up_labels, color='#009900'))
-        plots.append(fplt.labels(td_dn_labels, color='#990000', anchor=(0.5,0)))
-    else:
-        # every time after we just update the data sources on each plot
-        plots[0].update_data(candlesticks)
-        plots[1].update_data(volumes)
-        plots[2].update_data(td_up_labels)
-        plots[3].update_data(td_dn_labels)
+
+    plot_candles.candlestick_ochl(candlesticks)
+    plot_volume.volume_ocv(volumes, ax=ax.overlay())
+    plot_td_up.labels(td_up_labels, color='#009900')
+    plot_td_dn.labels(td_dn_labels, color='#990000', anchor=(0.5,0))
 
 
 plots = []
 ax = fplt.create_plot('Realtime Bitcoin/Dollar 1m TD Sequential (BitFinex REST)', init_zoom_periods=100, maximize=False)
+plot_candles, plot_volume, plot_td_up, plot_td_dn = fplt.live(4)
 update()
 fplt.timer_callback(update, 5.0) # update (using synchronous rest call) every N seconds
 

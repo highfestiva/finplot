@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from dateutil.tz import tzlocal
 from decimal import Decimal
 from functools import partial, partialmethod
+from finplot.live import Live
 from math import ceil, floor, fmod
 import numpy as np
 import os.path
@@ -1700,6 +1701,12 @@ def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
     if ax.vb.v_zoom_scale > 0.9: # adjust to make hi/lo text fit
         ax.vb.v_zoom_scale = 0.9
     return item
+
+
+def live(plots=1):
+    if plots == 1:
+        return Live()
+    return [Live() for _ in range(plots)]
 
 
 def add_legend(text, ax=None):
