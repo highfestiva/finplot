@@ -318,7 +318,7 @@ class PandasDataSource:
             return float('%.3e'%f) # 0.00999748 -> 0.01
         def remainder_ok(a, b):
             c = a % b
-            if c / b > 0.99: # remainder almost same as denominator
+            if c / b > 0.98: # remainder almost same as denominator
                 c = abs(c-b)
             return c < b*0.6 # half is fine
         def calc_sd(ser):
@@ -1860,7 +1860,10 @@ def autoviewrestore(enable=True):
 
 def refresh():
     for win in windows:
-        vbs = [ax.vb for ax in win.axs] + [ax.vb for ax in overlay_axs if ax.vb.win==win]
+        axs = win.axs + [ax for ax in overlay_axs if ax.vb.win==win]
+        for ax in axs:
+            _improve_significants(ax)
+        vbs = [ax.vb for ax in axs]
         for vb in vbs:
             vb.pre_process_data()
         if viewrestore:
@@ -2163,6 +2166,14 @@ def _update_significants(ax, datasrc, force):
                     ax.significant_forced |= force
         except:
             pass # datasrc probably full av NaNs
+
+
+def _improve_significants(ax):
+    '''Force update of the EPS if we both have no bars/candles AND a log scale.
+       This is intended to fix the lower part of the grid on line plots on a log scale.'''
+    if ax.vb.yscale.scaletype == 'log':
+        if not any(isinstance(item, CandlestickItem) for item in ax.items):
+            _update_significants(ax, ax.vb.datasrc, force=True)
 
 
 def _is_standalone(timeser):
