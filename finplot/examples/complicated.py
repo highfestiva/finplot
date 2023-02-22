@@ -94,16 +94,15 @@ class BinanceWebsocket:
         if '@kline_' in stream:
             k = msg['data']['k']
             t = k['t']
-            t0 = int(df.index[-2].timestamp()) * 1000
             t1 = int(df.index[-1].timestamp()) * 1000
-            t2 = t1 + (t1-t0)
-            if t < t2:
+            if t <= t1:
                 # update last candle
                 i = df.index[-1]
                 df.loc[i, 'Close']  = float(k['c'])
                 df.loc[i, 'High']   = max(df.loc[i, 'High'], float(k['h']))
                 df.loc[i, 'Low']    = min(df.loc[i, 'Low'],  float(k['l']))
                 df.loc[i, 'Volume'] = float(k['v'])
+                print(k)
             else:
                 # create a new candle
                 data = [t] + [float(k[i]) for i in ['o','c','h','l','v']]
