@@ -2506,6 +2506,10 @@ def _key_pressed(vb, ev):
         for win in windows:
             for ax in win.axs:
                 ax.crosshair.update()
+    elif ev.text() == 'i': # invert
+        for win in windows:
+            for ax in win.axs:
+                ax.setTransform(ax.transform().scale(1,-1).translate(0,-ax.height()))
     elif ev.text() in ('\r', ' '): # enter, space
         vb.set_draw_line_color(draw_done_color)
         vb.draw_line = None
