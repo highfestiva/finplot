@@ -84,6 +84,7 @@ epoch_period = 1e30
 last_ax = None # always assume we want to plot in the last axis, unless explicitly specified
 overlay_axs = [] # for keeping track of candlesticks in overlays
 viewrestore = False
+key_esc_close = True # ESC key closes window
 master_data = {}
 
 
@@ -415,7 +416,7 @@ class PandasDataSource:
         self.cache_hilo = OrderedDict()
         self._period = self._smooth_time = None
         datasrc._period = datasrc._smooth_time = None
-        ldf2 = len(self.df) / 2
+        ldf2 = len(self.df) // 2
         self.is_sparse = self.is_sparse or self.df[self.df.columns[self.col_data_offset]].isnull().sum().max() > ldf2
         datasrc.is_sparse = datasrc.is_sparse or datasrc.df[datasrc.df.columns[datasrc.col_data_offset]].isnull().sum().max() > ldf2
 
@@ -480,16 +481,19 @@ class PandasDataSource:
         lo = df[valcols].min().min()
         return t0,t1,hi,lo,len(df)
 
-    def rows(self, colcnt, x0, x1, yscale, lod=True):
+    def rows(self, colcnt, x0, x1, yscale, lod=True, resamp=None):
         df = self.df.loc[x0:x1, :]
         if self.is_sparse:
             df = df.loc[df.iloc[:,self.col_data_offset].notna(), :]
         origlen = len(df)
-        return self._rows(df, colcnt, yscale=yscale, lod=lod), origlen
+        return self._rows(df, colcnt, yscale=yscale, lod=lod, resamp=resamp), origlen
 
-    def _rows(self, df, colcnt, yscale, lod):
+    def _rows(self, df, colcnt, yscale, lod, resamp):
         if lod and len(df) > lod_candles:
-            df = df.iloc[::len(df)//lod_candles]
+            if resamp:
+                df = self._resample(df, colcnt, resamp)
+            else:
+                df = df.iloc[::len(df)//lod_candles]
         colcnt -= 1 # time is always implied
         colidxs = [0] + list(range(self.col_data_offset, self.col_data_offset+colcnt))
         dfr = df.iloc[:,colidxs]
@@ -500,6 +504,27 @@ class PandasDataSource:
                 if dfr[colname].dtype != object:
                     dfr[colname] = yscale.invxform(dfr.iloc[:,i])
         return dfr
+
+    def _resample(self, df, colcnt, resamp):
+        cdo = self.col_data_offset
+        sample_rate = len(df) * 5 // lod_candles
+        offset = len(df) % sample_rate
+        dfd = df[[df.columns[0]]+[df.columns[cdo]]].iloc[offset::sample_rate]
+        c = df[df.columns[cdo+1]].iloc[offset+sample_rate-1::sample_rate]
+        c.index -= sample_rate - 1
+        dfd[df.columns[cdo+1]] = c
+        if resamp == 'hilo':
+            dfd[df.columns[cdo+2]] = df[df.columns[cdo+2]].rolling(sample_rate).max().shift(-sample_rate+1)
+            dfd[df.columns[cdo+3]] = df[df.columns[cdo+3]].rolling(sample_rate).min().shift(-sample_rate+1)
+        else:
+            dfd[df.columns[cdo+2]] = df[df.columns[cdo+2]].rolling(sample_rate).sum().shift(-sample_rate+1)
+            dfd[df.columns[cdo+3]] = df[df.columns[cdo+3]].rolling(sample_rate).sum().shift(-sample_rate+1)
+        # append trailing columns
+        trailing_colidx = cdo + 4
+        for i in range(trailing_colidx, colcnt):
+            col = df.columns[i]
+            dfd[col] = df[col].iloc[offset::sample_rate]
+        return dfd
 
     def __eq__(self, other):
         return id(self) == id(other) or id(self.df) == id(other.df)
@@ -1161,7 +1186,7 @@ class FinPlotItem(pg.GraphicsObject):
 
 
 class CandlestickItem(FinPlotItem):
-    def __init__(self, ax, datasrc, draw_body, draw_shadow, candle_width, colorfunc):
+    def __init__(self, ax, datasrc, draw_body, draw_shadow, candle_width, colorfunc, resamp=None):
         self.colors = dict(bull_shadow      = candle_bull_color,
                            bull_frame       = candle_bull_color,
                            bull_body        = candle_bull_body_color,
@@ -1179,16 +1204,17 @@ class CandlestickItem(FinPlotItem):
         self.candle_width = candle_width
         self.shadow_width = candle_shadow_width
         self.colorfunc = colorfunc
+        self.resamp = resamp
         self.x_offset = 0
         super().__init__(ax, datasrc, lod=True)
 
     def generate_picture(self, boundingRect):
-        w = self.candle_width
-        w2 = w * 0.5
         left,right = boundingRect.left(), boundingRect.right()
         p = self.painter
-        df,origlen = self.datasrc.rows(5, left, right, yscale=self.ax.vb.yscale)
-        drawing_many_shadows = self.draw_shadow and origlen > lod_candles*2//3
+        df,origlen = self.datasrc.rows(5, left, right, yscale=self.ax.vb.yscale, resamp=self.resamp)
+        f = origlen / len(df) if len(df) else 1
+        w = self.candle_width * f
+        w2 = w * 0.5
         for shadow,frame,body,df_rows in self.colorfunc(self, self.datasrc, df):
             idxs = df_rows.index
             rows = df_rows.values
@@ -1199,7 +1225,7 @@ class CandlestickItem(FinPlotItem):
                 for x,(t,open,close,high,low) in zip(idxs, rows):
                     if high > low:
                         p.drawLine(QtCore.QPointF(x, low), QtCore.QPointF(x, high))
-            if self.draw_body and not drawing_many_shadows: # settle with only drawing shadows if too much detail
+            if self.draw_body:
                 p.setPen(pg.mkPen(frame))
                 p.setBrush(pg.mkBrush(body))
                 for x,(t,open,close,high,low) in zip(idxs, rows):
@@ -1501,7 +1527,7 @@ def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6
     datasrc = _create_datasrc(ax, datasrc, ncols=5)
     datasrc.scale_cols = [3,4] # only hi+lo scales
     _set_datasrc(ax, datasrc)
-    item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width, colorfunc=colorfunc)
+    item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width, colorfunc=colorfunc, resamp='hilo')
     _update_significants(ax, datasrc, force=True)
     item.update_data = partial(_update_data, None, None, item)
     item.update_gfx = partial(_update_gfx, item)
@@ -1531,7 +1557,7 @@ def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter)
     datasrc = _create_datasrc(ax, datasrc, ncols=4)
     _adjust_volume_datasrc(datasrc)
     _set_datasrc(ax, datasrc)
-    item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=True, draw_shadow=False, candle_width=candle_width, colorfunc=colorfunc)
+    item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=True, draw_shadow=False, candle_width=candle_width, colorfunc=colorfunc, resamp='sum')
     _update_significants(ax, datasrc, force=True)
     item.colors['bull_body'] = item.colors['bull_frame']
     if colorfunc == volume_colorfilter: # assume normal volume plot
@@ -1954,6 +1980,8 @@ def _loadwindata(win):
     try:
         f = os.path.expanduser('~/.finplot/'+win.title.replace('/','-')+'.ini')
         settings = [(k.strip(),literal_eval(v.strip())) for line in _openfile(f) for k,d,v in [line.partition('=')] if v]
+        if not settings:
+            return
     except:
         return
     kvs = {k:v for k,v in settings}
@@ -2526,7 +2554,7 @@ def _key_pressed(vb, ev):
     elif ev.key() == QtCore.Qt.Key.Key_End:
         vb.pan_x(steps=+1e10)
         _repaint_candles()
-    elif ev.key() == QtCore.Qt.Key.Key_Escape:
+    elif ev.key() == QtCore.Qt.Key.Key_Escape and key_esc_close:
         vb.win.close()
     else:
         return False
