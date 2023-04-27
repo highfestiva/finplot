@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "finplot-examples"
+version = "0.1.0"
+description = ""
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+
+python = "^3.10"
+pandas = "^1.5.2"
+PyQt6 = "^6.4.0"
+pyqtgraph = "^0.13.1"
+python-dateutil = "*"
+bitmex_websocket = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
