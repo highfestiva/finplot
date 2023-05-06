@@ -13,6 +13,8 @@ PyQt6 = "^6.4.0"
 pyqtgraph = "^0.13.1"
 python-dateutil = "*"
 bitmex_websocket = "*"
+yfinance = "*"
+scipy = "*"
 
 [build-system]
 requires = ["poetry-core"]
