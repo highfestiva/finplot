@@ -68,6 +68,7 @@ y_pad = 0.03 # 3% padding at top and bottom of autozoom plots
 y_label_width = 65
 display_timezone = tzlocal() # default to local
 winx,winy,winw,winh = 300,150,800,400
+win_recreate_delta = 30
 log_plot_offset = -2.2222222e-16 # I could file a bug report, probably in PyQt, but this is more fun
 # format: mode, min-duration, pd-freq-fmt, tick-str-len
 time_splits = [('years', 2*365*24*60*60,  'YS',  4), ('months', 3*30*24*60*60, 'MS', 10), ('weeks',   3*7*24*60*60, 'W-MON', 10),
@@ -541,8 +542,8 @@ class FinWindow(pg.GraphicsLayoutWidget):
         super().__init__(**kwargs)
         self.setWindowTitle(title)
         self.setGeometry(winx, winy, winw, winh)
-        winx += 40
-        winy += 40
+        winx = (winx+win_recreate_delta) % 800
+        winy = (winy+win_recreate_delta) % 500
         self.centralWidget.installEventFilter(self)
         self.ci.setContentsMargins(0, 0, 0, 0)
         self.ci.setSpacing(-1)
