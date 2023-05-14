@@ -2,9 +2,7 @@
 
 import math
 import pandas as pd
-
 import finplot as fplt
-
 import requests
 import time
 
