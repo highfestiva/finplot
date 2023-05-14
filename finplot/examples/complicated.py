@@ -18,8 +18,6 @@
    to be able to see real-time price action.
    '''
 
-import sys, os
-sys.path.append(os.path.dirname(os.path.realpath(__file__)) + '/../../../finplot')
 import finplot as fplt
 
 from functools import lru_cache

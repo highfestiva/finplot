@@ -3,7 +3,6 @@
 import math
 import pandas as pd
 
-import sys
 import finplot as fplt
 
 import requests

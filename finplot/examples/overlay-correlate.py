@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 from datetime import date, timedelta
-import sys
 import finplot as fplt
 import pandas as pd
 import scipy.optimize

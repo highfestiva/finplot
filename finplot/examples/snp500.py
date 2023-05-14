@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import sys
 import finplot as fplt
 import pandas as pd
 import requests
