@@ -2,7 +2,7 @@
 
 import finplot as fplt
 from functools import lru_cache
-from PyQt5.QtWidgets import QApplication, QGridLayout, QGraphicsView, QComboBox, QLabel
+from PyQt6.QtWidgets import QApplication, QGridLayout, QGraphicsView, QComboBox, QLabel
 from threading import Thread
 import yfinance as yf
 
@@ -16,7 +16,7 @@ win.resize(600, 500)
 
 combo = QComboBox()
 combo.setEditable(True)
-[combo.addItem(i) for i in 'AMRK FB GFN REVG TSLA TWTR WMT CT=F GC=F ^FTSE ^N225 EURUSD=X ETH-USD'.split()]
+[combo.addItem(i) for i in 'AMRK META REVG TSLA TWTR WMT CT=F GC=F ^GSPC ^FTSE ^N225 EURUSD=X ETH-USD'.split()]
 layout.addWidget(combo, 0, 0, 1, 1)
 info = QLabel()
 layout.addWidget(info, 0, 1, 1, 1)
@@ -33,7 +33,7 @@ def download(symbol):
 
 @lru_cache(maxsize=100)
 def get_name(symbol):
-    return yf.Ticker(symbol).info['shortName']
+    return yf.Ticker(symbol).info.get('shortName') or symbol
 
 plots = []
 def update(txt):
@@ -60,4 +60,4 @@ update(combo.currentText())
 
 fplt.show(qt_exec=False) # prepares plots when they're all setup
 win.show()
-app.exec_()
+app.exec()

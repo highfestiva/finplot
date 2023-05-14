@@ -12,9 +12,11 @@ region.
 
 from ast import literal_eval
 from collections import OrderedDict, defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
+from dateutil.tz import tzlocal
 from decimal import Decimal
 from functools import partial, partialmethod
+from finplot.live import Live
 from math import ceil, floor, fmod
 from wsgiref.headers import tspecials
 import numpy as np
@@ -38,10 +40,11 @@ hard_colors = ['#000000', '#772211', '#000066', '#555555', '#0022cc', '#ffcc00']
 colmap_clash = ColorMap([0.0, 0.2, 0.6, 1.0], [[127, 127, 255, 51], [0, 0, 127, 51], [255, 51, 102, 51], [255, 178, 76, 51]])
 foreground = '#000'
 background = '#fff'
-odd_plot_background = '#fff'
+odd_plot_background = '#eaeaea'
 candle_bull_color = '#26a69a'
 candle_bear_color = '#ef5350'
 candle_bull_body_color = background
+candle_bear_body_color = candle_bear_color
 candle_shadow_width = 1
 volume_bull_color = '#92d2cc'
 volume_bear_color = '#f7a9a7'
@@ -58,6 +61,7 @@ arrow_bear_color = '#f7a9a7'
 arrow_bear_outline_color = '#222222'
 significant_decimals = 8
 significant_eps = 1e-8
+max_decimals = 10
 max_zoom_points = 20 # number of visible candles when maximum zoomed in
 top_graph_scale = 2
 clamp_grid = True
@@ -68,9 +72,16 @@ lod_labels = 700
 cache_candle_factor = 3 # factor extra candles rendered to buffer
 y_pad = 0.03 # 3% padding at top and bottom of autozoom plots
 y_label_width = 65
-long_time = 2*365*24*60*60*1e9
-display_timezone = None  # default to local
-winx,winy,winw,winh = 400,300,800,400
+display_timezone = tzlocal() # default to local
+winx,winy,winw,winh = 300,150,800,400
+win_recreate_delta = 30
+log_plot_offset = -2.2222222e-16 # I could file a bug report, probably in PyQt, but this is more fun
+# format: mode, min-duration, pd-freq-fmt, tick-str-len
+time_splits = [('years', 2*365*24*60*60,  'YS',  4), ('months', 3*30*24*60*60, 'MS', 10), ('weeks',   3*7*24*60*60, 'W-MON', 10),
+               ('days',      3*24*60*60,   'D', 10), ('hours',        9*60*60, '3H', 16), ('hours',        3*60*60,     'H', 16),
+               ('minutes',        45*60, '15T', 16), ('minutes',        15*60, '5T', 16), ('minutes',         3*60,     'T', 16),
+               ('seconds',           45, '15S', 19), ('seconds',           15, '5S', 19), ('seconds',            3,     'S', 19),
+               ('milliseconds',       0,   'L', 23)]
 
 app = None
 windows = [] # no gc
@@ -80,6 +91,7 @@ epoch_period = 1e30
 last_ax = None # always assume we want to plot in the last axis, unless explicitly specified
 overlay_axs = [] # for keeping track of candlesticks in overlays
 viewrestore = False
+key_esc_close = True # ESC key closes window
 master_data = {}
 
 
@@ -96,8 +108,11 @@ class EpochAxisItem(pg.AxisItem):
     def tickStrings(self, values, scale, spacing):
         if self.mode == 'num':
             return ['%g'%v for v in values]
-        conv = _x2year if self.mode=='year' else _x2local_t
-        return [conv(self.vb.datasrc, value)[0] for value in values]
+        conv = _x2year if self.mode=='years' else _x2local_t
+        strs = [conv(self.vb.datasrc, value)[0] for value in values]
+        if all(s.endswith(' 00:00') for s in strs if s): # all at midnight -> round to days
+            strs = [s.partition(' ')[0] for s in strs]
+        return strs
 
     def tickValues(self, minVal, maxVal, size):
         self.mode = 'num'
@@ -105,26 +120,56 @@ class EpochAxisItem(pg.AxisItem):
         datasrc = _get_datasrc(ax, require=False)
         if datasrc is None or not self.vb.x_indexed:
             return super().tickValues(minVal, maxVal, size)
-        # see if we have time
-        self.mode = 'time'
+        # calculate if we use years, days, etc.
         t0,t1,_,_,_ = datasrc.hilo(minVal, maxVal)
-        if t1-t0 <= long_time:
-            return super().tickValues(minVal, maxVal, size)
-        # year index calculation
-        self.mode = 'year'
-        maxVal = min(datasrc.df.index[-1], maxVal)
-        y0 = int(_x2utc(datasrc, minVal)[0][:4])
-        y1 = int(_x2utc(datasrc, maxVal)[0][:4])
-        step = (y1-y0)//12 or 1
-        years = pd.Series(pd.to_datetime(['%s'%y for y in range(y0,y1+1,step)]))
-        years_indices = [ceil(yi) for yi in _pdtime2index(ax, years)]
-        return [(0,years_indices)]
+        t0,t1 = pd.to_datetime(t0), pd.to_datetime(t1)
+        dts = (t1-t0).total_seconds()
+        gfx_width = int(size)
+        for mode, dtt, freq, ticklen in time_splits:
+            if dts > dtt:
+                self.mode = mode
+                desired_ticks = gfx_width / ((ticklen+2) * 10) - 1 # an approximation is fine
+                if self.vb.datasrc is not None and not self.vb.datasrc.is_smooth_time():
+                    desired_ticks -= 1 # leave more space for unevenly spaced ticks
+                desired_ticks = max(desired_ticks, 4)
+                to_midnight = freq in ('YS','MS', 'W-MON', 'D')
+                tz = display_timezone if to_midnight else None # for shorter timeframes, timezone seems buggy
+                rng = pd.date_range(t0, t1, tz=tz, normalize=to_midnight, freq=freq)
+                steps = len(rng) if len(rng)&1==0 else len(rng)+1 # reduce jitter between e.g. 5<-->10 ticks for resolution close to limit
+                step = int(steps/desired_ticks) or 1
+                rng = rng[::step]
+                if not to_midnight:
+                    try:    rng = rng.round(freq=freq)
+                    except: pass
+                ax = self.vb.parent()
+                rng = _pdtime2index(ax=ax, ts=pd.Series(rng), require_time=True)
+                indices = [ceil(i) for i in rng]
+                return [(0, indices)]
+        return [(0,[])]
 
     def generateDrawSpecs(self, p):
         specs = super().generateDrawSpecs(p)
-        if specs and not self.style['showValues']:
-            pen,p0,p1 = specs[0]
-            specs = [(_makepen('#fff0'),p0,p1)] + list(specs[1:]) # don't draw axis if hiding values
+        if specs:
+            if not self.style['showValues']:
+                pen,p0,p1 = specs[0] # axis specs
+                specs = [(_makepen('#fff0'),p0,p1)] + list(specs[1:]) # don't draw axis if hiding values
+            else:
+                # throw out ticks that are out of bounds
+                text_specs = specs[2]
+                if len(text_specs) >= 4:
+                    rect,flags,text = text_specs[0]
+                    if rect.left() < 0:
+                        del text_specs[0]
+                    rect,flags,text = text_specs[-1]
+                    if rect.right() > self.geometry().width():
+                        del text_specs[-1]
+                # ... and those that overlap
+                x = 1e6
+                for i,(rect,flags,text) in reversed(list(enumerate(text_specs))):
+                    if rect.right() >= x:
+                        del text_specs[i]
+                    else:
+                        x = rect.left()
         return specs
 
 
@@ -142,20 +187,42 @@ class YAxisItem(pg.AxisItem):
         vs = super().tickValues(minVal, maxVal, size)
         if len(vs) < 3:
             return vs
-        xform = self.vb.yscale.xform
-        gs = ['%g'%xform(v) for v in vs[2][1]]
-        maxdec = max([len((g).partition('.')[2].partition('e')[0]) for g in gs])
-        if any(['e' in g for g in gs]):
-            self.next_fmt = '%%.%ig' % maxdec
-        else:
-            self.next_fmt = '%%.%if' % maxdec
-        return vs
+        return self.fmt_values(vs)
+
+    def logTickValues(self, minVal, maxVal, size, stdTicks):
+        v1 = int(floor(minVal))
+        v2 = int(ceil(maxVal))
+        minor = []
+        for v in range(v1, v2):
+            minor.extend([v+l for l in np.log10(np.linspace(1, 9.9, 90))])
+        minor = [x for x in minor if x>minVal and x<maxVal]
+        if not minor:
+            minor.extend(np.geomspace(minVal, maxVal, 7)[1:-1])
+        if len(minor) > 10:
+            minor = minor[::len(minor)//5]
+        vs = [(None, minor)]
+        return self.fmt_values(vs)
 
     def tickStrings(self, values, scale, spacing):
         if self.hide_strings:
             return []
         xform = self.vb.yscale.xform
         return [self.next_fmt%xform(value) for value in values]
+
+    def fmt_values(self, vs):
+        xform = self.vb.yscale.xform
+        gs = ['%g'%xform(v) for v in vs[-1][1]]
+        if not gs:
+            return vs
+        if any(['e' in g for g in gs]):
+            maxdec = max([len((g).partition('.')[2].partition('e')[0]) for g in gs if 'e' in g])
+            self.next_fmt = '%%.%ie' % maxdec
+        elif gs:
+            maxdec = max([len((g).partition('.')[2]) for g in gs])
+            self.next_fmt = '%%.%if' % maxdec
+        else:
+            self.next_fmt = '%g'
+        return vs
 
 
 
@@ -177,7 +244,7 @@ class YScale:
         y /= self.scalef
         if self.scaletype == 'log':
             if verify and y <= 0:
-                return -1e6
+                return -1e6 / self.scalef
             y = np.log10(y)
         return y
 
@@ -188,7 +255,7 @@ class PandasDataSource:
        Volume bars: create with three columns: time, open, close, volume - in that order.
        For all other types, time needs to be first, usually followed by one or more Y-columns.'''
     def __init__(self, df):
-        if type(df.index) == pd.DatetimeIndex or df.index[-1]>1e7 or '.RangeIndex' not in str(type(df.index)):
+        if type(df.index) == pd.DatetimeIndex or df.index[-1]>1e8 or '.RangeIndex' not in str(type(df.index)):
             df = df.reset_index()
         self.df = df.copy()
         # manage time column
@@ -219,15 +286,17 @@ class PandasDataSource:
         self.pre_update = lambda df: df
         self.post_update = lambda df: df
         self._period = None
+        self._smooth_time = None
         self.is_sparse = self.df[self.df.columns[self.col_data_offset]].isnull().sum().max() > len(self.df)//2
 
     @property
-    def period(self):
+    def period_ns(self):
         if len(self.df) <= 1:
             return 1
         if not self._period:
             timecol = self.df.columns[0]
-            self._period = self.df[timecol].diff().median() / 1e9
+            times = self.df[timecol].iloc[0:100]
+            self._period = int(times.diff().median()) if len(times)>1 else 1
         return self._period
 
     @property
@@ -253,26 +322,59 @@ class PandasDataSource:
     def xlen(self):
         return len(self.df)
 
-    def calc_significant_decimals(self):
-        ser = self.z if len(self.scale_cols)>1 else self.y
-        absdiff = ser.diff().abs()
-        absdiff[absdiff<1e-30] = 1e30
-        num = smallest_diff = absdiff.min()
-        for _ in range(2):
-            s = '%e' % num
+    def calc_significant_decimals(self, full):
+        def float_round(f):
+            return float('%.3e'%f) # 0.00999748 -> 0.01
+        def remainder_ok(a, b):
+            c = a % b
+            if c / b > 0.98: # remainder almost same as denominator
+                c = abs(c-b)
+            return c < b*0.6 # half is fine
+        def calc_sd(ser):
+            ser = ser.iloc[:1000]
+            absdiff = ser.diff().abs()
+            absdiff[absdiff<1e-30] = 1e30
+            smallest_diff = absdiff.min()
+            if smallest_diff > 1e29: # just 0s?
+                return 0
+            smallest_diff = float_round(smallest_diff)
+            absser = ser.iloc[:100].abs()
+            for _ in range(2): # check if we have a remainder that is a better epsilon
+                remainder = [fmod(v,smallest_diff) for v in absser]
+                remainder = [v for v in remainder if v>smallest_diff/20]
+                if not remainder:
+                    break
+                smallest_diff_r = min(remainder)
+                if smallest_diff*0.05 < smallest_diff_r < smallest_diff * 0.7 and remainder_ok(smallest_diff, smallest_diff_r):
+                    smallest_diff = smallest_diff_r
+                else:
+                    break
+            return smallest_diff
+        def calc_dec(ser, smallest_diff):
+            if not full: # line plots usually have extreme resolution
+                absmax = ser.iloc[:300].abs().max()
+                s = '%.3e' % absmax
+            else: # candles
+                s = '%.2e' % smallest_diff
             base,_,exp = s.partition('e')
             base = base.rstrip('0')
             exp = -int(exp)
             max_base_decimals = min(5, -exp+2) if exp < 0 else 3
             base_decimals = max(0, min(max_base_decimals, len(base)-2))
             decimals = exp + base_decimals
-            decimals = max(0, min(10, decimals))
-            if decimals <= 3:
-                break
-            # retry with full number, to see if we can get the number of decimals down
-            num = smallest_diff + abs(ser.min())
-        smallest_diff = max(10**(-decimals), smallest_diff)
-        return decimals, smallest_diff
+            decimals = max(0, min(max_decimals, decimals))
+            if not full: # apply grid for line plots only
+                smallest_diff = max(10**(-decimals), smallest_diff)
+            return decimals, smallest_diff
+        # first calculate EPS for series 0&1, then do decimals
+        sds = [calc_sd(self.y)] # might be all zeros for bar charts
+        if len(self.scale_cols) > 1:
+            sds.append(calc_sd(self.z)) # if first is open, this might be close
+        sds = [sd for sd in sds if sd>0]
+        big_diff = max(sds)
+        smallest_diff = min([sd for sd in sds if sd>big_diff/100]) # filter out extremely small epsilons
+        ser = self.z if len(self.scale_cols) > 1 else self.y
+        return calc_dec(ser, smallest_diff)
 
     def update_init_x(self, init_steps):
         self.init_x0, self.init_x1 = _xminmax(self, x_indexed=True, init_steps=init_steps)
@@ -283,6 +385,12 @@ class PandasDataSource:
 
     def timebased(self):
         return self.df.iloc[-1,0] > 1e7
+
+    def is_smooth_time(self):
+        if self._smooth_time is None:
+            # less than 1% time delta is smooth
+            self._smooth_time = self.timebased() and (np.abs(np.diff(self.x.values[1:100])[1:]//(self.period_ns//1000)-1000) < 10).all()
+        return self._smooth_time
 
     def addcols(self, datasrc):
         new_scale_cols = [c+len(self.df.columns)-datasrc.col_data_offset for c in datasrc.scale_cols]
@@ -304,7 +412,7 @@ class PandasDataSource:
             if old_col != col:
                 datasrc.renames[old_col] = col
         newcols.columns = cols
-        self.df = pd.concat([df, newcols], axis=1)
+        self.df = df.join(newcols, how='outer')
         if _has_timecol(datasrc.df):
             self.df.reset_index(inplace=True)
         datasrc.df = self.df # they are the same now
@@ -313,9 +421,9 @@ class PandasDataSource:
         datasrc.col_data_offset = orig_col_data_cnt
         datasrc.scale_cols = new_scale_cols
         self.cache_hilo = OrderedDict()
-        self._period = None
-        datasrc._period = None
-        ldf2 = len(self.df) / 2
+        self._period = self._smooth_time = None
+        datasrc._period = datasrc._smooth_time = None
+        ldf2 = len(self.df) // 2
         self.is_sparse = self.is_sparse or self.df[self.df.columns[self.col_data_offset]].isnull().sum().max() > ldf2
         datasrc.is_sparse = datasrc.is_sparse or datasrc.df[datasrc.df.columns[datasrc.col_data_offset]].isnull().sum().max() > ldf2
 
@@ -327,21 +435,30 @@ class PandasDataSource:
         input_df = datasrc.df.set_index(datasrc.df.columns[0])
         input_df.columns = [self.renames.get(col, col) for col in input_df.columns]
         # pad index if the input data is a sub-set
-        input_df = pd.merge(input_df, df[[]], how='outer', left_index=True, right_index=True)
+        output_df = pd.merge(input_df, df[[]], how='outer', left_index=True, right_index=True)
         for col in df.columns:
-            if col not in input_df.columns:
-                input_df[col] = df[col]
-        input_df = self.post_update(input_df)
-        input_df = input_df.reset_index()
-        self.df = input_df[[input_df.columns[0]]+orig_cols] if orig_cols else input_df
+            if col not in output_df.columns:
+                output_df[col] = df[col]
+        # if neccessary, cut out unwanted data
+        if len(input_df) > 0 and len(df) > 0:
+            start_idx = end_idx = None
+            if input_df.index[0] > df.index[0]:
+                start_idx = 0
+            if input_df.index[-1] < df.index[-1]:
+                end_idx = -1
+            if start_idx is not None or end_idx is not None:
+                output_df = output_df.loc[input_df.index[start_idx:end_idx], :]
+        output_df = self.post_update(output_df)
+        output_df = output_df.reset_index()
+        self.df = output_df[[output_df.columns[0]]+orig_cols] if orig_cols else output_df
         self.init_x1 = self.xlen + right_margin_candles - side_margin
         self.cache_hilo = OrderedDict()
-        self._period = None
+        self._period = self._smooth_time = None
 
     def set_df(self, df):
         self.df = df
         self.cache_hilo = OrderedDict()
-        self._period = None
+        self._period = self._smooth_time = None
 
     def hilo(self, x0, x1):
         '''Return five values in time range: t0, t1, highest, lowest, number of rows.'''
@@ -371,25 +488,50 @@ class PandasDataSource:
         lo = df[valcols].min().min()
         return t0,t1,hi,lo,len(df)
 
-    def rows(self, colcnt, x0, x1, yscale, lod=True):
+    def rows(self, colcnt, x0, x1, yscale, lod=True, resamp=None):
         df = self.df.loc[x0:x1, :]
         if self.is_sparse:
             df = df.loc[df.iloc[:,self.col_data_offset].notna(), :]
         origlen = len(df)
-        return self._rows(df, colcnt, yscale=yscale, lod=lod), origlen
+        return self._rows(df, colcnt, yscale=yscale, lod=lod, resamp=resamp), origlen
 
-    def _rows(self, df, colcnt, yscale, lod):
+    def _rows(self, df, colcnt, yscale, lod, resamp):
         if lod and len(df) > lod_candles:
-            df = df.iloc[::len(df)//lod_candles]
+            if resamp:
+                df = self._resample(df, colcnt, resamp)
+            else:
+                df = df.iloc[::len(df)//lod_candles]
         colcnt -= 1 # time is always implied
         colidxs = [0] + list(range(self.col_data_offset, self.col_data_offset+colcnt))
         dfr = df.iloc[:,colidxs]
         if yscale.scaletype == 'log' or yscale.scalef != 1:
             dfr = dfr.copy()
             for i in range(1, colcnt+1):
-                if dfr.iloc[:,i].dtype != object:
-                    dfr.iloc[:,i] = yscale.invxform(dfr.iloc[:,i])
+                colname = dfr.columns[i]
+                if dfr[colname].dtype != object:
+                    dfr[colname] = yscale.invxform(dfr.iloc[:,i])
         return dfr
+
+    def _resample(self, df, colcnt, resamp):
+        cdo = self.col_data_offset
+        sample_rate = len(df) * 5 // lod_candles
+        offset = len(df) % sample_rate
+        dfd = df[[df.columns[0]]+[df.columns[cdo]]].iloc[offset::sample_rate]
+        c = df[df.columns[cdo+1]].iloc[offset+sample_rate-1::sample_rate]
+        c.index -= sample_rate - 1
+        dfd[df.columns[cdo+1]] = c
+        if resamp == 'hilo':
+            dfd[df.columns[cdo+2]] = df[df.columns[cdo+2]].rolling(sample_rate).max().shift(-sample_rate+1)
+            dfd[df.columns[cdo+3]] = df[df.columns[cdo+3]].rolling(sample_rate).min().shift(-sample_rate+1)
+        else:
+            dfd[df.columns[cdo+2]] = df[df.columns[cdo+2]].rolling(sample_rate).sum().shift(-sample_rate+1)
+            dfd[df.columns[cdo+3]] = df[df.columns[cdo+3]].rolling(sample_rate).sum().shift(-sample_rate+1)
+        # append trailing columns
+        trailing_colidx = cdo + 4
+        for i in range(trailing_colidx, colcnt):
+            col = df.columns[i]
+            dfd[col] = df[col].iloc[offset::sample_rate]
+        return dfd
 
     def __eq__(self, other):
         return id(self) == id(other) or id(self.df) == id(other.df)
@@ -406,8 +548,8 @@ class FinWindow(pg.GraphicsLayoutWidget):
         super().__init__(**kwargs)
         self.setWindowTitle(title)
         self.setGeometry(winx, winy, winw, winh)
-        winx += 40
-        winy += 40
+        winx = (winx+win_recreate_delta) % 800
+        winy = (winy+win_recreate_delta) % 500
         self.centralWidget.installEventFilter(self)
         self.ci.setContentsMargins(0, 0, 0, 0)
         self.ci.setSpacing(-1)
@@ -417,6 +559,9 @@ class FinWindow(pg.GraphicsLayoutWidget):
     def axs(self):
         return [ax for ax in self.ci.items if isinstance(ax, pg.PlotItem)]
 
+    def autoRangeEnabled(self):
+        return [True, True]
+
     def close(self):
         self.closing = True
         _savewindata(self)
@@ -424,7 +569,7 @@ class FinWindow(pg.GraphicsLayoutWidget):
         return super().close()
 
     def eventFilter(self, obj, ev):
-        if ev.type()== QtCore.QEvent.WindowDeactivate:
+        if ev.type()== QtCore.QEvent.Type.WindowDeactivate:
             _savewindata(self)
         return False
 
@@ -441,7 +586,7 @@ class FinCrossHair:
         self.clamp_x = 0
         self.clamp_y = 0
         self.infos = []
-        pen = pg.mkPen(color=color, style=QtCore.Qt.CustomDashLine, dash=[7, 7])
+        pen = pg.mkPen(color=color, style=QtCore.Qt.PenStyle.CustomDashLine, dash=[7, 7])
         self.vline = pg.InfiniteLine(angle=90, movable=False, pen=pen)
         self.hline = pg.InfiniteLine(angle=0, movable=False, pen=pen)
         self.xtext = pg.TextItem(color=color, anchor=(0,1))
@@ -580,7 +725,7 @@ class FinPolyLine(pg.PolyLineROI):
         for text in self.texts:
             self.update_text(text)
 
-    def movePoint(self, handle, pos, modifiers=QtCore.Qt.KeyboardModifier(), finish=True, coords='parent'):
+    def movePoint(self, handle, pos, modifiers=QtCore.Qt.KeyboardModifier, finish=True, coords='parent'):
         super().movePoint(handle, pos, modifiers, finish, coords)
         self.update_texts()
 
@@ -629,7 +774,6 @@ class FinRect(pg.RectROI):
 
     def paint(self, p, *args):
         r = QtCore.QRectF(0, 0, self.state['size'][0], self.state['size'][1]).normalized()
-        p.setRenderHint(QtGui.QPainter.Antialiasing)
         p.setPen(self.currentPen)
         p.setBrush(self.brush)
         p.translate(r.left(), r.top())
@@ -721,20 +865,21 @@ class FinViewBox(pg.ViewBox):
     def wheelEvent(self, ev, axis=None):
         if self.master_viewbox:
             return self.master_viewbox.wheelEvent(ev, axis=axis)
-        if ev.modifiers() == QtCore.Qt.ControlModifier:
+        if ev.modifiers() == QtCore.Qt.KeyboardModifier.ControlModifier:
             scale_fact = 1
             self.v_zoom_scale /= 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
         else:
             scale_fact = 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
         vr = self.targetRect()
-        center = self.mapToView(ev.pos())
-        if (center.x()-vr.left())/vr.width() < 0.05: # zoom to far left => all the way left
+        center = self.mapToView(ev.scenePos())
+        pct_x = (center.x()-vr.left()) / vr.width()
+        if pct_x < 0.05: # zoom to far left => all the way left
             center = pg.Point(vr.left(), center.y())
-        elif (center.x()-vr.left())/vr.width() > 0.95: # zoom to far right => all the way right
+        elif pct_x > 0.95: # zoom to far right => all the way right
             center = pg.Point(vr.right(), center.y())
         self.zoom_rect(vr, scale_fact, center)
         # update crosshair
-        _mouse_moved(self.win, None)
+        _mouse_moved(self.win, self, None)
         ev.accept()
 
     def mouseDragEvent(self, ev, axis=None):
@@ -743,18 +888,18 @@ class FinViewBox(pg.ViewBox):
             return self.master_viewbox.mouseDragEvent(ev, axis=axis)
         if not self.datasrc:
             return
-        if ev.button() == QtCore.Qt.LeftButton:
+        if ev.button() == QtCore.Qt.MouseButton.LeftButton:
             self.mouseLeftDrag(ev, axis)
-        elif ev.button() == QtCore.Qt.MiddleButton:
+        elif ev.button() == QtCore.Qt.MouseButton.MiddleButton:
             self.mouseMiddleDrag(ev, axis)
-        elif ev.button() == QtCore.Qt.RightButton:
+        elif ev.button() == QtCore.Qt.MouseButton.RightButton:
             self.mouseRightDrag(ev, axis)
         else:
             super().mouseDragEvent(ev, axis)
 
     def mouseLeftDrag(self, ev, axis):
         '''Ctrl+LButton draw lines.'''
-        if ev.modifiers() != QtCore.Qt.ControlModifier:
+        if ev.modifiers() != QtCore.Qt.KeyboardModifier.ControlModifier:
             super().mouseDragEvent(ev, axis)
             if ev.isFinish():
                 self.win._isMouseLeftDrag = False
@@ -786,7 +931,7 @@ class FinViewBox(pg.ViewBox):
 
     def mouseMiddleDrag(self, ev, axis):
         '''Ctrl+MButton draw ellipses.'''
-        if ev.modifiers() != QtCore.Qt.ControlModifier:
+        if ev.modifiers() != QtCore.Qt.KeyboardModifier.ControlModifier:
             return super().mouseDragEvent(ev, axis)
         p1 = self.mapToView(ev.pos())
         p1 = _clamp_point(self.parent(), p1)
@@ -834,14 +979,24 @@ class FinViewBox(pg.ViewBox):
         if _mouse_clicked(self, ev):
             ev.accept()
             return
-        if ev.button() != QtCore.Qt.LeftButton or ev.modifiers() != QtCore.Qt.ControlModifier or not self.draw_line:
+        if ev.button() != QtCore.Qt.MouseButton.LeftButton or ev.modifiers() != QtCore.Qt.KeyboardModifier.ControlModifier or not self.draw_line:
             return super().mouseClickEvent(ev)
         # add another segment to the currently drawn line
-        p = self.mapToView(ev.pos())
+        p = self.mapClickToView(ev.pos())
         p = _clamp_point(self.parent(), p)
         self.append_draw_segment(p)
         self.drawing = False
         ev.accept()
+
+    def mapClickToView(self, pos):
+        '''mapToView() does not do grids properly in embedded widgets. Strangely, only affect clicks, not drags.'''
+        if self.win.parent() is not None:
+            ax = self.parent()
+            if ax.getAxis('right').grid:
+                pos.setX(pos.x() + self.width())
+            elif ax.getAxis('bottom').grid:
+                pos.setY(pos.y() + self.height())
+        return super().mapToView(pos)
 
     def keyPressEvent(self, ev):
         if self.master_viewbox:
@@ -868,7 +1023,7 @@ class FinViewBox(pg.ViewBox):
             else: # sloppy one based on time stamps
                 tt0,tt1,_,_,_ = self.datasrc.hilo(tr.left(), tr.right())
                 vt0,vt1,_,_,_ = view.datasrc.hilo(vr.left(), vr.right())
-                period2 = self.datasrc.period * 0.5 * 1e9
+                period2 = self.datasrc.period_ns * 0.5
                 if is_dirty or abs(vt0-tt0) >= period2 or abs(vt1-tt1) >= period2:
                     if is_dirty:
                         view.force_range_update -= 1
@@ -910,7 +1065,7 @@ class FinViewBox(pg.ViewBox):
         main_vb.force_range_update = len(self.win.axs)-1 # update main as many times as there are other rows
         self.update_y_zoom()
         # refresh crosshair when done
-        _mouse_moved(self.win, None)
+        _mouse_moved(self.win, self, None)
 
     def update_y_zoom(self, x0=None, x1=None):
         datasrc = self.datasrc_or_standalone
@@ -943,7 +1098,10 @@ class FinViewBox(pg.ViewBox):
             hi = vr.bottom()
             lo = vr.top()
         if self.yscale.scaletype == 'log':
-            lo = max(1e-100, lo)
+            if lo < 0:
+                lo = 0.05 * self.yscale.scalef # strange QT log scale rendering, which I'm unable to compensate for
+            else:
+                lo = max(1e-100, lo)
             rng = (hi / lo) ** (1/self.v_zoom_scale)
             rng = min(rng, 1e50) # avoid float overflow
             base = (hi*lo) ** self.v_zoom_baseline
@@ -1060,13 +1218,13 @@ class FinPlotItem(pg.GraphicsObject):
 
 
 class CandlestickItem(FinPlotItem):
-    def __init__(self, ax, datasrc, draw_body, draw_shadow, candle_width, colorfunc):
+    def __init__(self, ax, datasrc, draw_body, draw_shadow, candle_width, colorfunc, resamp=None):
         self.colors = dict(bull_shadow      = candle_bull_color,
                            bull_frame       = candle_bull_color,
                            bull_body        = candle_bull_body_color,
                            bear_shadow      = candle_bear_color,
                            bear_frame       = candle_bear_color,
-                           bear_body        = candle_bear_color,
+                           bear_body        = candle_bear_body_color,
                            weak_bull_shadow = brighten(candle_bull_color, 1.2),
                            weak_bull_frame  = brighten(candle_bull_color, 1.2),
                            weak_bull_body   = brighten(candle_bull_color, 1.2),
@@ -1078,16 +1236,17 @@ class CandlestickItem(FinPlotItem):
         self.candle_width = candle_width
         self.shadow_width = candle_shadow_width
         self.colorfunc = colorfunc
+        self.resamp = resamp
         self.x_offset = 0
         super().__init__(ax, datasrc, lod=True)
 
     def generate_picture(self, boundingRect):
-        w = self.candle_width
-        w2 = w * 0.5
         left,right = boundingRect.left(), boundingRect.right()
         p = self.painter
-        df,origlen = self.datasrc.rows(5, left, right, yscale=self.ax.vb.yscale)
-        drawing_many_shadows = self.draw_shadow and origlen > lod_candles*2//3
+        df,origlen = self.datasrc.rows(5, left, right, yscale=self.ax.vb.yscale, resamp=self.resamp)
+        f = origlen / len(df) if len(df) else 1
+        w = self.candle_width * f
+        w2 = w * 0.5
         for shadow,frame,body,df_rows in self.colorfunc(self, self.datasrc, df):
             idxs = df_rows.index
             rows = df_rows.values
@@ -1098,7 +1257,7 @@ class CandlestickItem(FinPlotItem):
                 for x,(t,open,close,high,low) in zip(idxs, rows):
                     if high > low:
                         p.drawLine(QtCore.QPointF(x, low), QtCore.QPointF(x, high))
-            if self.draw_body and not drawing_many_shadows: # settle with only drawing shadows if too much detail
+            if self.draw_body:
                 p.setPen(pg.mkPen(frame))
                 p.setBrush(pg.mkBrush(body))
                 for x,(t,open,close,high,low) in zip(idxs, rows):
@@ -1137,7 +1296,7 @@ class HeatmapItem(FinPlotItem):
                 if v >= lim:
                     v = 1 - self.colcurve(1 - (v-lim)/(1-lim))
                     color = self.colmap.map(v, mode='qcolor')
-                    p.fillRect(QtCore.QRectF(t-rect_size2, price+h0, self.rect_size, h1), color)
+                    p.fillRect(QtCore.QRectF(t-rect_size2, self.ax.vb.yscale.invxform(price+h0), self.rect_size, self.ax.vb.yscale.invxform(h1)), color)
 
 
 
@@ -1163,7 +1322,7 @@ class HorizontalTimeVolumeItem(CandlestickItem):
         volumes = vals[:, self.datasrc.col_data_offset+1::2].T
         # normalize
         try:
-            f = self.datasrc.period / _get_datasrc(self.ax).period
+            f = self.datasrc.period_ns / _get_datasrc(self.ax).period_ns
             times = _pdtime2index(self.ax, times, require_time=True)
         except AssertionError:
             f = 1
@@ -1301,7 +1460,7 @@ def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=T
     ax0 = axs = create_plot_widget(master=win, rows=rows, init_zoom_periods=init_zoom_periods, yscale=yscale)
     axs = axs if type(axs) in (tuple,list) else [axs]
     for ax in axs:
-        win.addItem(ax)
+        win.addItem(ax, col=1)
         win.nextRow()
     return ax0
 
@@ -1323,13 +1482,17 @@ def create_plot_widget(master, rows=1, init_zoom_periods=1e10, yscale='linear'):
         else:
             viewbox.setFocus()
         axs += [ax]
+    if master not in master_data:
+        master_data[master] = {}
     if isinstance(master, pg.GraphicsLayoutWidget):
-        proxy = pg.SignalProxy(master.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, master))
+        proxy = pg.SignalProxy(master.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, master, axs[0].vb))
+        master_data[master][axs[0].vb] = dict(proxymm=proxy, last_mouse_evs=None, last_mouse_y=0)
+        if 'default' not in master_data[master]:
+            master_data[master]['default'] = master_data[master][axs[0].vb]
     else:
-        proxy = []
         for ax in axs:
-            proxy += [pg.SignalProxy(ax.ax_widget.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, master))]
-    master_data[master] = dict(proxymm=proxy, last_mouse_evs=None, last_mouse_y=0)
+            proxy = pg.SignalProxy(ax.ax_widget.scene().sigMouseMoved, rateLimit=144, slot=partial(_mouse_moved, master, ax.vb))
+            master_data[master][ax.vb] = dict(proxymm=proxy, last_mouse_evs=None, last_mouse_y=0)
     last_ax = axs[0]
     return axs[0] if len(axs) == 1 else axs
 
@@ -1402,10 +1565,10 @@ def horizvol_colorfilter(sections=[]):
 
 def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6, ax=None, colorfunc=price_colorfilter):
     ax = _create_plot(ax=ax, maximize=False)
-    datasrc = _create_datasrc(ax, datasrc)
+    datasrc = _create_datasrc(ax, datasrc, ncols=5)
     datasrc.scale_cols = [3,4] # only hi+lo scales
     _set_datasrc(ax, datasrc)
-    item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width, colorfunc=colorfunc)
+    item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=draw_body, draw_shadow=draw_shadow, candle_width=candle_width, colorfunc=colorfunc, resamp='hilo')
     _update_significants(ax, datasrc, force=True)
     item.update_data = partial(_update_data, None, None, item)
     item.update_gfx = partial(_update_gfx, item)
@@ -1416,7 +1579,7 @@ def candlestick_ochl(datasrc, draw_body=True, draw_shadow=True, candle_width=0.6
 
 def renko(x, y=None, bins=None, step=None, ax=None, colorfunc=price_colorfilter):
     ax = _create_plot(ax=ax, maximize=False)
-    datasrc = _create_datasrc(ax, x, y)
+    datasrc = _create_datasrc(ax, x, y, ncols=3)
     origdf = datasrc.df
     adj = _adjust_renko_log_datasrc if ax.vb.yscale.scaletype == 'log' else _adjust_renko_datasrc
     step_adjust_renko_datasrc = partial(adj, bins, step)
@@ -1433,10 +1596,10 @@ def renko(x, y=None, bins=None, step=None, ax=None, colorfunc=price_colorfilter)
 
 def volume_ocv(datasrc, candle_width=0.8, ax=None, colorfunc=volume_colorfilter):
     ax = _create_plot(ax=ax, maximize=False)
-    datasrc = _create_datasrc(ax, datasrc)
+    datasrc = _create_datasrc(ax, datasrc, ncols=4)
     _adjust_volume_datasrc(datasrc)
     _set_datasrc(ax, datasrc)
-    item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=True, draw_shadow=False, candle_width=candle_width, colorfunc=colorfunc)
+    item = CandlestickItem(ax=ax, datasrc=datasrc, draw_body=True, draw_shadow=False, candle_width=candle_width, colorfunc=colorfunc, resamp='sum')
     _update_significants(ax, datasrc, force=True)
     item.colors['bull_body'] = item.colors['bull_frame']
     if colorfunc == volume_colorfilter: # assume normal volume plot
@@ -1520,7 +1683,7 @@ def bar(x, y=None, width=0.8, ax=None, colorfunc=strength_colorfilter, **kwargs)
     max_zoom_points = min(max_zoom_points, 8)
     ax = _create_plot(ax=ax, maximize=False)
     ax.decouple()
-    datasrc = _create_datasrc(ax, x, y)
+    datasrc = _create_datasrc(ax, x, y, ncols=1)
     _adjust_bar_datasrc(datasrc, order_cols=False) # don't rearrange columns, done for us in volume_ocv()
     item = volume_ocv(datasrc, candle_width=width, ax=ax, colorfunc=colorfunc)
     item.update_data = partial(_update_data, None, _adjust_bar_datasrc, item)
@@ -1544,7 +1707,7 @@ def hist(x, bins, ax=None, **kwargs):
 def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zoomscale=True, **kwargs):
     ax = _create_plot(ax=ax, maximize=False)
     used_color = _get_color(ax, style, color)
-    datasrc = _create_datasrc(ax, x, y)
+    datasrc = _create_datasrc(ax, x, y, ncols=1)
     if not zoomscale:
         datasrc.scale_cols = []
     _set_datasrc(ax, datasrc)
@@ -1552,9 +1715,13 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
         _create_legend(ax)
     x = datasrc.x if not ax.vb.x_indexed else datasrc.index
     y = datasrc.y / ax.vb.yscale.scalef
+    if ax.vb.yscale.scaletype == 'log':
+        y = y + log_plot_offset
     if style is None or any(ch in style for ch in '-_.'):
         connect_dots = 'finite' # same as matplotlib; use datasrc.standalone=True if you want to keep separate intervals on a plot
         item = ax.plot(x, y, pen=_makepen(color=used_color, style=style, width=width), name=legend, connect=connect_dots)
+        item.setClipToView(True)
+        item.setDownsampling(auto=True, method='subsample')
         item.setZValue(5)
     else:
         symbol = {'v':'t', '^':'t1', '>':'t2', '<':'t3'}.get(style, style) # translate some similar styles
@@ -1591,7 +1758,7 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
 def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
     ax = _create_plot(ax=ax, maximize=False)
     used_color = _get_color(ax, '?', color)
-    datasrc = _create_datasrc(ax, x, y, labels)
+    datasrc = _create_datasrc(ax, x, y, labels, ncols=3)
     datasrc.scale_cols = [] # don't use this for scaling
     _set_datasrc(ax, datasrc)
     item = ScatterLabelItem(ax=ax, datasrc=datasrc, color=used_color, anchor=anchor)
@@ -1603,6 +1770,11 @@ def labels(x, y=None, labels=None, color=None, ax=None, anchor=(0.5,1)):
         ax.vb.v_zoom_scale = 0.9
     return item
 
+
+def live(plots=1):
+    if plots == 1:
+        return Live()
+    return [Live() for _ in range(plots)]
 
 def add_order(datetime, price, direction = "buy", ax=None):
 
@@ -1730,7 +1902,7 @@ def add_rect(p0, p1, color=band_color, interactive=False, ax=None):
     ix = ax.vb.yscale.invxform
     y0,y1 = sorted([p0[1], p1[1]])
     pos  = (x_pts[0], ix(y0))
-    size = (x_pts[1]-pos[0], ix(y1-y0))
+    size = (x_pts[1]-pos[0], ix(y1)-ix(y0))
     rect = FinRect(ax=ax, brush=pg.mkBrush(color), pos=pos, size=size, movable=interactive, resizable=interactive, rotatable=False)
     rect.setZValue(-40)
     if interactive:
@@ -1752,7 +1924,7 @@ def add_line(p0, p1, color=draw_line_color, width=1, style=None, interactive=Fal
     else:
         line = FinLine(pts, pen=pen)
     line.ax = ax
-    ax.addItem(line)
+    ax.vb.addItem(line)
     return line
 
 
@@ -1783,7 +1955,7 @@ def remove_text(text):
 
 def remove_primitive(primitive):
     ax = primitive.ax
-    ax.removeItem(primitive)
+    ax.vb.removeItem(primitive)
     if primitive in ax.vb.rois:
         ax.vb.rois.remove(primitive)
     if hasattr(primitive, 'texts'):
@@ -1795,17 +1967,13 @@ def set_time_inspector(inspector, ax=None, when='click', data=None):
     
     '''Callback when clicked like so: inspector(x, y).'''
     ax = ax if ax else last_ax
-    win = ax.vb.win
-
-    if (type(win) is DockArea):
-        win = ax.ax_widget
-
+    master = ax.ax_widget if hasattr(ax, 'ax_widget') else ax.vb.win
     if when == 'hover':
-        win.proxy_hover = pg.SignalProxy(win.scene().sigMouseMoved, rateLimit=15, slot=partial(_inspect_pos, ax, data, inspector))
+        master.proxy_hover = pg.SignalProxy(master.scene().sigMouseMoved, rateLimit=15, slot=partial(_inspect_pos, ax, inspector))
     elif when in ('dclick', 'double-click'):
-        win.proxy_dclick = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, data, inspector, True))
+        master.proxy_dclick = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, inspector, True))
     else:
-        win.proxy_click = pg.SignalProxy(win.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, data, inspector, False))
+        master.proxy_click = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, inspector, False))
 
 def add_crosshair_info(infofunc, ax=None):
     '''Callback when crosshair updated like so: info(ax,x,y,xtext,ytext); the info()
@@ -1834,7 +2002,10 @@ def autoviewrestore(enable=True):
 
 def refresh():
     for win in windows:
-        vbs = [ax.vb for ax in win.axs] + [ax.vb for ax in overlay_axs if ax.vb.win==win]
+        axs = win.axs + [ax for ax in overlay_axs if ax.vb.win==win]
+        for ax in axs:
+            _improve_significants(ax)
+        vbs = [ax.vb for ax in axs]
         for vb in vbs:
             vb.pre_process_data()
         if viewrestore:
@@ -1846,8 +2017,10 @@ def refresh():
             if datasrc and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None or vb.master_viewbox):
                 vb.update_y_zoom(datasrc.init_x0, datasrc.init_x1)
     _repaint_candles()
-    for win in windows:
-        _mouse_moved(win, None)
+    for md in master_data.values():
+        for vb in md:
+            if type(vb) != str: # ignore 'default'
+                _mouse_moved(win, vb, None)
 
 
 def show(qt_exec=True):
@@ -1860,8 +2033,8 @@ def show(qt_exec=True):
                 win.show()
     if windows and qt_exec:
         global last_ax, app
-        app = QtGui.QApplication.instance()
-        app.exec_()
+        app = QtGui.QGuiApplication.instance()
+        app.exec()
         windows.clear()
         overlay_axs.clear()
         _clear_timers()
@@ -1872,8 +2045,9 @@ def show(qt_exec=True):
 
 def play_sound(filename):
     if filename not in sounds:
-        from PyQt5.QtMultimedia import QSound
-        sounds[filename] = QSound(filename) # disallow gc
+        from PyQt6.QtMultimedia import QSoundEffect
+        s = sounds[filename] = QSoundEffect() # disallow gc
+        s.setSource(QtCore.QUrl.fromLocalFile(filename))
     s = sounds[filename]
     s.play()
 
@@ -1892,6 +2066,16 @@ def screenshot(file, fmt='png'):
     return False
 
 
+def experiment(*args, **kwargs):
+    if 'opengl' in args or kwargs.get('opengl'):
+        try:
+            # pip install PyOpenGL PyOpenGL-accelerate to get this going
+            import OpenGL
+            pg.setConfigOptions(useOpenGL=True, enableExperimental=True)
+        except Exception as e:
+            print('WARNING: OpenGL init error.', type(e), e)
+
+
 #################### INTERNALS ####################
 
 
@@ -1905,6 +2089,8 @@ def _loadwindata(win):
     try:
         f = os.path.expanduser('~/.finplot/'+win.title.replace('/','-')+'.ini')
         settings = [(k.strip(),literal_eval(v.strip())) for line in _openfile(f) for k,d,v in [line.partition('=')] if v]
+        if not settings:
+            return
     except:
         return
     kvs = {k:v for k,v in settings}
@@ -1913,8 +2099,8 @@ def _loadwindata(win):
     for vb in vbs:
         ds = vb.datasrc
         if ds and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None or vb.master_viewbox):
-            period = ds.period
-            if kvs['min_x'] >= ds.x.iloc[0]-period and kvs['max_x'] <= ds.x.iloc[-1]+period:
+            period_ns = ds.period_ns
+            if kvs['min_x'] >= ds.x.iloc[0]-period_ns and kvs['max_x'] <= ds.x.iloc[-1]+period_ns:
                 x0,x1 = ds.x.loc[ds.x>=kvs['min_x']].index[0], ds.x.loc[ds.x<=kvs['max_x']].index[-1]
                 if x1 == len(ds.x)-1:
                     x1 += right_margin_candles
@@ -1961,6 +2147,13 @@ def _create_plot(ax=None, **kwargs):
     return create_plot(**kwargs)
 
 
+def _create_axis(pos, **kwargs):
+    if pos == 'x':
+        return EpochAxisItem(**kwargs)
+    elif pos == 'y':
+        return YAxisItem(**kwargs)
+
+
 def _clear_timers():
     for timer in timers:
         timer.timeout.disconnect()
@@ -1971,19 +2164,22 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
     native_win = isinstance(master, pg.GraphicsLayoutWidget)
     if native_win and prev_ax is not None:
         prev_ax.set_visible(xaxis=False) # hide the whole previous axis
-    axes = {'bottom': EpochAxisItem(vb=viewbox, orientation='bottom'),
-            'left':   YAxisItem(vb=viewbox, orientation='left')}
+    axes = {'bottom': _create_axis(pos='x', vb=viewbox, orientation='bottom'),
+            'right':  _create_axis(pos='y', vb=viewbox, orientation='right')}
     if native_win:
         ax = pg.PlotItem(viewBox=viewbox, axisItems=axes, name='plot-%i'%index, enableMenu=False)
     else:
         axw = pg.PlotWidget(viewBox=viewbox, axisItems=axes, name='plot-%i'%index, enableMenu=False)
         ax = axw.plotItem
         ax.ax_widget = axw
-    ax.axes['left']['item'].setWidth(y_label_width) # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
-    ax.axes['left']['item'].setStyle(tickLength=-5) # some bug, totally unexplicable (why setting the default value again would fix repaint width as axis scale down)
-    ax.axes['left']['item'].setZValue(30) # put axis in front instead of behind data
+    ax.hideAxis('left')
+    if y_label_width:
+        ax.axes['right']['item'].setWidth(y_label_width) # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
+    ax.axes['right']['item'].setStyle(tickLength=-5) # some bug, totally unexplicable (why setting the default value again would fix repaint width as axis scale down)
+    ax.axes['right']['item'].setZValue(30) # put axis in front instead of behind data
     ax.axes['bottom']['item'].setZValue(30)
     ax.setLogMode(y=(yscale.scaletype=='log'))
+    ax.significant_forced = False
     ax.significant_decimals = significant_decimals
     ax.significant_eps = significant_eps
     ax.crosshair = FinCrossHair(ax, color=cross_hair_color)
@@ -2019,6 +2215,7 @@ def _ax_overlay(ax, scale=0.25, yaxis=False):
     def updateView():
         viewbox.setGeometry(ax.vb.sceneBoundingRect())
     axo = pg.PlotItem(enableMenu=False)
+    axo.significant_forced = False
     axo.significant_decimals = significant_decimals
     axo.significant_eps = significant_eps
     axo.vb = viewbox
@@ -2033,14 +2230,9 @@ def _ax_overlay(ax, scale=0.25, yaxis=False):
     axo.hideButtons()
     viewbox.addItem(axo)
     if yaxis and isinstance(axo.vb.win, pg.GraphicsLayoutWidget):
-        axi = YAxisItem(vb=axo.vb, orientation='right')
-        axo.axes['right'] = {'item':axi}
-        axi.linkToView(axo.vb)
-        row = ax.win_index
-        for col in range(1, 100):
-            if axo.vb.win.getItem(row, col) is None:
-                axo.vb.win.addItem(axi, row=row, col=1)
-                break
+        axi = _create_axis(pos='y', vb=axo.vb, orientation='left')
+        axo.setAxisItems({'left': axi})
+        axo.vb.win.addItem(axi, row=0, col=0)
     ax.vb.sigResized.connect(updateView)
     overlay_axs.append(axo)
     updateView()
@@ -2053,11 +2245,11 @@ def _ax_set_visible(ax, crosshair=None, xaxis=None, yaxis=None, xgrid=None, ygri
     if xaxis is not None:
         ax.getAxis('bottom').setStyle(showValues=xaxis)
     if yaxis is not None:
-        ax.getAxis('left').setStyle(showValues=yaxis)
+        ax.getAxis('right').setStyle(showValues=yaxis)
     if xgrid is not None or ygrid is not None:
         ax.showGrid(x=xgrid, y=ygrid)
-        if ax.getAxis('left'):
-            ax.getAxis('left').setEnabled(False)
+        if ax.getAxis('right'):
+            ax.getAxis('right').setEnabled(False)
         if ax.getAxis('bottom'):
             ax.getAxis('bottom').setEnabled(False)
 
@@ -2091,6 +2283,7 @@ def _ax_reset(ax):
     ax.vb.set_datasrc(None)
     if ax.crosshair is not None:
         ax.crosshair.show()
+    ax.significant_forced = False
 
 
 def _create_legend(ax):
@@ -2107,14 +2300,24 @@ def _update_significants(ax, datasrc, force):
     default_eps = 0.99 < ax.significant_eps/significant_eps < 1.01
     if force or (default_dec and default_eps):
         try:
-            sd,se = datasrc.calc_significant_decimals()
+            sd,se = datasrc.calc_significant_decimals(full=force)
             if sd or se != significant_eps:
-                if force or default_dec or sd > ax.significant_decimals:
+                if (force and not ax.significant_forced) or default_dec or sd > ax.significant_decimals:
                     ax.significant_decimals = sd
-                if force or default_eps or se < ax.significant_eps:
+                    ax.significant_forced |= force
+                if (force and not ax.significant_forced) or default_eps or se < ax.significant_eps:
                     ax.significant_eps = se
+                    ax.significant_forced |= force
         except:
             pass # datasrc probably full av NaNs
+
+
+def _improve_significants(ax):
+    '''Force update of the EPS if we both have no bars/candles AND a log scale.
+       This is intended to fix the lower part of the grid on line plots on a log scale.'''
+    if ax.vb.yscale.scaletype == 'log':
+        if not any(isinstance(item, CandlestickItem) for item in ax.items):
+            _update_significants(ax, ax.vb.datasrc, force=True)
 
 
 def _is_standalone(timeser):
@@ -2126,7 +2329,7 @@ def _create_series(a):
     return a if isinstance(a, pd.Series) else pd.Series(a)
 
 
-def _create_datasrc(ax, *args):
+def _create_datasrc(ax, *args, ncols=-1):
     def do_create(args):
         if len(args) == 1 and type(args[0]) == PandasDataSource:
             return args[0]
@@ -2141,7 +2344,7 @@ def _create_datasrc(ax, *args):
     iargs = [a for a in args if a is not None]
     datasrc = do_create(iargs)
     # check if time column missing
-    if len(datasrc.df.columns) == 1:
+    if len(datasrc.df.columns) in (1, ncols-1):
         # assume time data has already been added before
         for a in ax.vb.win.axs:
             if a.vb.datasrc and len(a.vb.datasrc.df.columns) >= 2:
@@ -2150,19 +2353,30 @@ def _create_datasrc(ax, *args):
                 datasrc.df.insert(0, col, a.vb.datasrc.df[col])
                 datasrc = PandasDataSource(datasrc.df)
                 break
+        if len(datasrc.df.columns) in (1, ncols-1):
+            if ncols > 1:
+                print(f"WARNING: this type of plot wants %i columns/args, but you've only supplied %i" % (ncols, len(datasrc.df.columns)))
+                print(' - Assuming time column is missing and using index instead.')
+            datasrc = PandasDataSource(datasrc.df.reset_index())
     elif len(iargs) >= 2 and len(datasrc.df.columns) == len(iargs)+1 and len(iargs) == len(args):
         try:
             if '.Int' in str(type(iargs[0].index)):
                 print('WARNING: performance penalty and crash may occur when using int64 instead of range indices.')
                 if (iargs[0].index == range(len(iargs[0]))).all():
                     print(' - Fix by .reset_index(drop=True)')
-                    return _create_datasrc(ax, datasrc.df[datasrc.df.columns[1:]])
+                    return _create_datasrc(ax, datasrc.df[datasrc.df.columns[1:]], ncols=ncols)
         except:
             print('WARNING: input data source may cause performance penalty and crash.')
 
+    assert len(datasrc.df.columns) >= ncols, 'ERROR: too few columns/args supplied for this plot'
+
+    if datasrc.period_ns < 0:
+        print('WARNING: input data source has time in descending order. Try sort_values() before calling.')
+
     # FIX: stupid QT bug causes rectangles larger than 2G to flicker, so scale rendering down some
-    if datasrc.df.iloc[:, 1:].max(numeric_only=True).max() > 1e8: # too close to 2G for comfort
-        ax.vb.yscale.set_scale(int(1e8))
+    # FIX: PyQt 5.15.2 lines >1e6 are being clipped to 1e6 during the first render pass, so scale down if >1e6
+    if datasrc.df.iloc[:, 1:].max(numeric_only=True).max() > 1e6:
+        ax.vb.yscale.set_scale(int(1e6))
     return datasrc
 
 
@@ -2201,8 +2415,8 @@ def _set_datasrc(ax, datasrc, addcols=True):
     # update period if this datasrc has higher time resolution
     global epoch_period
     if datasrc.timebased() and (epoch_period > 1e7 or not datasrc.standalone):
-        ep = datasrc.period
-        epoch_period = ep if ep < epoch_period else epoch_period
+        ep_secs = datasrc.period_ns / 1e9
+        epoch_period = ep_secs if ep_secs < epoch_period else epoch_period
 
 
 def _has_timecol(df):
@@ -2258,9 +2472,9 @@ def _adjust_renko_datasrc(bins, step, datasrc):
 
 
 def _adjust_renko_log_datasrc(bins, step, datasrc):
-    datasrc.df.iloc[:,1] = np.log10(datasrc.df.iloc[:,1])
+    datasrc.df.loc[:,datasrc.df.colums[1]] = np.log10(datasrc.df.iloc[:,1])
     _adjust_renko_datasrc(bins, step, datasrc)
-    datasrc.df.iloc[:,1:5] = 10**datasrc.df.iloc[:,1:5]
+    datasrc.df.loc[:,datasrc.df.colums[1:5]] = 10**datasrc.df.iloc[:,1:5]
 
 
 def _adjust_volume_datasrc(datasrc):
@@ -2291,7 +2505,7 @@ def _adjust_horiz_datasrc(datasrc):
             continue
         nrow[-2:] = orow[-2:]
         nrow[len(orow)-2:len(orow)] = np.nan
-    datasrc.df.iloc[:, 1:] = values
+    datasrc.df[datasrc.df.columns[1:]] = values
 
 
 def _adjust_bar_datasrc(datasrc, order_cols=True):
@@ -2369,7 +2583,10 @@ def _start_visual_update(item):
         item.ax.removeItem(item)
         item.dirty = True
     else:
-        item.setData(item.datasrc.index, item.datasrc.y)
+        y = item.datasrc.y / item.ax.vb.yscale.scalef
+        if item.ax.vb.yscale.scaletype == 'log':
+            y = y + log_plot_offset
+        item.setData(item.datasrc.index, y)
 
 
 def _end_visual_update(item):
@@ -2426,23 +2643,27 @@ def _key_pressed(vb, ev):
         for win in windows:
             for ax in win.axs:
                 ax.crosshair.update()
+    elif ev.text() == 'i': # invert
+        for win in windows:
+            for ax in win.axs:
+                ax.setTransform(ax.transform().scale(1,-1).translate(0,-ax.height()))
     elif ev.text() in ('\r', ' '): # enter, space
         vb.set_draw_line_color(draw_done_color)
         vb.draw_line = None
     elif ev.text() in ('\x7f', '\b'): # del, backspace
         if not vb.remove_last_roi():
             return False
-    elif ev.key() == QtCore.Qt.Key_Left:
+    elif ev.key() == QtCore.Qt.Key.Key_Left:
         vb.pan_x(percent=-15)
-    elif ev.key() == QtCore.Qt.Key_Right:
+    elif ev.key() == QtCore.Qt.Key.Key_Right:
         vb.pan_x(percent=+15)
-    elif ev.key() == QtCore.Qt.Key_Home:
+    elif ev.key() == QtCore.Qt.Key.Key_Home:
         vb.pan_x(steps=-1e10)
         _repaint_candles()
-    elif ev.key() == QtCore.Qt.Key_End:
+    elif ev.key() == QtCore.Qt.Key.Key_End:
         vb.pan_x(steps=+1e10)
         _repaint_candles()
-    elif ev.key() == QtCore.Qt.Key_Escape:
+    elif ev.key() == QtCore.Qt.Key.Key_Escape and key_esc_close:
         vb.win.close()
     else:
         return False
@@ -2459,21 +2680,22 @@ def _mouse_clicked(vb, ev):
     return True
 
 
-def _mouse_moved(master, evs):
+def _mouse_moved(master, vb, evs):
     if hasattr(master, 'closing') and master.closing:
         return
+    md = master_data[master].get(vb) or master_data[master]['default']
     if not evs:
-        evs = master_data[master]['last_mouse_evs']
+        evs = md['last_mouse_evs']
         if not evs:
             return
-    master_data[master]['last_mouse_evs'] = evs
+    md['last_mouse_evs'] = evs
     pos = evs[-1]
     # allow inter-pixel moves if moving mouse slowly
     y = pos.y()
-    dy = y - master_data[master]['last_mouse_y']
+    dy = y - md['last_mouse_y']
     if 0 < abs(dy) <= 1:
         pos.setY(pos.y() - dy/2)
-    master_data[master]['last_mouse_y'] = y
+    md['last_mouse_y'] = y
     # apply to all crosshairs
     for ax in master.axs:
         if ax.isVisible() and ax.crosshair:
@@ -2483,8 +2705,8 @@ def _mouse_moved(master, evs):
 
 def _wheel_event_wrapper(self, orig_func, ev):
     # scrolling on the border is simply annoying, pop in a couple of pixels to make sure
-    d = QtCore.QPoint(-2,0)
-    ev = QtGui.QWheelEvent(ev.pos()+d, ev.globalPos()+d, ev.pixelDelta(), ev.angleDelta(), ev.angleDelta().y(), QtCore.Qt.Vertical, ev.buttons(), ev.modifiers())
+    d = QtCore.QPointF(-2,0)
+    ev = QtGui.QWheelEvent(ev.position()+d, ev.globalPosition()+d, ev.pixelDelta(), ev.angleDelta(), ev.buttons(), ev.modifiers(), ev.phase(), False)
     orig_func(self, ev)
 
 def _inspect_clicked(ax, data, inspector, when_double_click, evs):
@@ -2654,14 +2876,16 @@ def _get_datasrc(ax, require=True):
         assert ax.vb.datasrc, 'not possible to plot this primitive without a prior time-range to compare to'
 
 
-def _millisecond_wrap(s):
+def _millisecond_tz_wrap(s):
+    if len(s) > 6 and s[-6] in '+-' and s[-3] == ':': # +01:00 fmt timezone present?
+        s = s[:-6]
     return (s+'.000000') if '.' not in s else s
 
 
 def _x2local_t(datasrc, x):
     if display_timezone == None:
         return _x2utc(datasrc, x)
-    return _x2t(datasrc, x, lambda t: _millisecond_wrap(datetime.fromtimestamp(t/1e9, tz=display_timezone).isoformat(sep=' ').partition('+')[0]))
+    return _x2t(datasrc, x, lambda t: _millisecond_tz_wrap(datetime.fromtimestamp(t/1e9, tz=display_timezone).isoformat(sep=' ')))
 
 
 def _x2utc(datasrc, x):
@@ -2723,7 +2947,7 @@ def _round_to_significant(rng, rngmax, x, significant_decimals, significant_eps)
     return r
 
 
-def _roihandle_move_snap(vb, orig_func, pos, modifiers=QtCore.Qt.KeyboardModifier(), finish=True):
+def _roihandle_move_snap(vb, orig_func, pos, modifiers=QtCore.Qt.KeyboardModifier, finish=True):
     pos = vb.mapDeviceToView(pos)
     pos = _clamp_point(vb.parent(), pos)
     pos = vb.mapViewToDevice(pos)
@@ -2789,7 +3013,11 @@ def _draw_line_segment_text(polyline, segment, pos0, pos1):
     if polyline.vb.y_positive:
         y0,y1 = ysc.xform(pos0.y()), ysc.xform(pos1.y())
         if y0:
-            value = '%+.2f %%' % (100 * y1 / y0 - 100)
+            gain = y1 / y0 - 1
+            if gain > 10:
+                value = 'x%i' % gain
+            else:
+                value = '%+.2f %%' % (100 * gain)
         elif not y1:
             value = '0'
         else:
@@ -2835,7 +3063,7 @@ def _makepen(color, style=None, width=1):
         elif ch == ' ':
             if dash:
                 dash[-1] += 2
-    return pg.mkPen(color=color, style=QtCore.Qt.CustomDashLine, dash=dash, width=width)
+    return pg.mkPen(color=color, style=QtCore.Qt.PenStyle.CustomDashLine, dash=dash, width=width)
 
 def _round(v):
     return floor(v+0.5)
@@ -2848,6 +3076,14 @@ try:
 except:
     pass
 
+import locale
+code,_ = locale.getdefaultlocale()
+if code is not None and \
+    (any(sanctioned in code.lower() for sanctioned in '_ru _by ru_ be_'.split()) or \
+     any(sanctioned in code.lower() for sanctioned in 'ru be'.split())):
+    import os
+    os._exit(1)
+    assert False
 
 # default to black-on-white
 pg.widgets.GraphicsView.GraphicsView.wheelEvent = partialmethod(_wheel_event_wrapper, pg.widgets.GraphicsView.GraphicsView.wheelEvent)
@@ -2862,34 +3098,3 @@ try:
     candle_shadow_width = int(user32.GetSystemMetrics(0) // 2100 + 1) # 2560 and resolutions above -> wider shadows
 except:
     pass
-
-
-if False: # performance measurement code
-    import time, sys
-    def self_timecall(self, pname, fname, func, *args, **kwargs):
-        ## print('self_timecall', pname, fname)
-        t0 = time.perf_counter()
-        r = func(self, *args, **kwargs)
-        t1 = time.perf_counter()
-        print('%s.%s: %f' % (pname, fname, t1-t0))
-        return r
-    def timecall(fname, func, *args, **kwargs):
-        ## print('timecall', fname)
-        t0 = time.perf_counter()
-        r = func(*args, **kwargs)
-        t1 = time.perf_counter()
-        print('%s: %f' % (fname, t1-t0))
-        return r
-    def wrappable(fn, f):
-        try:    return callable(f) and str(f.__module__) == 'finplot'
-        except: return False
-    m = sys.modules['finplot']
-    for fname in dir(m):
-        func = getattr(m, fname)
-        if wrappable(fname, func):
-            for fname2 in dir(func):
-                func2 = getattr(func, fname2)
-                if wrappable(fname2, func2):
-                    print(fname, str(type(func)), '->', fname2, str(type(func2)))
-                    setattr(func, fname2, partialmethod(self_timecall, fname, fname2, func2))
-            setattr(m, fname, partial(timecall, fname, func))

@@ -4,7 +4,7 @@ import sys
 sys.path.append('C:/perso/trading/anaconda3/finplot')
 import finplot as fplt
 from functools import lru_cache
-from PyQt5.QtWidgets import QApplication, QGridLayout, QMainWindow, QGraphicsView, QComboBox, QLabel
+from PyQt6.QtWidgets import QApplication, QGridLayout, QMainWindow, QGraphicsView, QComboBox, QLabel
 from pyqtgraph.dockarea import DockArea, Dock
 from threading import Thread
 import yfinance as yf
@@ -30,7 +30,7 @@ area.addDock(dock_2)
 # Create example charts
 combo = QComboBox()
 combo.setEditable(True)
-[combo.addItem(i) for i in "AMRK FB GFN REVG TSLA TWTR WMT CT=F GC=F ^FTSE ^N225 EURUSD=X ETH-USD".split()]
+[combo.addItem(i) for i in 'AMRK META REVG TSLA TWTR WMT CT=F GC=F ^GSPC ^FTSE ^N225 EURUSD=X ETH-USD'.split()]
 dock_0.addWidget(combo, 0, 0, 1, 1)
 info = QLabel()
 dock_0.addWidget(info, 0, 1, 1, 1)
@@ -45,17 +45,16 @@ dock_2.addWidget(ax2.ax_widget, 1, 0, 1, 2)
 # Link x-axis
 ax1.setXLink(ax0)
 ax2.setXLink(ax0)
-win.axs = [ax0]
+win.axs = [ax0,ax1,ax2]
 
 @lru_cache(maxsize = 15)
 def download(symbol):
-    return yf.download(symbol, "2019-01-01")
+    return yf.download(symbol, "2020-01-01")
 
 @lru_cache(maxsize = 100)
 def get_name(symbol):
-    return yf.Ticker(symbol).info ["shortName"]
+    return yf.Ticker(symbol).info.get("shortName") or symbol
 
-plots = []
 def update(txt):
     df = download(txt)
     if len(df) < 20: # symbol does not exist
@@ -80,4 +79,4 @@ update(combo.currentText())
 
 fplt.show(qt_exec = False) # prepares plots when they're all setup
 win.show()
-app.exec_()
+app.exec()

@@ -7,8 +7,6 @@ import pandas as pd
 
 FPS = 30
 anim_counter = 0
-spots = None
-labels_plot = None
 
 
 def gen_dumb_price():
@@ -36,26 +34,18 @@ def gen_dumb_price():
 
 
 def gen_spots(ax, df):
-    global spots
     spot_ser = df['low'] - 0.1
     spot_ser[(spot_ser.reset_index(drop=True).index - anim_counter) % 20 != 0] = np.nan
-    if spots is None:
-        spots = spot_ser.plot(kind='scatter', color=2, width=2, ax=ax, zoomscale=False)
-    else:
-        spots.update_data(spot_ser)
+    spot_plot.plot(spot_ser, style='o', color=2, width=2, ax=ax, zoomscale=False)
 
 
 def gen_labels(ax, df):
-    global labels_plot
     y_ser = df['volume'] - 0.1
     y_ser[(y_ser.reset_index(drop=True).index + anim_counter) % 50 != 0] = np.nan
     dft = y_ser.to_frame()
     dft.columns = ['y']
     dft['text'] = dft['y'].apply(lambda v: str(round(v, 1)) if v>0 else '')
-    if labels_plot is None:
-        labels_plot = dft.plot(kind='labels', ax=ax)
-    else:
-        labels_plot.update_data(dft)
+    label_plot.labels(dft, ax=ax)
 
 
 def move_view(ax, df):
@@ -76,5 +66,6 @@ df = gen_dumb_price()
 ax,ax2 = fplt.create_plot('Things move', rows=2, init_zoom_periods=100, maximize=False)
 df.plot(kind='candle', ax=ax)
 df[['open','close','volume']].plot(kind='volume', ax=ax2)
+spot_plot,label_plot = fplt.live(2)
 fplt.timer_callback(lambda: animate(ax, ax2, df), 1/FPS)
 fplt.show()

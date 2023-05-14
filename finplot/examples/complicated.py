@@ -8,11 +8,14 @@
 
    This example includes dipping in to the internals of finplot and
    the underlying lib pyqtgraph, which is not part of the API per se,
-   and may thus change in the future. If so happens, this example
-   will be updated to reflect such changes.
+   and may thus change in the. If so happens, this example will be
+   updated to reflect such changes.
 
    Included is also some third-party libraries to make the example
    more realistic.
+
+   You'll need to "pip install websocket-client" before running this
+   to be able to see real-time price action.
    '''
 
 import sys, os
@@ -23,8 +26,7 @@ from functools import lru_cache
 import json
 from math import nan
 import pandas as pd
-from PyQt5.QtWidgets import QComboBox, QCheckBox, QWidget
-from pyqtgraph import QtGui
+from PyQt6.QtWidgets import QComboBox, QCheckBox, QWidget, QGridLayout
 import pyqtgraph as pg
 import requests
 from time import time as now, sleep
@@ -32,9 +34,9 @@ from threading import Thread
 import websocket
 
 
-class BinanceFutureWebsocket:
+class BinanceWebsocket:
     def __init__(self):
-        self.url = 'wss://fstream.binance.com/stream'
+        self.url = 'wss://stream.binance.com/stream'
         self.symbol = None
         self.interval = None
         self.ws = None
@@ -94,30 +96,29 @@ class BinanceFutureWebsocket:
         if '@kline_' in stream:
             k = msg['data']['k']
             t = k['t']
-            t0 = int(df.index[-2].timestamp()) * 1000
             t1 = int(df.index[-1].timestamp()) * 1000
-            t2 = t1 + (t1-t0)
-            if t < t2:
+            if t <= t1:
                 # update last candle
                 i = df.index[-1]
                 df.loc[i, 'Close']  = float(k['c'])
                 df.loc[i, 'High']   = max(df.loc[i, 'High'], float(k['h']))
                 df.loc[i, 'Low']    = min(df.loc[i, 'Low'],  float(k['l']))
                 df.loc[i, 'Volume'] = float(k['v'])
+                print(k)
             else:
                 # create a new candle
                 data = [t] + [float(k[i]) for i in ['o','c','h','l','v']]
                 candle = pd.DataFrame([data], columns='Time Open Close High Low Volume'.split()).astype({'Time':'datetime64[ms]'})
                 candle.set_index('Time', inplace=True)
-                self.df = df.append(candle)
+                self.df = pd.concat([df, candle])
 
     def on_error(self, error, *args, **kwargs):
         print('websocket error: %s' % error)
 
 
 def do_load_price_history(symbol, interval):
-    url = 'https://www.binance.com/fapi/v1/klines?symbol=%s&interval=%s&limit=%s' % (symbol, interval, 1000)
-    print('loading binance future %s %s' % (symbol, interval))
+    url = 'https://www.binance.com/api/v1/klines?symbol=%s&interval=%s&limit=%s' % (symbol, interval, 1000)
+    print('loading binance %s %s' % (symbol, interval))
     d = requests.get(url).json()
     df = pd.DataFrame(d, columns='Time Open High Low Close Volume a b c d e f'.split())
     df = df.astype({'Time':'datetime64[ms]', 'Open':float, 'High':float, 'Low':float, 'Close':float, 'Volume':float})
@@ -349,8 +350,8 @@ def dark_mode_toggle(dark):
     axs += fplt.overlay_axs
     axis_pen = fplt._makepen(color=fplt.foreground)
     for ax in axs:
-        ax.axes['left']['item'].setPen(axis_pen)
-        ax.axes['left']['item'].setTextPen(axis_pen)
+        ax.axes['right']['item'].setPen(axis_pen)
+        ax.axes['right']['item'].setTextPen(axis_pen)
         ax.axes['bottom']['item'].setPen(axis_pen)
         ax.axes['bottom']['item'].setTextPen(axis_pen)
         if ax.crosshair is not None:
@@ -382,7 +383,7 @@ def create_ctrl_panel(win):
     panel = QWidget(win)
     panel.move(100, 0)
     win.scene().addWidget(panel)
-    layout = QtGui.QGridLayout(panel)
+    layout = QGridLayout(panel)
 
     panel.symbol = QComboBox(panel)
     [panel.symbol.addItem(i+'USDT') for i in 'BTC ETH XRP DOGE BNB SOL ADA LTC LINK DOT TRX BCH'.split()]
@@ -393,7 +394,7 @@ def create_ctrl_panel(win):
     layout.setColumnMinimumWidth(1, 30)
 
     panel.interval = QComboBox(panel)
-    [panel.interval.addItem(i) for i in '1d 4h 1h 30m 15m 5m 1m'.split()]
+    [panel.interval.addItem(i) for i in '1d 4h 1h 30m 15m 5m 1m 1s'.split()]
     panel.interval.setCurrentIndex(6)
     layout.addWidget(panel.interval, 0, 2)
     panel.interval.currentTextChanged.connect(change_asset)
@@ -410,7 +411,7 @@ def create_ctrl_panel(win):
 
     panel.darkmode = QCheckBox(panel)
     panel.darkmode.setText('Haxxor mode')
-    panel.darkmode.setCheckState(2)
+    panel.darkmode.setCheckState(pg.Qt.QtCore.Qt.CheckState.Checked)
     panel.darkmode.toggled.connect(dark_mode_toggle)
     layout.addWidget(panel.darkmode, 0, 6)
 
@@ -421,11 +422,11 @@ plots = {}
 fplt.y_pad = 0.07 # pad some extra (for control panel)
 fplt.max_zoom_points = 7
 fplt.autoviewrestore()
-ax,ax_rsi = fplt.create_plot('Complicated Binance Futures Example', rows=2, init_zoom_periods=300)
+ax,ax_rsi = fplt.create_plot('Complicated Binance Example', rows=2, init_zoom_periods=300)
 axo = ax.overlay()
 
 # use websocket for real-time
-ws = BinanceFutureWebsocket()
+ws = BinanceWebsocket()
 
 # hide rsi chart to begin with; show x-axis of top plot
 ax_rsi.hide()
@@ -435,5 +436,5 @@ ax.set_visible(xaxis=True)
 ctrl_panel = create_ctrl_panel(ax.vb.win)
 dark_mode_toggle(True)
 change_asset()
-fplt.timer_callback(realtime_update_plot, 1) # update every second
+fplt.timer_callback(realtime_update_plot, 0.5) # update twice every second
 fplt.show()

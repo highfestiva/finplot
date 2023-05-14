@@ -49,11 +49,11 @@ def calc_volume_profile(df, period, bins):
 
 
 def calc_vwap(period):
-    vwap = pd.Series ([], dtype = 'float64')
+    vwap = pd.Series([], dtype = 'float64')
     df['hlc3v'] = df['hlc3'] * df.volume
     for _,g in df.groupby(pd.Grouper(key='time', freq=period)):
         i0,i1 = g.index[0],g.index[-1]
-        vwap = vwap.append(g.hlc3v.loc[i0:i1].cumsum() / df.volume.loc[i0:i1].cumsum())
+        vwap = pd.concat([vwap, g.hlc3v.loc[i0:i1].cumsum() / df.volume.loc[i0:i1].cumsum()])
     return vwap
 
 
