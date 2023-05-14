@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import sys
+sys.path.append('C:/perso/trading/anaconda3/finplot')
 import finplot as fplt
 from functools import lru_cache
 from PyQt5.QtWidgets import QApplication, QGridLayout, QMainWindow, QGraphicsView, QComboBox, QLabel
