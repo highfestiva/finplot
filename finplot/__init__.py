@@ -1969,11 +1969,11 @@ def set_time_inspector(inspector, ax=None, when='click', data=None):
     ax = ax if ax else last_ax
     master = ax.ax_widget if hasattr(ax, 'ax_widget') else ax.vb.win
     if when == 'hover':
-        master.proxy_hover = pg.SignalProxy(master.scene().sigMouseMoved, rateLimit=15, slot=partial(_inspect_pos, ax, inspector))
+        master.proxy_hover = pg.SignalProxy(master.scene().sigMouseMoved, rateLimit=15, slot=partial(_inspect_pos, ax, data, inspector))
     elif when in ('dclick', 'double-click'):
-        master.proxy_dclick = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, inspector, True))
+        master.proxy_dclick = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, data, inspector, True))
     else:
-        master.proxy_click = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, inspector, False))
+        master.proxy_click = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, data, inspector, False))
 
 def add_crosshair_info(infofunc, ax=None):
     '''Callback when crosshair updated like so: info(ax,x,y,xtext,ytext); the info()
