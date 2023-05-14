@@ -1388,17 +1388,6 @@ class HorizontalTimeVolumeItem(CandlestickItem):
                 p.setPen(pg.mkPen(poc_color))
                 p.drawLine(QtCore.QPointF(t, y), QtCore.QPointF(t+f*self.draw_poc, y))
 
-
-class Arrow():
-    def __init__(self, buy, color, anchor ):
-        self.color = color
-        self.text_items = {}
-        self.anchor = anchor
-        self.show = False
-
-
-
-
 class ScatterLabelItem(FinPlotItem):
     def __init__(self, ax, datasrc, color, anchor):
         self.color = color
@@ -2773,7 +2762,13 @@ def _pdtime2epoch(t):
         return t.astype('int64')
     return t
 
+#
 # Skinok add
+# Use case :
+# In case of backtesting, this function allow the user to click on a particular trade (in a trade history panel)
+# and the chart will automatically move & center on the position of this trade
+# This function returns the x position in the dataset, given the entry date
+#
 def _dateStr2x(ax, dateStr, any_end=False, require_time=False):
     ts = pd.Series(pd.to_datetime(dateStr))
     if isinstance(ts.iloc[0], pd.Timestamp):

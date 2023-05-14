@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import sys
-sys.path.append('C:/perso/trading/anaconda3/finplot')
 import finplot as fplt
 import pandas as pd
 import requests

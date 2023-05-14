@@ -4,7 +4,6 @@ import math
 import pandas as pd
 
 import sys
-sys.path.append('C:/perso/trading/anaconda3/finplot')
 import finplot as fplt
 
 import requests
