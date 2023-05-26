@@ -17,6 +17,8 @@
    You'll need to "pip install websocket-client" before running this
    to be able to see real-time price action.
    '''
+
+
 import finplot as fplt
 from functools import lru_cache
 import json
