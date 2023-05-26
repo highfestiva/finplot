@@ -1765,32 +1765,28 @@ def live(plots=1):
         return Live()
     return [Live() for _ in range(plots)]
 
-def add_order(datetime, price, direction = "buy", ax=None):
+
+def add_order(datetime, price, isLong, ax=None):
 
     # Open trade arrow
-    if direction.lower() == "buy":
+    if isLong:
         brushColor = arrow_bull_color
         penColor = arrow_bull_outline_color
         angle = 90
 
-    elif direction.lower() == "sell":
+    else:
         brushColor = arrow_bear_color
         penColor = arrow_bear_outline_color
         angle = -90
-    else:
-        brushColor = ""
-        penColor = ""
-        angle = 0
 
     add_arrow((datetime,price), angle, brushColor, penColor, ax=ax)
 
     return 
 
-def add_trade(posOpen, posClose, isLong, profit = 0, ax=None):
+def add_trade(posOpen, posClose, isLong, isWinningTrade, ax=None):
 
     # Open trade arrow
     if isLong:
-        
         brushColor = arrow_bull_color
         penColor = arrow_bull_outline_color
         add_arrow(posOpen, 90, brushColor, penColor, ax=ax)
@@ -1810,7 +1806,7 @@ def add_trade(posOpen, posClose, isLong, profit = 0, ax=None):
         add_arrow(posClose, 90, brushColor, penColor, ax=ax)
 
     # Add dashed line
-    if profit > 0:
+    if isWinningTrade:
         add_line(posOpen, posClose, "#30FF30", 2, style="--" )
     else:
         add_line(posOpen, posClose, "#FF3030", 2, style="..")
