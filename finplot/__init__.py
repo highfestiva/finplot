@@ -10,6 +10,8 @@ where the Y-axis is auto-scaled to highest high and lowest low in the active
 region.
 '''
 
+from ._version import __version__
+
 from ast import literal_eval
 from collections import OrderedDict, defaultdict
 from datetime import datetime, timezone
