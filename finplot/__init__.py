@@ -2577,7 +2577,9 @@ def _mouse_clicked(vb, ev):
 def _mouse_moved(master, vb, evs):
     if hasattr(master, 'closing') and master.closing:
         return
-    md = master_data[master].get(vb) or master_data[master]['default']
+    md = master_data[master].get(vb) or master_data[master].get('default')
+    if md is None:
+        return
     if not evs:
         evs = md['last_mouse_evs']
         if not evs:
