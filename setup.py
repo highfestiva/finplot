@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 import setuptools
+from finplot._version import __version__
 
 with open('README.md', 'r') as fh:
     long_description = fh.read()
 
 setuptools.setup(
     name='finplot',
-    version='1.9.1',
+    version=__version__,
     author='Jonas Byström',
     author_email='highfestiva@gmail.com',
     description='Finance plotting',

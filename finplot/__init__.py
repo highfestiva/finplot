@@ -10,6 +10,8 @@ where the Y-axis is auto-scaled to highest high and lowest low in the active
 region.
 '''
 
+from ._version import __version__
+
 from ast import literal_eval
 from collections import OrderedDict, defaultdict
 from datetime import datetime, timezone
@@ -2668,11 +2670,7 @@ def _mouse_clicked(vb, ev):
 def _mouse_moved(master, vb, evs):
     if hasattr(master, 'closing') and master.closing:
         return
-
-    md = master_data[master].get(vb)
-    if md is None:
-        if 'default' in master_data[master]:
-            md = master_data[master]['default']
+    md = master_data[master].get(vb) or master_data[master].get('default')
     if md is None:
         return
     if not evs:
