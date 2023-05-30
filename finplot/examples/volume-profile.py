@@ -24,6 +24,7 @@ def download_price_history(symbol='BTCUSDT', start_time='2020-06-22', end_time='
         url = 'https://www.binance.com/fapi/v1/klines?interval=%s&limit=%s&symbol=%s&startTime=%s&endTime=%s' % (interval_str, 1000, symbol, start_t, end_t)
         print(url)
         d = requests.get(url).json()
+        assert type(d)==list, d
         data += d
     df = pd.DataFrame(data, columns='time open high low close volume a b c d e f'.split())
     return df.astype({'time':'datetime64[ms]', 'open':float, 'high':float, 'low':float, 'close':float, 'volume':float})
