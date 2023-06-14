@@ -2658,11 +2658,18 @@ def _get_color(ax, style, wanted_color):
 def _pdtime2epoch(t):
     if isinstance(t, pd.Series):
         if isinstance(t.iloc[0], pd.Timestamp):
+            dtype = str(t.dtype)
+            if dtype.endswith('[s]'):
+                return t.view('int64') * int(1e9)
+            elif dtype.endswith('[ms]'):
+                return t.view('int64') * int(1e6)
+            elif dtype.endswith('us'):
+                return t.view('int64') * int(1e3)
             return t.view('int64')
         h = np.nanmax(t.values)
         if h < 1e10: # handle s epochs
             return (t*1e9).astype('int64')
-        if h < 1e13: # handle ns epochs
+        if h < 1e13: # handle ms epochs
             return (t*1e6).astype('int64')
         if h < 1e16: # handle us epochs
             return (t*1e3).astype('int64')
@@ -2753,7 +2760,6 @@ def _x2t(datasrc, x, ts2str):
             if not datasrc.timebased():
                 return '%g' % t, False
             s = ts2str(t)
-            
             if epoch_period >= 23*60*60: # daylight savings, leap seconds, etc
                 i = s.index(' ')
             elif epoch_period >= 59: # consider leap seconds

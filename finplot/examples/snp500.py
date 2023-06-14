@@ -47,7 +47,8 @@ def update_legend_text(x, y):
     # format html with the candle and set legend
     fmt = '<span style="color:#%s">%%.2f</span>' % ('0b0' if (row.Open<row.Close).all() else 'a00')
     rawtxt = '<span style="font-size:13px">%%s %%s</span> &nbsp; O%s C%s H%s L%s' % (fmt, fmt, fmt, fmt)
-    hover_label.setText(rawtxt % (symbol, interval.upper(), row.Open, row.Close, row.High, row.Low))
+    values = [v.iloc[0] for v in (row.Open, row.Close, row.High, row.Low)]
+    hover_label.setText(rawtxt % tuple([symbol, interval.upper()] + values))
 
 def update_crosshair_text(x, y, xtext, ytext):
     ytext = '%s (Close%+.2f)' % (ytext, (y - df.iloc[x].Close))
