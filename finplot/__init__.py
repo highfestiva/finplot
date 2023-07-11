@@ -106,7 +106,7 @@ class EpochAxisItem(pg.AxisItem):
             return ['%g'%v for v in values]
         conv = _x2year if self.mode=='years' else _x2local_t
         strs = [conv(self.vb.datasrc, value)[0] for value in values]
-        if all(s.endswith(' 00:00') for s in strs if s): # all at midnight -> round to days
+        if all(_is_str_midnight(s) for s in strs if s): # all at midnight -> round to days
             strs = [s.partition(' ')[0] for s in strs]
         return strs
 
@@ -2720,6 +2720,10 @@ def _pdtime2index(ax, ts, any_end=False, require_time=False):
         dt = (t-t0) / (t1-t0)
         r.append(lerp(dt, i0, i1))
     return r
+
+
+def _is_str_midnight(s):
+    return s.endswith(' 00:00') or s.endswith(' 00:00:00')
 
 
 def _get_datasrc(ax, require=True):
