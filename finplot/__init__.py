@@ -888,7 +888,7 @@ class FinViewBox(pg.ViewBox):
             # add new line
             p0 = self.mapToView(ev.lastPos())
             p0 = _clamp_point(self.parent(), p0)
-            self.draw_line = FinPolyLine(self, [p0, p1], closed=False, pen=pg.mkPen(draw_line_color), movable=False)
+            self.draw_line = _create_poly_line(self, [p0, p1], closed=False, pen=pg.mkPen(draw_line_color), movable=False)
             self.draw_line.setZValue(40)
             self.rois.append(self.draw_line)
             self.addItem(self.draw_line)
@@ -1813,7 +1813,7 @@ def add_line(p0, p1, color=draw_line_color, width=1, style=None, interactive=Fal
     ix = ax.vb.yscale.invxform
     pts = [(x_pts[0], ix(p0[1])), (x_pts[1], ix(p1[1]))]
     if interactive:
-        line = FinPolyLine(ax.vb, pts, closed=False, pen=pen, movable=False)
+        line = _create_poly_line(ax.vb, pts, closed=False, pen=pen, movable=False)
         ax.vb.rois.append(line)
     else:
         line = FinLine(pts, pen=pen)
@@ -2217,6 +2217,10 @@ def _improve_significants(ax):
 def _is_standalone(timeser):
     # more than N percent gaps or time reversals probably means this is a standalone plot
     return timeser.isnull().sum() + (timeser.diff()<=0).sum() > len(timeser)*0.1
+
+
+def _create_poly_line(*args, **kwargs):
+    return FinPolyLine(*args, **kwargs)
 
 
 def _create_series(a):
