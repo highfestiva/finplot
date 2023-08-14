@@ -1818,7 +1818,7 @@ def add_line(p0, p1, color=draw_line_color, width=1, style=None, interactive=Fal
     else:
         line = FinLine(pts, pen=pen)
     line.ax = ax
-    ax.vb.addItem(line)
+    ax.addItem(line)
     return line
 
 
@@ -1849,7 +1849,7 @@ def remove_text(text):
 
 def remove_primitive(primitive):
     ax = primitive.ax
-    ax.vb.removeItem(primitive)
+    ax.removeItem(primitive)
     if primitive in ax.vb.rois:
         ax.vb.rois.remove(primitive)
     if hasattr(primitive, 'texts'):
@@ -2164,7 +2164,13 @@ def _ax_reset(ax):
     if ax.crosshair is not None:
         ax.crosshair.hide()
     for item in list(ax.items):
-        ax.removeItem(item)
+        if any(isinstance(item, c) for c in [FinLine, FinPolyLine, pg.TextItem]):
+            try:
+                remove_primitive(item)
+            except:
+                pass
+        else:
+            ax.removeItem(item)
         if ax.vb.master_viewbox and hasattr(item, 'name') and item.name():
             legend = ax.vb.master_viewbox.parent().legend
             if legend:
