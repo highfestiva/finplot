@@ -54,7 +54,7 @@ def update_crosshair_text(x, y, xtext, ytext):
     ytext = '%s (Close%+.2f)' % (ytext, (y - df.iloc[x].Close))
     return xtext, ytext
 
-fplt.set_time_inspector(update_legend_text, ax=ax, when='hover')
+fplt.set_mouse_callback(update_legend_text, ax=ax, when='hover')
 fplt.add_crosshair_info(update_crosshair_text, ax=ax)
 
 fplt.show()

@@ -33,7 +33,7 @@ ColorMap = pg.ColorMap
 
 # module definitions, mostly colors
 legend_border_color = '#777'
-legend_fill_color   = '#6668'
+legend_fill_color   = '#666a'
 legend_text_color   = '#ddd6'
 soft_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 hard_colors = ['#000000', '#772211', '#000066', '#555555', '#0022cc', '#ffcc00']
@@ -1857,16 +1857,21 @@ def remove_primitive(primitive):
             ax.vb.removeItem(txt)
 
 
-def set_time_inspector(inspector, ax=None, when='click'):
-    '''Callback when clicked like so: inspector(x, y).'''
+def set_mouse_callback(callback, ax=None, when='click'):
+    '''Callback when clicked like so: callback(x, y).'''
     ax = ax if ax else last_ax
     master = ax.ax_widget if hasattr(ax, 'ax_widget') else ax.vb.win
     if when == 'hover':
-        master.proxy_hover = pg.SignalProxy(master.scene().sigMouseMoved, rateLimit=15, slot=partial(_inspect_pos, ax, inspector))
+        master.proxy_hover = pg.SignalProxy(master.scene().sigMouseMoved, rateLimit=15, slot=partial(_mcallback_pos, ax, callback))
     elif when in ('dclick', 'double-click'):
-        master.proxy_dclick = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, inspector, True))
+        master.proxy_dclick = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_mcallback_click, ax, callback, True))
     else:
-        master.proxy_click = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_inspect_clicked, ax, inspector, False))
+        master.proxy_click = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_mcallback_click, ax, callback, False))
+
+
+def set_time_inspector(callback, ax=None, when='click'):
+    print('Warning: set_time_inspector() is a misnomer from olden days. Please use set_mouse_callback() instead.')
+    set_mouse_callback(callback, ax, when)
 
 
 def add_crosshair_info(infofunc, ax=None):
@@ -2616,14 +2621,14 @@ def _wheel_event_wrapper(self, orig_func, ev):
     orig_func(self, ev)
 
 
-def _inspect_clicked(ax, inspector, when_double_click, evs):
+def _mcallback_click(ax, callback, when_double_click, evs):
     if evs[-1].accepted or when_double_click != evs[-1].double():
         return
     pos = evs[-1].scenePos()
-    return _inspect_pos(ax, inspector, (pos,))
+    return _mcallback_pos(ax, callback, (pos,))
 
 
-def _inspect_pos(ax, inspector, poss):
+def _mcallback_pos(ax, callback, poss):
     if not ax.vb.datasrc:
         return
     point = ax.vb.mapSceneToView(poss[-1])
@@ -2634,7 +2639,7 @@ def _inspect_pos(ax, inspector, poss):
         if clamp_grid:
             t = ax.vb.datasrc.x.iloc[-1 if t > 0 else 0]
     try:
-        inspector(t, point.y())
+        callback(t, point.y())
     except OSError as e:
         pass
     except Exception as e:
