@@ -2117,7 +2117,6 @@ def _ax_overlay(ax, scale=0.25, yaxis=False):
     axo.significant_forced = False
     axo.significant_decimals = significant_decimals
     axo.significant_eps = significant_eps
-    axo.vb = viewbox
     axo.prev_ax = None
     axo.crosshair = None
     axo.decouple = partial(_ax_decouple, axo)
@@ -2128,6 +2127,7 @@ def _ax_overlay(ax, scale=0.25, yaxis=False):
     axo.hideAxis('bottom')
     axo.hideButtons()
     viewbox.addItem(axo)
+    axo.vb = viewbox
     if yaxis and isinstance(axo.vb.win, pg.GraphicsLayoutWidget):
         axi = _create_axis(pos='y', vb=axo.vb, orientation='left')
         axo.setAxisItems({'left': axi})
