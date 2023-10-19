@@ -139,7 +139,7 @@ class EpochAxisItem(pg.AxisItem):
                     except: pass
                 ax = self.vb.parent()
                 rng = _pdtime2index(ax=ax, ts=pd.Series(rng), require_time=True)
-                indices = [ceil(i) for i in rng]
+                indices = [ceil(i) for i in rng if i>-1e200]
                 return [(0, indices)]
         return [(0,[])]
 
@@ -291,8 +291,9 @@ class PandasDataSource:
             return 1
         if not self._period:
             timecol = self.df.columns[0]
-            times = self.df[timecol].iloc[0:100]
-            self._period = int(times.diff().median()) if len(times)>1 else 1
+            dtimes = self.df[timecol].iloc[0:100].diff()
+            dtimes = dtimes[dtimes!=0]
+            self._period = int(dtimes.median()) if len(dtimes)>1 else 1
         return self._period
 
     @property
@@ -2732,8 +2733,11 @@ def _pdtime2index(ax, ts, any_end=False, require_time=False):
         if i0 < 0:
             i0,i1 = 0,1
         t0,t1 = xs.loc[i0], xs.loc[i1]
-        dt = (t-t0) / (t1-t0)
-        r.append(lerp(dt, i0, i1))
+        if t0 == t1:
+            r.append(i0)
+        else:
+            dt = (t-t0) / (t1-t0)
+            r.append(lerp(dt, i0, i1))
     return r
 
 
