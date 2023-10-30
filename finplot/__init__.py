@@ -792,6 +792,7 @@ class FinViewBox(pg.ViewBox):
         self.master_viewbox = None
         self.rois = []
         self.win._isMouseLeftDrag = False
+        self.zoom_listeners = set()
         self.reset()
 
     def reset(self):
@@ -1099,6 +1100,7 @@ class FinViewBox(pg.ViewBox):
         _y0 = self.yscale.invxform(y0, verify=True)
         _y1 = self.yscale.invxform(y1, verify=True)
         self.setRange(QtCore.QRectF(pg.Point(x0, _y0), pg.Point(x1, _y1)), padding=0)
+        self.zoom_changed()
         return True
 
     def remove_last_roi(self):
@@ -1134,6 +1136,10 @@ class FinViewBox(pg.ViewBox):
 
     def suggestPadding(self, axis):
         return 0
+
+    def zoom_changed(self):
+        for zl in self.zoom_listeners:
+            zl(self)
 
 
 
@@ -1682,8 +1688,6 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
     if style is None or any(ch in style for ch in '-_.'):
         connect_dots = 'finite' # same as matplotlib; use datasrc.standalone=True if you want to keep separate intervals on a plot
         item = ax.plot(x, y, pen=_makepen(color=used_color, style=style, width=width), name=legend, connect=connect_dots)
-        item.setClipToView(True)
-        item.setDownsampling(auto=True, method='subsample')
         item.setZValue(5)
     else:
         symbol = {'v':'t', '^':'t1', '>':'t2', '<':'t3'}.get(style, style) # translate some similar styles
@@ -1754,6 +1758,13 @@ def fill_between(plot0, plot1, color=None):
     item.ax = plot0.ax
     item.setZValue(-40)
     item.ax.addItem(item)
+    # Ugly bug fix for PyQtGraph bug where downsampled/clipped plots are used in conjunction
+    # with fill between. The reason is that the curves of the downsampled plots are only
+    # calculated when shown, but not when added to the axis. We fix by saying the plot is
+    # changed every time the zoom is changed - including initial load.
+    def update_fill(vb):
+        plot0.sigPlotChanged.emit(plot0)
+    plot0.ax.vb.zoom_listeners.add(update_fill)
     return item
 
 
@@ -2072,6 +2083,8 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
         axw = pg.PlotWidget(viewBox=viewbox, axisItems=axes, name='plot-%i'%index, enableMenu=False)
         ax = axw.plotItem
         ax.ax_widget = axw
+    ax.setClipToView(True)
+    ax.setDownsampling(auto=True, mode='subsample')
     ax.hideAxis('left')
     if y_label_width:
         ax.axes['right']['item'].setWidth(y_label_width) # this is to put all graphs on equal footing when texts vary from 0.4 to 2000000
@@ -2658,14 +2671,15 @@ def _get_color(ax, style, wanted_color):
         return wanted_color
     index = wanted_color if type(wanted_color) == int else None
     is_line = lambda style: style is None or any(ch in style for ch in '-_.')
+    get_handed_color = lambda item: item.opts.get('handed_color')
     this_line = is_line(style)
     if this_line:
         colors = soft_colors
     else:
         colors = hard_colors
     if index is None:
-        avoid = set(i.opts['handed_color'] for i in ax.items if isinstance(i,pg.PlotDataItem) and i.opts['handed_color'] is not None and this_line==is_line(i.opts['symbol']))
-        index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and i.opts['handed_color'] is None and this_line==is_line(i.opts['symbol'])])
+        avoid = set(i.opts['handed_color'] for i in ax.items if isinstance(i,pg.PlotDataItem) and get_handed_color(i) is not None and this_line==is_line(i.opts['symbol']))
+        index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and get_handed_color(i) is None and this_line==is_line(i.opts['symbol'])])
         while index in avoid:
             index += 1
     return colors[index%len(colors)]
