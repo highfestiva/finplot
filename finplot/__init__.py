@@ -570,6 +570,22 @@ class FinWindow(pg.GraphicsLayoutWidget):
             _savewindata(self)
         return False
 
+    def resizeEvent(self, ev):
+        '''We resize and set the top axis larger according to the top_graph_scale factor.
+           No point in trying to use the "row stretch factor" in Qt which is broken
+           beyond repair.'''
+        if ev and not self.closing:
+            axs = self.axs
+            new_win_height = ev.size().height()
+            old_win_height = ev.oldSize().height() if ev.oldSize().height() > 0 else new_win_height
+            client_borders = old_win_height - sum(ax.size().height() for ax in axs)
+            client_borders = max(client_borders, 0)
+            new_height = new_win_height - client_borders - 30 # hrm, axis height
+            for ax in axs[:1]:
+                f = top_graph_scale / (len(axs)+top_graph_scale-1)
+                ax.setMinimumSize(100, new_height*f)
+        return super().resizeEvent(ev)
+
     def leaveEvent(self, ev):
         if not self.closing:
             super().leaveEvent(ev)
@@ -1423,8 +1439,6 @@ class ScatterLabelItem(FinPlotItem):
 def create_plot(title='Finance Plot', rows=1, init_zoom_periods=1e10, maximize=True, yscale='linear'):
     pg.setConfigOptions(foreground=foreground, background=background)
     win = FinWindow(title)
-    # normally first graph is of higher significance, so enlarge
-    win.ci.layout.setRowStretchFactor(0, top_graph_scale)
     win.show_maximized = maximize
     ax0 = axs = create_plot_widget(master=win, rows=rows, init_zoom_periods=init_zoom_periods, yscale=yscale)
     axs = axs if type(axs) in (tuple,list) else [axs]
@@ -2095,6 +2109,8 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
     ax.significant_forced = False
     ax.significant_decimals = significant_decimals
     ax.significant_eps = significant_eps
+    ax.inverted = False
+    ax.axos = []
     ax.crosshair = FinCrossHair(ax, color=cross_hair_color)
     ax.hideButtons()
     ax.overlay = partial(_ax_overlay, ax)
@@ -2102,6 +2118,8 @@ def _add_timestamp_plot(master, prev_ax, viewbox, index, yscale):
     ax.decouple = partial(_ax_decouple, ax)
     ax.disable_x_index = partial(_ax_disable_x_index, ax)
     ax.reset = partial(_ax_reset, ax)
+    ax.invert_y = partial(_ax_invert_y, ax)
+    ax.expand = partial(_ax_expand, ax)
     ax.prev_ax = prev_ax
     ax.win_index = index
     if index%2:
@@ -2148,6 +2166,7 @@ def _ax_overlay(ax, scale=0.25, yaxis=False):
         axo.vb.win.addItem(axi, row=0, col=0)
     ax.vb.sigResized.connect(updateView)
     overlay_axs.append(axo)
+    ax.axos.append(axo)
     updateView()
     return axo
 
@@ -2203,6 +2222,27 @@ def _ax_reset(ax):
     if ax.crosshair is not None:
         ax.crosshair.show()
     ax.significant_forced = False
+
+
+def _ax_invert_y(ax):
+    ax.inverted = not ax.inverted
+    ax.setTransform(ax.transform().scale(1,-1).translate(0,-ax.height()))
+
+
+def _ax_expand(ax):
+    vb = ax.vb
+    axs = vb.win.axs
+    for axx in axs:
+        if axx.inverted: # roll back inversion if changing expansion
+            axx.invert_y()
+    show_all = any(not ax.isVisible() for ax in axs)
+    for rowi,axx in enumerate(axs):
+        if axx != ax:
+            axx.setVisible(show_all)
+            for axo in axx.axos:
+                axo.vb.setVisible(show_all)
+    ax.set_visible(xaxis=not show_all)
+    axs[-1].set_visible(xaxis=True)
 
 
 def _create_legend(ax):
@@ -2566,10 +2606,12 @@ def _key_pressed(vb, ev):
         for win in windows:
             for ax in win.axs:
                 ax.crosshair.update()
-    elif ev.text() == 'i': # invert
+    elif ev.text() == 'i': # invert y-axes
         for win in windows:
             for ax in win.axs:
-                ax.setTransform(ax.transform().scale(1,-1).translate(0,-ax.height()))
+                ax.invert_y()
+    elif ev.text() == 'f': # focus/expand active axis
+        vb.parent().expand()
     elif ev.text() in ('\r', ' '): # enter, space
         vb.set_draw_line_color(draw_done_color)
         vb.draw_line = None
