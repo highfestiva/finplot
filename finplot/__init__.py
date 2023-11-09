@@ -290,11 +290,14 @@ class PandasDataSource:
         if len(self.df) <= 1:
             return 1
         if not self._period:
-            timecol = self.df.columns[0]
-            dtimes = self.df[timecol].iloc[0:100].diff()
-            dtimes = dtimes[dtimes!=0]
-            self._period = int(dtimes.median()) if len(dtimes)>1 else 1
+            self._period = self.calc_period_ns()
         return self._period
+
+    def calc_period_ns(self, n=100, delta=lambda dt: int(dt.median())):
+        timecol = self.df.columns[0]
+        dtimes = self.df[timecol].iloc[0:n].diff()
+        dtimes = dtimes[dtimes!=0]
+        return delta(dtimes) if len(dtimes)>1 else 1
 
     @property
     def index(self):
@@ -1316,7 +1319,7 @@ class HorizontalTimeVolumeItem(CandlestickItem):
         volumes = vals[:, self.datasrc.col_data_offset+1::2].T
         # normalize
         try:
-            f = self.datasrc.period_ns / _get_datasrc(self.ax).period_ns
+            f = self.datasrc.calc_period_ns(n=1000, delta=lambda dt:int(dt.mean())) / _get_datasrc(self.ax).calc_period_ns(n=1000, delta=lambda dt:int(dt.mean()))
             times = _pdtime2index(self.ax, times, require_time=True)
         except AssertionError:
             f = 1
@@ -1348,8 +1351,8 @@ class HorizontalTimeVolumeItem(CandlestickItem):
                 volrs = volr / np.nansum(volr)
                 v = volrs[pocidx]
                 a = b = pocidx
-                while a>=0 or b<binc:
-                    if v >= self.draw_va:
+                while True:
+                    if v >= self.draw_va - 1e-5:
                         break
                     aa = a - 1
                     bb = b + 1
@@ -1361,6 +1364,8 @@ class HorizontalTimeVolumeItem(CandlestickItem):
                     if va <= vb: # NOTE both == is also ok
                         b = min(binc-1, bb)
                         v += vb
+                    if a==0 and b==binc-1:
+                        break
                 color = pg.mkColor(band_color)
                 p.fillRect(QtCore.QRectF(t, prcr[a], f, prcr[b]-prcr[a]+h), color)
 
@@ -1616,7 +1621,7 @@ def horiz_time_volume(datasrc, ax=None, **kwargs):
 
     ax = _create_plot(ax=ax, maximize=False)
     datasrc = _preadjust_horiz_datasrc(datasrc)
-    datasrc = _create_datasrc(ax, datasrc)
+    datasrc = _create_datasrc(ax, datasrc, allow_scaling=False)
     _adjust_horiz_datasrc(datasrc)
     if ax.vb.datasrc is not None:
         datasrc.standalone = True # only force standalone if there is something on our charts already
@@ -2292,7 +2297,7 @@ def _create_series(a):
     return a if isinstance(a, pd.Series) else pd.Series(a)
 
 
-def _create_datasrc(ax, *args, ncols=-1):
+def _create_datasrc(ax, *args, ncols=-1, allow_scaling=True):
     def do_create(args):
         if len(args) == 1 and type(args[0]) == PandasDataSource:
             return args[0]
@@ -2338,7 +2343,7 @@ def _create_datasrc(ax, *args, ncols=-1):
 
     # FIX: stupid QT bug causes rectangles larger than 2G to flicker, so scale rendering down some
     # FIX: PyQt 5.15.2 lines >1e6 are being clipped to 1e6 during the first render pass, so scale down if >1e6
-    if datasrc.df.iloc[:, 1:].max(numeric_only=True).max() > 1e6:
+    if allow_scaling and datasrc.df.iloc[:, 1:].max(numeric_only=True).max() > 1e6:
         ax.vb.yscale.set_scale(int(1e6))
     return datasrc
 
