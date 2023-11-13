@@ -1895,9 +1895,17 @@ def set_mouse_callback(callback, ax=None, when='click'):
     if when == 'hover':
         master.proxy_hover = pg.SignalProxy(master.scene().sigMouseMoved, rateLimit=15, slot=partial(_mcallback_pos, ax, callback))
     elif when in ('dclick', 'double-click'):
-        master.proxy_dclick = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_mcallback_click, ax, callback, True))
+        master.proxy_dclick = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_mcallback_click, ax, callback, 'dclick'))
+    elif when in ('click', 'lclick'):
+        master.proxy_click = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_mcallback_click, ax, callback, 'lclick'))
+    elif when in ('mclick',):
+        master.proxy_click = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_mcallback_click, ax, callback, 'mclick'))
+    elif when in ('rclick',):
+        master.proxy_click = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_mcallback_click, ax, callback, 'rclick'))
+    elif when in ('any',):
+        master.proxy_click = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_mcallback_click, ax, callback, 'any'))
     else:
-        master.proxy_click = pg.SignalProxy(master.scene().sigMouseClicked, slot=partial(_mcallback_click, ax, callback, False))
+        print(f'Warning: unknown click "{when}" sent to set_mouse_callback()')
 
 
 def set_time_inspector(callback, ax=None, when='click'):
@@ -2682,8 +2690,20 @@ def _wheel_event_wrapper(self, orig_func, ev):
     orig_func(self, ev)
 
 
-def _mcallback_click(ax, callback, when_double_click, evs):
-    if evs[-1].accepted or when_double_click != evs[-1].double():
+def _mcallback_click(ax, callback, when, evs):
+    if evs[-1].accepted:
+        return
+    if when == 'dclick' and evs[-1].double():
+        pass
+    elif when == 'lclick' and evs[-1].button() == QtCore.Qt.MouseButton.LeftButton:
+        pass
+    elif when == 'mclick' and evs[-1].button() == QtCore.Qt.MouseButton.MiddleButton:
+        pass
+    elif when == 'rclick' and evs[-1].button() == QtCore.Qt.MouseButton.RightButton:
+        pass
+    elif when == 'any':
+        pass
+    else:
         return
     pos = evs[-1].scenePos()
     return _mcallback_pos(ax, callback, (pos,))
