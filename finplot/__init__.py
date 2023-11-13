@@ -2901,9 +2901,11 @@ def _round_to_significant(rng, rngmax, x, significant_decimals, significant_eps)
         if abs(eps) >= significant_eps/2:
             # round up
             eps -= np.sign(eps)*significant_eps
-        x -= eps
+        xx = x - eps
         fmt = '%%%i.%if' % (sd, sd)
-        r = fmt % x
+        r = fmt % xx
+        if abs(x)>0 and rng<1e4 and r.startswith('0.0') and float(r[:-1]) == 0:
+            r = '%.2e' % x
     return r
 
 
@@ -2915,12 +2917,20 @@ def _roihandle_move_snap(vb, orig_func, pos, modifiers=QtCore.Qt.KeyboardModifie
 
 
 def _clamp_xy(ax, x, y):
+    if not clamp_grid:
+        return x, y
     y = ax.vb.yscale.xform(y)
-    if clamp_grid and ax.vb.x_indexed:
+    # scale x
+    if ax.vb.x_indexed:
         ds = ax.vb.datasrc
         if x < 0 or (ds and x > len(ds.df)-1):
             x = 0 if x < 0 else len(ds.df)-1
         x = _round(x)
+    # scale y
+    if y < 0.1 and ax.vb.yscale.scaletype == 'log':
+        magnitude = int(3 - np.log10(y)) # round log to N decimals
+        y = round(y, magnitude)
+    else: # linear
         eps = ax.significant_eps
         if eps > 1e-8:
             eps2 = np.sign(y) * 0.5 * eps
