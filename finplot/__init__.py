@@ -59,7 +59,7 @@ significant_decimals = 8
 significant_eps = 1e-8
 max_decimals = 10
 max_zoom_points = 20 # number of visible candles when maximum zoomed in
-top_graph_scale = 2
+axis_height_factor = {0: 2}
 clamp_grid = True
 right_margin_candles = 5 # whitespace at the right-hand side
 side_margin = 0.5
@@ -574,7 +574,7 @@ class FinWindow(pg.GraphicsLayoutWidget):
         return False
 
     def resizeEvent(self, ev):
-        '''We resize and set the top axis larger according to the top_graph_scale factor.
+        '''We resize and set the top Y axis larger according to the axis_height_factor.
            No point in trying to use the "row stretch factor" in Qt which is broken
            beyond repair.'''
         if ev and not self.closing:
@@ -584,9 +584,10 @@ class FinWindow(pg.GraphicsLayoutWidget):
             client_borders = old_win_height - sum(ax.size().height() for ax in axs)
             client_borders = max(client_borders, 0)
             new_height = new_win_height - client_borders - 30 # hrm, axis height
-            for ax in axs[:1]:
-                f = top_graph_scale / (len(axs)+top_graph_scale-1)
-                ax.setMinimumSize(100, new_height*f)
+            for i,ax in enumerate(axs):
+                if i in axis_height_factor:
+                    f = axis_height_factor[i] / (len(axs)+sum(axis_height_factor.values())-len(axis_height_factor))
+                    ax.setMinimumSize(100, new_height*f)
         return super().resizeEvent(ev)
 
     def leaveEvent(self, ev):
