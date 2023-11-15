@@ -581,13 +581,13 @@ class FinWindow(pg.GraphicsLayoutWidget):
             axs = self.axs
             new_win_height = ev.size().height()
             old_win_height = ev.oldSize().height() if ev.oldSize().height() > 0 else new_win_height
-            client_borders = old_win_height - sum(ax.size().height() for ax in axs)
-            client_borders = max(client_borders, 0)
-            new_height = new_win_height - client_borders - 30 # hrm, axis height
+            client_borders = old_win_height - sum(ax.vb.size().height() for ax in axs)
+            client_borders = min(max(client_borders, 0), 30) # hrm
+            new_height = new_win_height - client_borders
             for i,ax in enumerate(axs):
-                if i in axis_height_factor:
-                    f = axis_height_factor[i] / (len(axs)+sum(axis_height_factor.values())-len(axis_height_factor))
-                    ax.setMinimumSize(100, new_height*f)
+                j = axis_height_factor.get(i, 1)
+                f = j / (len(axs)+sum(axis_height_factor.values())-len(axis_height_factor))
+                ax.setMinimumSize(100 if j>1 else 50, new_height*f)
         return super().resizeEvent(ev)
 
     def leaveEvent(self, ev):
