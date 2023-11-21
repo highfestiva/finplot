@@ -25,6 +25,7 @@ import os.path
 import pandas as pd
 import pyqtgraph as pg
 from pyqtgraph import QtCore, QtGui
+from time import time
 
 
 
@@ -66,6 +67,8 @@ side_margin = 0.5
 lod_candles = 3000
 lod_labels = 700
 cache_candle_factor = 3 # factor extra candles rendered to buffer
+animate_candles = 2e5
+animate_lerp = 0.1
 y_pad = 0.03 # 3% padding at top and bottom of autozoom plots
 y_label_width = 65
 display_timezone = tzlocal() # default to local
@@ -81,7 +84,7 @@ time_splits = [('years', 2*365*24*60*60,  'YS',  4), ('months', 3*30*24*60*60, '
 
 app = None
 windows = [] # no gc
-timers = [] # no gc
+timers = set() # no gc
 sounds = {} # no gc
 epoch_period = 1e30
 last_ax = None # always assume we want to plot in the last axis, unless explicitly specified
@@ -554,6 +557,8 @@ class FinWindow(pg.GraphicsLayoutWidget):
         self.ci.setContentsMargins(0, 0, 0, 0)
         self.ci.setSpacing(-1)
         self.closing = False
+        self.animate_timer = None
+        self.animate_start_t = 0
 
     @property
     def axs(self):
@@ -593,6 +598,9 @@ class FinWindow(pg.GraphicsLayoutWidget):
     def leaveEvent(self, ev):
         if not self.closing:
             super().leaveEvent(ev)
+
+    def sparse_renderers(self):
+        return [item for ax in self.axs for item in ax.items if isinstance(item, FinPlotItem)]
 
 
 class FinCrossHair:
@@ -823,6 +831,8 @@ class FinViewBox(pg.ViewBox):
         self.y_min = 0
         self.y_positive = True
         self.x_indexed = True
+        self.anim_target_rect = None
+        self.anim_current_rect = None
         self.force_range_update = 0
         while self.rois:
             self.remove_last_roi()
@@ -870,7 +880,7 @@ class FinViewBox(pg.ViewBox):
             center = pg.Point(vr.left(), center.y())
         elif pct_x > 0.95: # zoom to far right => all the way right
             center = pg.Point(vr.right(), center.y())
-        self.zoom_rect(vr, scale_fact, center)
+        self.zoom_rect(self.anim_target_rect if self.anim_target_rect else vr, scale_fact, center)
         # update crosshair
         _mouse_moved(self.win, self, None)
         ev.accept()
@@ -1030,14 +1040,14 @@ class FinViewBox(pg.ViewBox):
             return
         x0 = center.x() + (vr.left()-center.x()) * scale_fact
         x1 = center.x() + (vr.right()-center.x()) * scale_fact
-        self.update_y_zoom(x0, x1)
+        self.update_y_zoom(x0, x1, anim=True)
 
     def pan_x(self, steps=None, percent=None):
         if self.datasrc is None:
             return
         if steps is None:
             steps = int(percent/100*self.targetRect().width())
-        tr = self.targetRect()
+        tr = self.anim_target_rect if self.anim_target_rect else self.targetRect()
         x1 = tr.right() + steps
         startx = -side_margin
         endx = self.datasrc.xlen + right_margin_candles - side_margin
@@ -1047,7 +1057,7 @@ class FinViewBox(pg.ViewBox):
         if x0 < startx:
             x0 = startx
             x1 = x0 + tr.width()
-        self.update_y_zoom(x0, x1)
+        self.update_y_zoom(x0, x1, anim=True)
 
     def refresh_all_y_zoom(self):
         '''This updates Y zoom on all views, such as when a mouse drag is completed.'''
@@ -1056,11 +1066,11 @@ class FinViewBox(pg.ViewBox):
             self.force_range_update = 1 # main need to update only once to us
             main_vb = list(self.win.axs)[0].vb
         main_vb.force_range_update = len(self.win.axs)-1 # update main as many times as there are other rows
-        self.update_y_zoom()
+        self.update_y_zoom(anim=True)
         # refresh crosshair when done
         _mouse_moved(self.win, self, None)
 
-    def update_y_zoom(self, x0=None, x1=None):
+    def update_y_zoom(self, x0=None, x1=None, anim=False):
         datasrc = self.datasrc_or_standalone
         if datasrc is None:
             return
@@ -1108,9 +1118,9 @@ class FinViewBox(pg.ViewBox):
             y1 = base + rng*(1-self.v_zoom_baseline)
         if not self.x_indexed:
             x0,x1 = _xminmax(datasrc, x_indexed=False, extra_margin=0)
-        return self.set_range(x0, y0, x1, y1)
+        return self.set_range(x0, y0, x1, y1, anim=anim)
 
-    def set_range(self, x0, y0, x1, y1):
+    def set_range(self, x0, y0, x1, y1, anim=False):
         if x0 is None or x1 is None:
             tr = self.targetRect()
             x0 = tr.left()
@@ -1119,8 +1129,8 @@ class FinViewBox(pg.ViewBox):
             return
         _y0 = self.yscale.invxform(y0, verify=True)
         _y1 = self.yscale.invxform(y1, verify=True)
-        self.setRange(QtCore.QRectF(pg.Point(x0, _y0), pg.Point(x1, _y1)), padding=0)
-        self.zoom_changed()
+        rect = QtCore.QRectF(pg.Point(x0, _y0), pg.Point(x1, _y1))
+        self._anim_set_range(rect, anim=anim)
         return True
 
     def remove_last_roi(self):
@@ -1160,6 +1170,41 @@ class FinViewBox(pg.ViewBox):
     def zoom_changed(self):
         for zl in self.zoom_listeners:
             zl(self)
+
+    def _anim_set_range(self, rect, anim):
+        if not anim or self.anim_current_rect is None or self.datasrc is None or animate_candles < self.datasrc.xlen:
+            self._do_set_range(rect, rect)
+        else:
+            self.anim_target_rect = rect
+            _anim_start(self)
+        return True
+
+    def _anim_callback(self, t):
+        bbs = [fpi.boundingRect() for fpi in self.win.sparse_renderers()]
+        a, b = self.anim_current_rect, self.anim_target_rect
+        crange = QtCore.QRectF(pg.Point(lerp(animate_lerp,a.x(),b.x()), lerp(animate_lerp,a.y(),b.y())), \
+                               pg.Point(lerp(animate_lerp,a.right(),b.right()), lerp(animate_lerp,a.bottom(),b.bottom())))
+        if t >= 0.1 or any(crange:
+            crange = self.anim_target_rect
+            _anim_stop(self)
+        self._do_set_range(crange, self.anim_target_rect)
+
+    def _do_set_range(self, rect, target_rect):
+        self.setRange(rect, padding=0)
+        self.anim_target_rect = target_rect
+        self.zoom_changed()
+
+    def setRange(self, rect=None, xRange=None, yRange=None, **kwargs):
+        super().setRange(rect, xRange, yRange, **kwargs)
+        if rect is not None:
+            self.anim_target_rect = self.anim_current_rect = rect
+        else:
+            if xRange is not None and self.anim_current_rect is not None:
+                self.anim_current_rect.setX(xRange[0])
+                self.anim_current_rect.setRight(xRange[1])
+            if yRange is not None and self.anim_current_rect is not None:
+                self.anim_current_rect.setY(yRange[0])
+                self.anim_current_rect.setRight(yRange[1])
 
 
 
@@ -1788,10 +1833,10 @@ def fill_between(plot0, plot1, color=None):
     return item
 
 
-def set_x_pos(xmin, xmax, ax=None):
+def set_x_pos(xmin, xmax, ax=None, anim=True):
     ax = _create_plot(ax=ax, maximize=False)
     xidx0,xidx1 = _pdtime2index(ax, pd.Series([xmin, xmax]))
-    ax.vb.update_y_zoom(xidx0, xidx1)
+    ax.vb.update_y_zoom(xidx0, xidx1, anim=True)
     _repaint_candles()
 
 
@@ -1928,8 +1973,13 @@ def timer_callback(update_func, seconds, single_shot=False):
     if single_shot:
         timer.setSingleShot(True)
     timer.start(int(seconds*1000))
-    timers.append(timer)
+    timers.add(timer)
     return timer
+
+
+def timer_stop(timer):
+    timers.remove(timer)
+    timer.stop()
 
 
 def autoviewrestore(enable=True):
@@ -1954,7 +2004,7 @@ def refresh():
         for vb in vbs:
             datasrc = vb.datasrc_or_standalone
             if datasrc and (vb.linkedView(0) is None or vb.linkedView(0).datasrc is None or vb.master_viewbox):
-                vb.update_y_zoom(datasrc.init_x0, datasrc.init_x1)
+                vb.update_y_zoom(datasrc.init_x0, datasrc.init_x1, anim=False)
     _repaint_candles()
     for md in master_data.values():
         for vb in md:
@@ -2044,7 +2094,7 @@ def _loadwindata(win):
                 if x1 == len(ds.x)-1:
                     x1 += right_margin_candles
                 x1 += 0.5
-                zoom_set = vb.update_y_zoom(x0, x1)
+                zoom_set = vb.update_y_zoom(x0, x1, anim=False)
     return zoom_set
 
 
@@ -2543,7 +2593,7 @@ def _update_gfx(item):
         if tr.right() < x1 - 5 - 2*right_margin_candles:
             x0 = x1 = None
         prev_top = item.ax.vb.targetRect().top()
-        item.ax.vb.update_y_zoom(x0, x1)
+        item.ax.vb.update_y_zoom(x0, x1, anim=True)
         this_top = item.ax.vb.targetRect().top()
         if this_top and not (0.99 < abs(prev_top/this_top) < 1.01):
             update_sigdig = True
@@ -2611,6 +2661,23 @@ def _repaint_candles():
 def _paint_scatter(item, p, *args):
     with np.errstate(invalid='ignore'): # make pg's mask creation calls to numpy shut up
         item._dopaint(p, *args)
+
+
+def _anim_start(vb):
+    _anim_stop(vb)
+    vb.win.animate_start_t = time()
+    vb._anim_callback(0)
+    vb.win.animate_timer = timer_callback(partial(_anim_step, vb), 0.001)
+
+
+def _anim_stop(vb):
+    if vb.win.animate_timer is not None:
+        timer_stop(vb.win.animate_timer)
+        vb.win.animate_timer = None
+
+
+def _anim_step(vb):
+    vb._anim_callback(time() - vb.win.animate_start_t)
 
 
 def _key_pressed(vb, ev):

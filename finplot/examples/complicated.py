@@ -385,6 +385,7 @@ def create_ctrl_panel(win):
 
     panel.symbol = QComboBox(panel)
     [panel.symbol.addItem(i+'USDT') for i in 'BTC ETH XRP DOGE BNB SOL ADA LTC LINK DOT TRX BCH'.split()]
+    [panel.symbol.addItem(i+'TUSD') for i in 'BTC ETH SOL'.split()]
     panel.symbol.setCurrentIndex(1)
     layout.addWidget(panel.symbol, 0, 0)
     panel.symbol.currentTextChanged.connect(change_asset)
