@@ -2795,10 +2795,11 @@ def _pdtime2index(ax, ts, any_end=False, require_time=False):
     xs = datasrc.x
 
     # try exact match before approximate match
-    exact = datasrc.index[xs.isin(ts)].to_list()
-    if len(exact) == len(ts):
-        return exact
-    
+    if all(xs.isin(ts)):
+      exact = datasrc.index[ts].to_list()
+      if len(exact) == len(ts):
+          return exact
+
     r = []
     for i,t in enumerate(ts):
         xss = xs.loc[xs>t]
