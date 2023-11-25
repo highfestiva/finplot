@@ -68,7 +68,8 @@ lod_candles = 3000
 lod_labels = 700
 cache_candle_factor = 3 # factor extra candles rendered to buffer
 animate_candles = 2e5
-animate_lerp = 0.1
+animate_lerp = 0.6
+animate_timeout = 0.1
 y_pad = 0.03 # 3% padding at top and bottom of autozoom plots
 y_label_width = 65
 display_timezone = tzlocal() # default to local
@@ -558,7 +559,6 @@ class FinWindow(pg.GraphicsLayoutWidget):
         self.ci.setSpacing(-1)
         self.closing = False
         self.animate_timer = None
-        self.animate_start_t = 0
 
     @property
     def axs(self):
@@ -598,9 +598,6 @@ class FinWindow(pg.GraphicsLayoutWidget):
     def leaveEvent(self, ev):
         if not self.closing:
             super().leaveEvent(ev)
-
-    def sparse_renderers(self):
-        return [item for ax in self.axs for item in ax.items if isinstance(item, FinPlotItem)]
 
 
 class FinCrossHair:
@@ -880,7 +877,8 @@ class FinViewBox(pg.ViewBox):
             center = pg.Point(vr.left(), center.y())
         elif pct_x > 0.95: # zoom to far right => all the way right
             center = pg.Point(vr.right(), center.y())
-        self.zoom_rect(self.anim_target_rect if self.anim_target_rect else vr, scale_fact, center)
+        tr = self.anim_target_rect if self.anim_target_rect else vr
+        self.zoom_rect(tr, scale_fact, center)
         # update crosshair
         _mouse_moved(self.win, self, None)
         ev.accept()
@@ -1171,23 +1169,36 @@ class FinViewBox(pg.ViewBox):
         for zl in self.zoom_listeners:
             zl(self)
 
+    def _finplots_out_of_range(self, rect):
+        if self.parent() is None:
+            return True
+        my_finplots = [item for item in self.parent().items if isinstance(item, FinPlotItem)]
+        return any(not item.boundingRect().intersects(rect) for item in my_finplots)
+
     def _anim_set_range(self, rect, anim):
-        if not anim or self.anim_current_rect is None or self.datasrc is None or animate_candles < self.datasrc.xlen:
+        if anim and \
+            (self.anim_current_rect is None or self.datasrc is None or self.datasrc.xlen > animate_candles or \
+             not rect.intersects(self.anim_current_rect) or self._finplots_out_of_range(rect)):
+            anim = False # don't animate when outside of the target rect
+        if not anim:
             self._do_set_range(rect, rect)
         else:
+            print('animating', self.datasrc.xlen, animate_candles)
             self.anim_target_rect = rect
             _anim_start(self)
         return True
 
     def _anim_callback(self, t):
-        bbs = [fpi.boundingRect() for fpi in self.win.sparse_renderers()]
+        bbs = [fpi.boundingRect() for fpi in _win_sparse_renderers(self.win)]
         a, b = self.anim_current_rect, self.anim_target_rect
         crange = QtCore.QRectF(pg.Point(lerp(animate_lerp,a.x(),b.x()), lerp(animate_lerp,a.y(),b.y())), \
                                pg.Point(lerp(animate_lerp,a.right(),b.right()), lerp(animate_lerp,a.bottom(),b.bottom())))
-        if t >= 0.1 or any(crange:
+        if t >= animate_timeout:
             crange = self.anim_target_rect
             _anim_stop(self)
+        self.updating_linked = True
         self._do_set_range(crange, self.anim_target_rect)
+        self.updating_linked = False
 
     def _do_set_range(self, rect, target_rect):
         self.setRange(rect, padding=0)
@@ -1504,6 +1515,7 @@ def create_plot_widget(master, rows=1, init_zoom_periods=1e10, yscale='linear'):
     global last_ax
     if master not in windows:
         windows.append(master)
+        master.animate_timer = None
     axs = []
     prev_ax = None
     for n in range(rows):
@@ -1833,10 +1845,10 @@ def fill_between(plot0, plot1, color=None):
     return item
 
 
-def set_x_pos(xmin, xmax, ax=None, anim=True):
+def set_x_pos(xmin, xmax, ax=None, anim=False):
     ax = _create_plot(ax=ax, maximize=False)
     xidx0,xidx1 = _pdtime2index(ax, pd.Series([xmin, xmax]))
-    ax.vb.update_y_zoom(xidx0, xidx1, anim=True)
+    ax.vb.update_y_zoom(xidx0, xidx1, anim=anim)
     _repaint_candles()
 
 
@@ -2123,6 +2135,9 @@ def _savewindata(win):
     except Exception as e:
         print('Error saving plot:', e)
 
+
+def _win_sparse_renderers(win):
+    return [item for ax in win.axs for item in ax.items if isinstance(item, FinPlotItem)]
 
 def _internal_windows_only():
      return all(isinstance(win,FinWindow) for win in windows)
@@ -2593,7 +2608,7 @@ def _update_gfx(item):
         if tr.right() < x1 - 5 - 2*right_margin_candles:
             x0 = x1 = None
         prev_top = item.ax.vb.targetRect().top()
-        item.ax.vb.update_y_zoom(x0, x1, anim=True)
+        item.ax.vb.update_y_zoom(x0, x1)
         this_top = item.ax.vb.targetRect().top()
         if this_top and not (0.99 < abs(prev_top/this_top) < 1.01):
             update_sigdig = True
