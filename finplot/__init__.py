@@ -1320,7 +1320,10 @@ class HorizontalTimeVolumeItem(CandlestickItem):
         volumes = vals[:, self.datasrc.col_data_offset+1::2].T
         # normalize
         try:
-            f = self.datasrc.calc_period_ns(n=1000, delta=lambda dt:int(dt.mean())) / _get_datasrc(self.ax).calc_period_ns(n=1000, delta=lambda dt:int(dt.mean()))
+            # f = self.datasrc.calc_period_ns(n=1000, delta=lambda dt:int(dt.mean())) / _get_datasrc(self.ax).calc_period_ns(n=1000, delta=lambda dt:int(dt.mean()))
+            # there are gaps in the data, it closes at 16:00 and opens at 9:30 on the next day
+            region = self.datasrc.df.index
+            f = 1
             times = _pdtime2index(self.ax, times, require_time=True)
         except AssertionError:
             f = 1
@@ -1337,12 +1340,17 @@ class HorizontalTimeVolumeItem(CandlestickItem):
         p = self.painter
         h = 1e-10
         for i in range(len(prices)):
+            if i < len(region) - 1:
+                f = region[i + 1] - region[i]
+            else:
+                f = region[-1]
+
             prcr = prices[i]
             prv = prcr[~np.isnan(prcr)]
             if len(prv) > 1:
                 h = np.diff(prv).min()
             t = times[i]
-            volr = np.nan_to_num(volumes[i])
+            volr = np.nan_to_num(volumes[i]) * f
 
             # calc poc
             pocidx = np.nanargmax(volr)
@@ -1367,7 +1375,7 @@ class HorizontalTimeVolumeItem(CandlestickItem):
                         v += vb
                     if a==0 and b==binc-1:
                         break
-                color = pg.mkColor(band_color)
+                color = pg.mkColor(self.colors.get("band_color", None) or band_color)
                 p.fillRect(QtCore.QRectF(t, prcr[a], f, prcr[b]-prcr[a]+h), color)
 
             # draw horizontal bars
@@ -1385,7 +1393,7 @@ class HorizontalTimeVolumeItem(CandlestickItem):
             # draw poc line
             if self.draw_poc:
                 y = prcr[pocidx] + h / 2
-                p.setPen(pg.mkPen(poc_color))
+                p.setPen(pg.mkPen(self.colors.get("poc_color", None) or poc_color, width=1 if not hasattr(self, "poc_width") else self.poc_width))
                 p.drawLine(QtCore.QPointF(t, y), QtCore.QPointF(t+f*self.draw_poc, y))
 
 
