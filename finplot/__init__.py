@@ -68,6 +68,7 @@ lod_labels = 700
 cache_candle_factor = 3 # factor extra candles rendered to buffer
 y_pad = 0.03 # 3% padding at top and bottom of autozoom plots
 y_label_width = 65
+timestamp_format = '%Y-%m-%d %H:%M:%S.%f'
 display_timezone = tzlocal() # default to local
 winx,winy,winw,winh = 300,150,800,400
 win_recreate_delta = 30
@@ -1320,7 +1321,7 @@ class HorizontalTimeVolumeItem(CandlestickItem):
         volumes = vals[:, self.datasrc.col_data_offset+1::2].T
         # normalize
         try:
-            f = self.datasrc.calc_period_ns(n=1000, delta=lambda dt:int(dt.mean())) / _get_datasrc(self.ax).calc_period_ns(n=1000, delta=lambda dt:int(dt.mean()))
+            f = self.datasrc.calc_period_ns(n=1000) / _get_datasrc(self.ax).calc_period_ns(n=1000)
             times = _pdtime2index(self.ax, times, require_time=True)
         except AssertionError:
             f = 1
@@ -2848,12 +2849,12 @@ def _millisecond_tz_wrap(s):
 def _x2local_t(datasrc, x):
     if display_timezone == None:
         return _x2utc(datasrc, x)
-    return _x2t(datasrc, x, lambda t: _millisecond_tz_wrap(datetime.fromtimestamp(t/1e9, tz=display_timezone).isoformat(sep=' ')))
+    return _x2t(datasrc, x, lambda t: _millisecond_tz_wrap(datetime.fromtimestamp(t/1e9, tz=display_timezone).strftime(timestamp_format)))
 
 
 def _x2utc(datasrc, x):
     # using pd.to_datetime allow for pre-1970 dates
-    return _x2t(datasrc, x, lambda t: pd.to_datetime(t, unit='ns').strftime('%Y-%m-%d %H:%M:%S.%f'))
+    return _x2t(datasrc, x, lambda t: pd.to_datetime(t, unit='ns').strftime(timestamp_format))
 
 
 def _x2t(datasrc, x, ts2str):
