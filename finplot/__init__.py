@@ -1300,10 +1300,11 @@ class HeatmapItem(FinPlotItem):
 
 
 class HorizontalTimeVolumeItem(CandlestickItem):
-    def __init__(self, ax, datasrc, candle_width=0.8, draw_va=0.0, draw_body=0.4, draw_poc=0.0, colorfunc=None):
+    def __init__(self, ax, datasrc, candle_width=0.8, draw_va=0.0, draw_vaw=1.0, draw_body=0.4, draw_poc=0.0, colorfunc=None):
         '''A negative draw_body does not mean that the candle is drawn in the opposite direction (use negative volume for that),
            but instead that screen scale will be used instead of interval-relative scale.'''
         self.draw_va = draw_va
+        self.draw_vaw = draw_vaw
         self.draw_poc = draw_poc
         ## self.col_data_end = len(datasrc.df.columns)
         colorfunc = colorfunc or horizvol_colorfilter() # resolve function lower down in source code
@@ -1321,28 +1322,32 @@ class HorizontalTimeVolumeItem(CandlestickItem):
         volumes = vals[:, self.datasrc.col_data_offset+1::2].T
         # normalize
         try:
-            f = self.datasrc.calc_period_ns(n=1000) / _get_datasrc(self.ax).calc_period_ns(n=1000)
-            times = _pdtime2index(self.ax, times, require_time=True)
+            index = _pdtime2index(self.ax, times, require_time=True)
+            index_steps = pd.Series(index).diff().shift(-1)
+            index_steps[index_steps.index[-1]] = index_steps.median()
         except AssertionError:
-            f = 1
+            index = times
+            index_steps = [1]*len(index)
         draw_body = self.draw_body
+        wf = 1
         if draw_body < 0:
-            f *= -draw_body * self.ax.vb.targetRect().width()
+            wf = -draw_body * self.ax.vb.targetRect().width()
             draw_body = 1
         binc = len(volumes)
         if not binc:
             return
         divvol = np.nanmax(np.abs(volumes), axis=0)
         divvol[divvol==0] = 1
-        volumes = (volumes * f / divvol).T
+        volumes = (volumes * wf / divvol).T
         p = self.painter
         h = 1e-10
         for i in range(len(prices)):
+            f = index_steps[i] * wf
             prcr = prices[i]
             prv = prcr[~np.isnan(prcr)]
             if len(prv) > 1:
                 h = np.diff(prv).min()
-            t = times[i]
+            t = index[i]
             volr = np.nan_to_num(volumes[i])
 
             # calc poc
@@ -1369,7 +1374,7 @@ class HorizontalTimeVolumeItem(CandlestickItem):
                     if a==0 and b==binc-1:
                         break
                 color = pg.mkColor(band_color)
-                p.fillRect(QtCore.QRectF(t, prcr[a], f, prcr[b]-prcr[a]+h), color)
+                p.fillRect(QtCore.QRectF(t, prcr[a], f*self.draw_vaw, prcr[b]-prcr[a]+h), color)
 
             # draw horizontal bars
             if draw_body:
@@ -1381,7 +1386,7 @@ class HorizontalTimeVolumeItem(CandlestickItem):
                     prcr_,volr_ = data
                     for w,y in zip(volr_, prcr_):
                         if abs(w) > 1e-15:
-                            p.drawRect(QtCore.QRectF(t, y+h0, w*draw_body, h1))
+                            p.drawRect(QtCore.QRectF(t, y+h0, w*f*draw_body, h1))
 
             # draw poc line
             if self.draw_poc:
