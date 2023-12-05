@@ -9,6 +9,7 @@ import requests
 
 
 baseurl = 'https://www.bitmex.com/api'
+fplt.timestamp_format = '%m/%d/%Y %H:%M:%S.%f'
 
 
 def local2timestamp(s):

@@ -68,6 +68,7 @@ lod_labels = 700
 cache_candle_factor = 3 # factor extra candles rendered to buffer
 y_pad = 0.03 # 3% padding at top and bottom of autozoom plots
 y_label_width = 65
+timestamp_format = '%Y-%m-%d %H:%M:%S.%f'
 display_timezone = tzlocal() # default to local
 winx,winy,winw,winh = 300,150,800,400
 win_recreate_delta = 30
@@ -1299,10 +1300,11 @@ class HeatmapItem(FinPlotItem):
 
 
 class HorizontalTimeVolumeItem(CandlestickItem):
-    def __init__(self, ax, datasrc, candle_width=0.8, draw_va=0.0, draw_body=0.4, draw_poc=0.0, colorfunc=None):
+    def __init__(self, ax, datasrc, candle_width=0.8, draw_va=0.0, draw_vaw=1.0, draw_body=0.4, draw_poc=0.0, colorfunc=None):
         '''A negative draw_body does not mean that the candle is drawn in the opposite direction (use negative volume for that),
            but instead that screen scale will be used instead of interval-relative scale.'''
         self.draw_va = draw_va
+        self.draw_vaw = draw_vaw
         self.draw_poc = draw_poc
         ## self.col_data_end = len(datasrc.df.columns)
         colorfunc = colorfunc or horizvol_colorfilter() # resolve function lower down in source code
@@ -1320,37 +1322,33 @@ class HorizontalTimeVolumeItem(CandlestickItem):
         volumes = vals[:, self.datasrc.col_data_offset+1::2].T
         # normalize
         try:
-            # f = self.datasrc.calc_period_ns(n=1000, delta=lambda dt:int(dt.mean())) / _get_datasrc(self.ax).calc_period_ns(n=1000, delta=lambda dt:int(dt.mean()))
-            # there are gaps in the data, it closes at 16:00 and opens at 9:30 on the next day
-            region = self.datasrc.df.index
-            f = 1
-            times = _pdtime2index(self.ax, times, require_time=True)
+            index = _pdtime2index(self.ax, times, require_time=True)
+            index_steps = pd.Series(index).diff().shift(-1)
+            index_steps[index_steps.index[-1]] = index_steps.median()
         except AssertionError:
-            f = 1
+            index = times
+            index_steps = [1]*len(index)
         draw_body = self.draw_body
+        wf = 1
         if draw_body < 0:
-            f *= -draw_body * self.ax.vb.targetRect().width()
+            wf = -draw_body * self.ax.vb.targetRect().width()
             draw_body = 1
         binc = len(volumes)
         if not binc:
             return
         divvol = np.nanmax(np.abs(volumes), axis=0)
         divvol[divvol==0] = 1
-        volumes = (volumes * f / divvol).T
+        volumes = (volumes * wf / divvol).T
         p = self.painter
         h = 1e-10
         for i in range(len(prices)):
-            if i < len(region) - 1:
-                f = region[i + 1] - region[i]
-            else:
-                f = region[-1]
-
+            f = index_steps[i] * wf
             prcr = prices[i]
             prv = prcr[~np.isnan(prcr)]
             if len(prv) > 1:
                 h = np.diff(prv).min()
-            t = times[i]
-            volr = np.nan_to_num(volumes[i]) * f
+            t = index[i]
+            volr = np.nan_to_num(volumes[i])
 
             # calc poc
             pocidx = np.nanargmax(volr)
@@ -1375,8 +1373,8 @@ class HorizontalTimeVolumeItem(CandlestickItem):
                         v += vb
                     if a==0 and b==binc-1:
                         break
-                color = pg.mkColor(self.colors.get("band_color", None) or band_color)
-                p.fillRect(QtCore.QRectF(t, prcr[a], f, prcr[b]-prcr[a]+h), color)
+                color = pg.mkColor(band_color)
+                p.fillRect(QtCore.QRectF(t, prcr[a], f*self.draw_vaw, prcr[b]-prcr[a]+h), color)
 
             # draw horizontal bars
             if draw_body:
@@ -1388,12 +1386,12 @@ class HorizontalTimeVolumeItem(CandlestickItem):
                     prcr_,volr_ = data
                     for w,y in zip(volr_, prcr_):
                         if abs(w) > 1e-15:
-                            p.drawRect(QtCore.QRectF(t, y+h0, w*draw_body, h1))
+                            p.drawRect(QtCore.QRectF(t, y+h0, w*f*draw_body, h1))
 
             # draw poc line
             if self.draw_poc:
                 y = prcr[pocidx] + h / 2
-                p.setPen(pg.mkPen(self.colors.get("poc_color", None) or poc_color, width=1 if not hasattr(self, "poc_width") else self.poc_width))
+                p.setPen(pg.mkPen(poc_color))
                 p.drawLine(QtCore.QPointF(t, y), QtCore.QPointF(t+f*self.draw_poc, y))
 
 
@@ -2856,12 +2854,12 @@ def _millisecond_tz_wrap(s):
 def _x2local_t(datasrc, x):
     if display_timezone == None:
         return _x2utc(datasrc, x)
-    return _x2t(datasrc, x, lambda t: _millisecond_tz_wrap(datetime.fromtimestamp(t/1e9, tz=display_timezone).isoformat(sep=' ')))
+    return _x2t(datasrc, x, lambda t: _millisecond_tz_wrap(datetime.fromtimestamp(t/1e9, tz=display_timezone).strftime(timestamp_format)))
 
 
 def _x2utc(datasrc, x):
     # using pd.to_datetime allow for pre-1970 dates
-    return _x2t(datasrc, x, lambda t: pd.to_datetime(t, unit='ns').strftime('%Y-%m-%d %H:%M:%S.%f'))
+    return _x2t(datasrc, x, lambda t: pd.to_datetime(t, unit='ns').strftime(timestamp_format))
 
 
 def _x2t(datasrc, x, ts2str):
