@@ -3095,3 +3095,302 @@ try:
     candle_shadow_width = int(user32.GetSystemMetrics(0) // 2100 + 1) # 2560 and resolutions above -> wider shadows
 except:
     pass
+
+
+
+class HeatmapItemMulti(FinPlotItem):
+    def __init__(
+        self,
+        ax,
+        datasrc,
+        rect_size=0.9,
+        filter_limit=0,
+        colmap=colmap_clash,
+        rect_width=0.5,
+        colcurve=lambda x: pow(x, 4),
+    ):
+        self.rect_size = rect_size
+        self.filter_limit = filter_limit
+        self.rect_width = rect_width
+        self.colmap = colmap
+        self.colmap_red = ColorMap(
+            [0.0, 0.33, 0.66, 1.0],
+            [
+                [239, 83, 80, 50],
+                [239, 83, 80, 180],
+                [239, 83, 80, 220],
+                [239, 83, 80, 240],
+            ],
+        )
+        self.colmap_green = ColorMap(
+            [0.0, 0.33, 0.66, 1.0],
+            [
+                [38, 166, 154, 50],
+                [38, 166, 154, 180],
+                [38, 166, 154, 220],
+                [38, 166, 154, 240],
+            ],
+        )
+        # self.whiteout = whiteout
+        self.colcurve = colcurve
+        self.col_data_end = len(datasrc.df.columns)
+        super().__init__(ax, datasrc, lod=False)
+
+    def generate_picture(self, boundingRect):
+        prices = self.datasrc.df.columns[
+            self.datasrc.col_data_offset : self.col_data_end
+        ]
+
+        idx = None
+        if len(prices) >= 2:
+            if isinstance(prices[0], str):
+                # strip the last '+' or '++'
+                idx = prices[0].find("+")
+                idx -= len(prices[0])
+                price0 = prices[0][:idx]
+                price1 = prices[1][:idx]
+                h = float(price1) - float(price0)
+            else:
+                h = prices[1] - prices[0]
+
+            h0 = h * 0.5 * self.rect_size
+            h1 = h * self.rect_size
+            # h0 = (prices[0] - prices[1]) * 0.5 * self.rect_size
+            # h1 = (prices[0] - prices[1]) * (1-(1-self.rect_size)*2)
+        else:
+            # in case prices only contains one level
+            h0 = 0
+            h1 = 0
+        # rect_size2 = 0.5 * self.rect_size
+        df = self.datasrc.df.iloc[:, self.datasrc.col_data_offset : self.col_data_end]
+        values = df.to_numpy()
+
+        # # ============ modified
+        # # normalize
+        # # offset = np.nanmin(values)
+        # # values -= offset # now min value has value 0
+        # # constraint values to be [-1 / (1+whiteout), 1 / (1+whiteout)]
+        # up_p = self.filter_limit * 100.0
+        # down_p = (1.0 - self.filter_limit) * 100.0
+        # vup = np.nanpercentile(values[values > 0], up_p)
+        # vlow = np.nanpercentile(values[values < 0], down_p)
+        vmax = np.nanmax(values)
+        vmin = np.nanmin(values)
+        vup = vmax * self.filter_limit
+        vlow = vmin * self.filter_limit
+
+        # make array of positions to be colored
+        # each entry is [t, price]
+        rows = pd.melt(df.reset_index(), id_vars="index", value_vars=prices).to_numpy()
+        col_p_v = rows[:, 2]
+
+        vbull = rows[col_p_v > vup]
+        vbear = rows[col_p_v < vlow]
+
+        small_a = col_p_v <= vup
+        small_b = col_p_v >= vlow
+        small = small_a & small_b
+
+        vno = rows[small]
+
+        # np.empty((len(values[values > vup]), ))
+
+        # if np.nanmin(values) > 0:
+        #     values = (values / vlow * (values < 0) + values / vup * (values > 0)) / (1 + self.whiteout)
+        # else:
+        #     # prevent when min value is 0 and no negative values
+        #     values = values / vup / (1 + self.whiteout)# overshoot for coloring
+
+        # lim = self.filter_limit * (1+self.whiteout)
+        p = self.painter
+
+        rect_width = self.rect_width
+        rect_offset = rect_width * 0.5
+
+        for t, price, v in vbull:
+            color = self.colmap_red.map((v - vup) / (vmax - vup), mode="qcolor")
+            self._drawCell(idx, price, p, t, rect_offset, rect_width, h0, h1, color)
+
+        for t, price, v in vbear:
+            color = self.colmap_green.map((v - vlow) / (vmin - vlow), mode="qcolor")
+            self._drawCell(idx, price, p, t, rect_offset, rect_width, h0, h1, color)
+
+        for t, price, v in vno:
+            color = "#777"
+            color = pg.mkColor(color)
+
+            self._drawCell(idx, price, p, t, rect_offset, rect_width, h0, h1, color)
+
+    def _drawCell(self, idx, price, p, t, rect_offset, rect_width, h0, h1, color):
+        if idx is not None:
+            # strip the last '+'
+            price_s = price[:idx]
+            price = float(price_s)
+
+        # x, y, w, h
+        p.fillRect(
+            QtCore.QRectF(
+                t - rect_offset,
+                self.ax.vb.yscale.invxform(price - h0),
+                rect_width,
+                self.ax.vb.yscale.invxform(h1),
+            ),
+            color,
+        )
+
+
+def multi_heatmap(datasrc, ax=None, **kwargs):
+    """Expensive function. Only use on small data sets. See HeatmapItem for kwargs. Input datasrc
+    has x (time) in index or first column, y (price) as column names, and intensity (color) as
+    cell values."""
+    ax = _create_plot(ax=ax, maximize=False)
+    if ax.vb.v_zoom_scale >= 0.9:
+        ax.vb.v_zoom_scale = 0.6
+    datasrc = _create_datasrc(ax, datasrc)
+    datasrc.scale_cols = []  # doesn't scale
+    _set_datasrc(ax, datasrc)
+    item = HeatmapItemMulti(ax=ax, datasrc=datasrc, **kwargs)
+    item.update_data = partial(_update_data, None, None, item)
+    item.update_gfx = partial(_update_gfx, item)
+    item.setZValue(-30)
+    ax.addItem(item)
+    if (
+        ax.vb.datasrc is not None and not ax.vb.datasrc.timebased()
+    ):  # manual zoom update
+        ax.setXLink(None)
+        if ax.prev_ax:
+            ax.prev_ax.set_visible(xaxis=True)
+        df = ax.vb.datasrc.df
+        prices = df.columns[ax.vb.datasrc.col_data_offset : item.col_data_end]
+        delta_price = abs(prices[0] - prices[1])
+        ax.vb.set_range(
+            0, min(df.columns[1:]), len(df), max(df.columns[1:]) + delta_price
+        )
+    return item
+
+
+class ScatterLabelItemMulti(FinPlotItem):
+    def __init__(
+        self,
+        ax,
+        datasrc,
+        color,
+        anchor,
+        rect_size=0.9,
+        rect_width=0.5,
+        qfont=None,
+    ):
+        self.color = color
+        self.anchor = anchor
+        self.col_data_end = len(datasrc.df.columns)
+
+        self.text_items = {}
+
+        self.rect_size = rect_size
+        self.rect_width = rect_width
+        if qfont is not None:
+            self.qfont = qfont
+        super().__init__(ax, datasrc, lod=True)
+
+    def get_float(self, p):
+        if isinstance(p, str):
+            # strip the last '+'
+            idx = p.find("+")
+            idx -= len(p)
+            r = p[:idx]
+            r = float(r)
+        else:
+            r = p
+
+        return r
+
+    def generate_picture(self, boundingRect):
+        rows = self.getrows(boundingRect)
+
+        if (
+            len(rows) > lod_labels
+        ):  # don't even generate when there's too many of them
+            self.clear_items(list(self.text_items.keys()))
+            return
+        drops = set(self.text_items.keys())
+        created = 0
+        for x, t, y, txt in rows:
+            txt = str(txt)
+            ishtml = "<" in txt and ">" in txt
+            key = "%s:%.8f" % (t, y)
+            if key in self.text_items:
+                item = self.text_items[key]
+                (item.setHtml if ishtml else item.setText)(txt)
+                item.setPos(x, y)
+                drops.remove(key)
+            else:
+                kws = {"html": txt} if ishtml else {"text": txt}
+                self.text_items[key] = item = pg.TextItem(
+                    color=self.color, anchor=self.anchor, **kws
+                )
+                item.setPos(x, y)
+                if hasattr(self, "qfont"):
+                    item.setFont(self.qfont)
+                item.setParentItem(self)
+                created += 1
+        if (
+            created > 0 or self.dirty
+        ):  # only reduce cache if we've added some new or updated
+            self.clear_items(drops)
+
+    def clear_items(self, drop_keys):
+        for key in drop_keys:
+            item = self.text_items[key]
+            item.scene().removeItem(item)
+            del self.text_items[key]
+
+    def getrows(self, bounding_rect):
+        left, right = bounding_rect.left(), bounding_rect.right()
+        cols = self.col_data_end - self.datasrc.col_data_offset
+        self.datasrc.is_sparse = False
+        df, _ = self.datasrc.rows(
+            cols, left, right, yscale=self.ax.vb.yscale, lod=False
+        )
+        rows = df.dropna(axis=1, how="all")
+        rows = rows.dropna(axis=0, how="all")
+
+        rs = []
+        cols = rows.columns
+        cols = cols.drop("index")
+        for i in rows.index:
+            r = rows.loc[i]
+            t = r["index"]
+            for c in cols:
+                txt = r[c]
+                if not isinstance(txt, str):
+                    continue
+
+                y = self.get_float(c)
+                rs.append((i, t, y, txt))
+                pass
+            pass
+
+        return rs
+
+    def boundingRect(self):
+        return self.viewRect()
+
+
+def multi_labels(
+    x, y=None, labels=None, color=None, ax=None, anchor=(0.5, 1), **kwargs
+):
+    ax = _create_plot(ax=ax, maximize=False)
+    used_color = _get_color(ax, "?", color)
+    datasrc = _create_datasrc(ax, x, y, labels, ncols=3)
+    datasrc.scale_cols = []  # don't use this for scaling
+    _set_datasrc(ax, datasrc)
+    item = ScatterLabelItemMulti(
+        ax=ax, datasrc=datasrc, color=used_color, anchor=anchor, **kwargs
+    )
+    _update_significants(ax, datasrc, force=False)
+    item.update_data = partial(_update_data, None, None, item)
+    item.update_gfx = partial(_update_gfx, item)
+    ax.addItem(item)
+    if ax.vb.v_zoom_scale > 0.9:  # adjust to make hi/lo text fit
+        ax.vb.v_zoom_scale = 0.9
+    return item
