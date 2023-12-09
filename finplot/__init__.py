@@ -1279,8 +1279,20 @@ class HeatmapItem(FinPlotItem):
 
     def generate_picture(self, boundingRect):
         prices = self.datasrc.df.columns[self.datasrc.col_data_offset:self.col_data_end]
-        h0 = (prices[0] - prices[1]) * (1-self.rect_size)
-        h1 = (prices[0] - prices[1]) * (1-(1-self.rect_size)*2)
+
+        idx = None
+        if isinstance(prices[0], str):
+            # strip the last '+' or '++'
+            idx = prices[0].find("+")
+            idx -= len(prices[0])
+            price0 = prices[0][:idx]
+            price1 = prices[1][:idx]
+            h0 = (float(price0) - float(price1)) * (1-self.rect_size)
+            h1 = (float(price0) - float(price1)) * (1-(1-self.rect_size)*2)
+        else:
+            h0 = (prices[0] - prices[1]) * (1-self.rect_size)
+            h1 = (prices[0] - prices[1]) * (1-(1-self.rect_size)*2)
+
         rect_size2 = 0.5 * self.rect_size
         df = self.datasrc.df.iloc[:, self.datasrc.col_data_offset:self.col_data_end]
         values = df.values
@@ -1295,6 +1307,11 @@ class HeatmapItem(FinPlotItem):
                 if v >= lim:
                     v = 1 - self.colcurve(1 - (v-lim)/(1-lim))
                     color = self.colmap.map(v, mode='qcolor')
+                    if idx is not None:
+                        # strip the last '+'
+                        price_s = price[:idx]
+                        price = float(price_s)
+
                     p.fillRect(QtCore.QRectF(t-rect_size2, self.ax.vb.yscale.invxform(price+h0), self.rect_size, self.ax.vb.yscale.invxform(h1)), color)
 
 
