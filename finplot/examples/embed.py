@@ -16,7 +16,7 @@ win.resize(600, 500)
 
 combo = QComboBox()
 combo.setEditable(True)
-[combo.addItem(i) for i in 'AMRK META REVG TSLA TWTR WMT CT=F GC=F ^GSPC ^FTSE ^N225 EURUSD=X ETH-USD'.split()]
+[combo.addItem(i) for i in 'AMRK META REVG TSLA WMT CT=F GC=F ^GSPC ^FTSE ^N225 EURUSD=X ETH-USD'.split()]
 layout.addWidget(combo, 0, 0, 1, 1)
 info = QLabel()
 layout.addWidget(info, 0, 1, 1, 1)
