@@ -2569,7 +2569,8 @@ def _start_visual_update(item):
         y = item.datasrc.y / item.ax.vb.yscale.scalef
         if item.ax.vb.yscale.scaletype == 'log':
             y = y + log_plot_offset
-        item.setData(item.datasrc.index, y)
+        x = item.datasrc.index if item.ax.vb.x_indexed else item.datasrc.x
+        item.setData(x, y)
 
 
 def _end_visual_update(item):

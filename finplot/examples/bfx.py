@@ -8,8 +8,9 @@ import time
 
 
 def cumcnt_indices(v):
-    v[~v] = math.nan
-    cumsum = v.cumsum().fillna(method='pad')
+    v = v.astype('float64')
+    v[v==0] = math.nan
+    cumsum = v.cumsum().ffill()
     reset = -cumsum[v.isnull()].diff().fillna(cumsum)
     r = v.where(v.notnull(), reset).cumsum().fillna(0.0)
     return r.astype(int)

@@ -6,7 +6,7 @@ import requests
 
 
 # download, extract times and candles
-url = 'https://www.tensorcharts.com/tensor/bitmex/XBTUSD/heatmapCandles/15min'
+url = 'https://www.tensorcharts.com/tensor/binance/BTCUSDT/heatmapCandles/5min'
 data = requests.get(url).json()
 times = pd.to_datetime([e['T'] for e in data])
 candles = [(e['open'],e['close'],e['high'],e['low']) for e in data]
@@ -23,7 +23,7 @@ for i,orderbook in enumerate(orderbooks):
 df_volume_heatmap = pd.DataFrame(index=times, columns=prices, data=vol_matrix)
 
 # plot
-fplt.create_plot('BitMEX BTC 15m orderbook heatmap')
+fplt.create_plot('Binance BTC 15m orderbook heatmap')
 fplt.candlestick_ochl(df_candles)
 fplt.heatmap(df_volume_heatmap, filter_limit=0.1, whiteout=0.1)
 fplt.show()
