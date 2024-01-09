@@ -1177,13 +1177,14 @@ class FinPlotItem(pg.GraphicsObject):
 
     def repaint(self):
         self.dirty = True
-        self.paint(self.painter)
+        self.paint(None)
 
     def paint(self, p, *args):
         if self.datasrc.is_sparse:
             self.dirty = True
         self.update_dirty_picture(self.viewRect())
-        p.drawPicture(0, 0, self.picture)
+        if p is not None:
+            p.drawPicture(0, 0, self.picture)
 
     def update_dirty_picture(self, visibleRect):
         if self.dirty or \
