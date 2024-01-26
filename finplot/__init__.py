@@ -334,7 +334,7 @@ class PandasDataSource:
         def calc_sd(ser):
             ser = ser.iloc[:1000]
             absdiff = ser.diff().abs()
-            absdiff[absdiff<1e-30] = 1e30
+            absdiff[absdiff<1e-30] = np.float32(1e30)
             smallest_diff = absdiff.min()
             if smallest_diff > 1e29: # just 0s?
                 return 0
