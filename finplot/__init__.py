@@ -70,6 +70,7 @@ y_pad = 0.03 # 3% padding at top and bottom of autozoom plots
 y_label_width = 65
 timestamp_format = '%Y-%m-%d %H:%M:%S.%f'
 display_timezone = tzlocal() # default to local
+truncate_timestamp = True
 winx,winy,winw,winh = 300,150,800,400
 win_recreate_delta = 30
 log_plot_offset = -2.2222222e-16 # I could file a bug report, probably in PyQt, but this is more fun
@@ -2874,6 +2875,8 @@ def _x2t(datasrc, x, ts2str):
             if not datasrc.timebased():
                 return '%g' % t, False
             s = ts2str(t)
+            if not truncate_timestamp:
+                return s,True
             if epoch_period >= 23*60*60: # daylight savings, leap seconds, etc
                 i = s.index(' ')
             elif epoch_period >= 59: # consider leap seconds
