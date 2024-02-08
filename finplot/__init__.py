@@ -2457,9 +2457,9 @@ def _adjust_renko_datasrc(bins, step, datasrc):
 
 
 def _adjust_renko_log_datasrc(bins, step, datasrc):
-    datasrc.df.loc[:,datasrc.df.colums[1]] = np.log10(datasrc.df.iloc[:,1])
+    datasrc.df.loc[:,datasrc.df.columns[1]] = np.log10(datasrc.df.iloc[:,1])
     _adjust_renko_datasrc(bins, step, datasrc)
-    datasrc.df.loc[:,datasrc.df.colums[1:5]] = 10**datasrc.df.iloc[:,1:5]
+    datasrc.df.loc[:,datasrc.df.columns[1:5]] = 10**datasrc.df.iloc[:,1:5]
 
 
 def _adjust_volume_datasrc(datasrc):
