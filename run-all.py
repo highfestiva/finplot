@@ -2,7 +2,10 @@
 
 import glob
 import os
+import sys
 
+
+pyexe = 'python3.exe' if 'win' in sys.platform else 'python3'
 pycode = open('README.md').read().split('```')[1::2]
 for pc in pycode:
     if not pc.startswith('python'):
@@ -10,9 +13,9 @@ for pc in pycode:
     pc = pc.split(maxsplit=1)[1]
     open('.t.py', 'w').write('import finplot as fplt\n'+pc)
     print('markup example')
-    os.system('python3.exe .t.py')
+    os.system(f'{pyexe} .t.py')
 for fn in glob.glob('finplot/examples/*.py') + glob.glob('dumb/*.py'):
     print(fn)
-    os.system('python3.exe %s' % fn)
+    os.system(f'{pyexe} {fn}')
 os.remove('.t.py')
 os.remove('screenshot.png')

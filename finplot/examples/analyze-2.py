@@ -26,13 +26,13 @@ fplt.add_legend('Daily % returns histogram', ax=ax3)
 fplt.hist(daily_ret, bins=60, ax=ax3)
 
 fplt.add_legend('Yearly returns in %', ax=ax4)
-fplt.bar(btc.Close.resample('Y').last().pct_change().dropna()*100, ax=ax4)
+fplt.bar(btc.Close.resample('YE').last().pct_change().dropna()*100, ax=ax4)
 
 # calculate monthly returns, display as a 4x3 heatmap
-months = btc['Adj Close'].resample('M').last().pct_change().dropna().to_frame() * 100
+months = btc['Adj Close'].resample('ME').last().pct_change().dropna().to_frame() * 100
 months.index = mnames = months.index.month_name().to_list()
 mnames = mnames[mnames.index('January'):][:12]
-mrets = [months.loc[mname].mean()[0] for mname in mnames]
+mrets = [months.loc[mname].mean().iloc[0] for mname in mnames]
 hmap = pd.DataFrame(columns=[2,1,0], data=np.array(mrets).reshape((3,4)).T)
 hmap = hmap.reset_index() # use the range index as X-coordinates (if no DateTimeIndex is found, the first column is used as X)
 colmap = fplt.ColorMap([0.3, 0.5, 0.7], [[255, 110, 90], [255, 247, 0], [60, 255, 50]]) # traffic light
