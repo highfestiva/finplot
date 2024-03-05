@@ -41,6 +41,7 @@ colmap_clash = ColorMap([0.0, 0.2, 0.6, 1.0], [[127, 127, 255, 51], [0, 0, 127, 
 foreground = '#000'
 background = '#fff'
 odd_plot_background = '#eaeaea'
+grid_alpha = 0.2
 candle_bull_color = '#26a69a'
 candle_bear_color = '#ef5350'
 candle_bull_body_color = background
@@ -2204,7 +2205,7 @@ def _ax_set_visible(ax, crosshair=None, xaxis=None, yaxis=None, xgrid=None, ygri
     if yaxis is not None:
         ax.getAxis('right').setStyle(showValues=yaxis)
     if xgrid is not None or ygrid is not None:
-        ax.showGrid(x=xgrid, y=ygrid)
+        ax.showGrid(x=xgrid, y=ygrid, alpha=grid_alpha)
         if ax.getAxis('right'):
             ax.getAxis('right').setEnabled(False)
         if ax.getAxis('bottom'):
