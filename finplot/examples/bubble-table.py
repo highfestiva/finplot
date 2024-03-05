@@ -10,16 +10,16 @@ import requests
 
 
 interval_mins = 1
-start_t = '2022-01-05T19:15Z'
+start_t = '2024-03-03T19:15Z'
 count = 35
-downsample = 3
+downsample = 5
 start_ts = int(dateutil.parser.parse(start_t).timestamp()) + 1*60
 
 
 def download_resample():
     end_ts = start_ts + (count*downsample-2)*60
     price_url = f'https://www.bitmex.com/api/udf/history?symbol=XBTUSD&resolution={interval_mins}&from={start_ts}&to={end_ts}'
-    quote_url = f'https://www.bitmex.com/api/v1/quote/bucketed?symbol=XBT&binSize={interval_mins}m&startTime={start_t}&count={count*downsample}'
+    quote_url = f'https://www.bitmex.com/api/v1/quote/bucketed?symbol=XBTUSD&binSize={interval_mins}m&startTime={start_t}&count={count*downsample}'
 
     prices = pd.DataFrame(requests.get(price_url).json())
     quotes = pd.DataFrame(requests.get(quote_url).json())
@@ -83,8 +83,9 @@ def plot_quote_table(quotes, ax):
     ts = [int(t.timestamp()) for t in quotes.index]
     colmap = fplt.ColorMap([0.0, 0.5, 1.0], [[200, 80, 60], [200, 190, 100], [40, 170, 30]]) # traffic light colors
     fplt.heatmap(quotes[[1, 0]], colmap=colmap, colcurve=lambda x: x, ax=ax) # linear color mapping
-    fplt.labels(ts, [1.5]*count, ['%.1f'%(v/1e6) for v in quotes['askSize']], ax=ax2, anchor=(0.5, 0.5))
-    fplt.labels(ts, [0.5]*count, ['%.1f'%(v/1e6) for v in quotes['bidSize']], ax=ax2, anchor=(0.5, 0.5))
+    maxSize = max(quotes.bidSize.max(), quotes.askSize.max()) / 100
+    fplt.labels(ts, [1.5]*count, ['%i'%(v/maxSize) for v in quotes['askSize']], ax=ax2, anchor=(0.5, 0.5))
+    fplt.labels(ts, [0.5]*count, ['%i'%(v/maxSize) for v in quotes['bidSize']], ax=ax2, anchor=(0.5, 0.5))
 
 
 prices, quotes = download_resample()

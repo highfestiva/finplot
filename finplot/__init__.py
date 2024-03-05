@@ -437,7 +437,10 @@ class PandasDataSource:
         input_df = datasrc.df.set_index(datasrc.df.columns[0])
         input_df.columns = [self.renames.get(col, col) for col in input_df.columns]
         # pad index if the input data is a sub-set
-        output_df = pd.merge(input_df, df[[]], how='outer', left_index=True, right_index=True)
+        if len(input_df) > 0 and len(df) > 0 and (len(df) != len(input_df) or input_df.index[-1] != df.index[-1]):
+            output_df = pd.merge(input_df, df[[]], how='outer', left_index=True, right_index=True)
+        else:
+            output_df = input_df
         for col in df.columns:
             if col not in output_df.columns:
                 output_df[col] = df[col]
