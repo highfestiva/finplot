@@ -1102,7 +1102,7 @@ class FinViewBox(pg.ViewBox):
             else:
                 lo = max(1e-100, lo)
             rng = (hi / lo) ** (1/self.v_zoom_scale)
-            rng = min(rng, 1e50) # avoid float overflow
+            rng = min(rng, 1e200) # avoid float overflow
             base = (hi*lo) ** self.v_zoom_baseline
             y0 = base / rng**self.v_zoom_baseline
             y1 = base * rng**(1-self.v_zoom_baseline)
@@ -1475,7 +1475,7 @@ def create_plot_widget(master, rows=1, init_zoom_periods=1e10, yscale='linear'):
     prev_ax = None
     for n in range(rows):
         ysc = yscale[n] if type(yscale) in (list,tuple) else yscale
-        ysc = YScale(ysc, 1)
+        ysc = YScale(ysc, 1) if type(ysc) == str else ysc
         viewbox = FinViewBox(master, init_steps=init_zoom_periods, yscale=ysc, v_zoom_scale=1-y_pad, enableMenu=False)
         ax = prev_ax = _add_timestamp_plot(master=master, prev_ax=prev_ax, viewbox=viewbox, index=n, yscale=ysc)
         if axs:
@@ -2364,7 +2364,7 @@ def _create_datasrc(ax, *args, ncols=-1, allow_scaling=True):
 
     # FIX: stupid QT bug causes rectangles larger than 2G to flicker, so scale rendering down some
     # FIX: PyQt 5.15.2 lines >1e6 are being clipped to 1e6 during the first render pass, so scale down if >1e6
-    if allow_scaling and datasrc.df.iloc[:, 1:].max(numeric_only=True).max() > 1e6:
+    if ax.vb.yscale.scalef == 1 and allow_scaling and datasrc.df.iloc[:, 1:].max(numeric_only=True).max() > 1e6:
         ax.vb.yscale.set_scale(int(1e6))
     return datasrc
 
