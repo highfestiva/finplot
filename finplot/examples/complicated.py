@@ -290,7 +290,7 @@ def change_asset(*args, **kwargs):
         ax.set_visible(xaxis=False)
         ax_rsi.show()
         fplt.set_y_range(0, 100, ax=ax_rsi)
-        fplt.add_band(30, 70, color='#6335', ax=ax_rsi)
+        fplt.add_horizontal_band(30, 70, color='#6335', ax=ax_rsi)
         plots['sar'] = fplt.plot(data['sar'], color='#55a', style='+', width=0.6, legend='SAR', ax=ax)
         plots['rsi'] = fplt.plot(data['rsi'], legend='RSI', ax=ax_rsi)
         plots['stoch'] = fplt.plot(data['stoch'], color='#880', legend='Stoch', ax=ax_rsi)

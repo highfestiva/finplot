@@ -97,7 +97,7 @@ def plot_rsi(df, ax):
     df['rsi'] = 100 - (100/(1+rs))
     df.rsi.plot(ax=ax, legend='RSI')
     fplt.set_y_range(0, 100, ax=ax)
-    fplt.add_band(30, 70, ax=ax)
+    fplt.add_horizontal_band(30, 70, ax=ax)
 
 
 def plot_vma(df, ax):

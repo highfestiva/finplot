@@ -1821,10 +1821,28 @@ def set_y_scale(yscale='linear', ax=None):
 
 
 def add_band(y0, y1, color=band_color, ax=None):
+    print('add_band() is deprecated, use add_horizontal_band() instead.')
+    return add_horizontal_band(y0, y1, color, ax)
+
+
+def add_horizontal_band(y0, y1, color=band_color, ax=None):
     ax = _create_plot(ax=ax, maximize=False)
     color = _get_color(ax, None, color)
     ix = ax.vb.yscale.invxform
     lr = pg.LinearRegionItem([ix(y0),ix(y1)], orientation=pg.LinearRegionItem.Horizontal, brush=pg.mkBrush(color), movable=False)
+    lr.lines[0].setPen(pg.mkPen(None))
+    lr.lines[1].setPen(pg.mkPen(None))
+    lr.setZValue(-50)
+    lr.ax = ax
+    ax.addItem(lr)
+    return lr
+
+
+def add_vertical_band(x0, x1, color=band_color, ax=None):
+    ax = _create_plot(ax=ax, maximize=False)
+    x_pts = _pdtime2index(ax, pd.Series([x0, x1]))
+    color = _get_color(ax, None, color)
+    lr = pg.LinearRegionItem([x_pts[0],x_pts[1]], orientation=pg.LinearRegionItem.Vertical, brush=pg.mkBrush(color), movable=False)
     lr.lines[0].setPen(pg.mkPen(None))
     lr.lines[1].setPen(pg.mkPen(None))
     lr.setZValue(-50)
@@ -2809,9 +2827,9 @@ def _pdtime2index(ax, ts, any_end=False, require_time=False):
 
     # try exact match before approximate match
     if all(xs.isin(ts)):
-      exact = datasrc.index[ts].to_list()
-      if len(exact) == len(ts):
-          return exact
+        exact = datasrc.index[ts].to_list()
+        if len(exact) == len(ts):
+            return exact
 
     r = []
     for i,t in enumerate(ts):
