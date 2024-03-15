@@ -2355,7 +2355,10 @@ def _create_datasrc(ax, *args, ncols=-1, allow_scaling=True):
         # assume time data has already been added before
         for a in ax.vb.win.axs:
             if a.vb.datasrc and len(a.vb.datasrc.df.columns) >= 2:
-                datasrc.df.columns = a.vb.datasrc.df.columns[1:len(datasrc.df.columns)+1]
+                col = a.vb.datasrc.df.columns[0]
+                if col in datasrc.df.columns:
+                    # ensure column names are unique
+                    datasrc.df.columns = a.vb.datasrc.df.columns[1:len(datasrc.df.columns)+1]
                 col = a.vb.datasrc.df.columns[0]
                 datasrc.df.insert(0, col, a.vb.datasrc.df[col])
                 datasrc = PandasDataSource(datasrc.df)
@@ -2486,7 +2489,7 @@ def _adjust_renko_log_datasrc(bins, step, datasrc):
 
 def _adjust_volume_datasrc(datasrc):
     if len(datasrc.df.columns) <= 4:
-        datasrc.df.insert(3, '_zero_', [0]*len(datasrc.df)) # base of candles is always zero
+        _insert_col(datasrc, 3, '_zero_', [0]*len(datasrc.df)) # base of candles is always zero
     datasrc.set_df(datasrc.df.iloc[:,[0,3,4,1,2]]) # re-arrange columns for rendering
     datasrc.scale_cols = [1, 2] # scale by both baseline and volume
 
@@ -2517,10 +2520,10 @@ def _adjust_horiz_datasrc(datasrc):
 
 def _adjust_bar_datasrc(datasrc, order_cols=True):
     if len(datasrc.df.columns) <= 2:
-        datasrc.df.insert(1, '_base_', [0]*len(datasrc.df)) # base
+        _insert_col(datasrc, 1, '_base_', [0]*len(datasrc.df)) # base
     if len(datasrc.df.columns) <= 4:
-        datasrc.df.insert(1, '_open_',  [0]*len(datasrc.df)) # "open" for color
-        datasrc.df.insert(2, '_close_', datasrc.df.iloc[:, 3]) # "close" (actual bar value) for color
+        _insert_col(datasrc, 1, '_open_',  [0]*len(datasrc.df)) # "open" for color
+        _insert_col(datasrc, 2, '_close_', datasrc.df.iloc[:, 3]) # "close" (actual bar value) for color
     if order_cols:
         datasrc.set_df(datasrc.df.iloc[:,[0,3,4,1,2]]) # re-arrange columns for rendering
     datasrc.scale_cols = [1, 2] # scale by both baseline and volume
@@ -2868,6 +2871,11 @@ def _get_datasrc(ax, require=True):
             return vb.datasrc
     if require:
         assert ax.vb.datasrc, 'not possible to plot this primitive without a prior time-range to compare to'
+
+
+def _insert_col(datasrc, col_idx, col_name, data):
+    if col_name not in datasrc.df.columns:
+        datasrc.df.insert(col_idx, col_name, data)
 
 
 def _millisecond_tz_wrap(s):
