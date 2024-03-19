@@ -453,6 +453,7 @@ class PandasDataSource:
             if input_df.index[-1] < df.index[-1]:
                 end_idx = -1
             if start_idx is not None or end_idx is not None:
+                end_idx = None if end_idx == -1 else end_idx
                 output_df = output_df.loc[input_df.index[start_idx:end_idx], :]
         output_df = self.post_update(output_df)
         output_df = output_df.reset_index()
