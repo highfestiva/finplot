@@ -502,14 +502,15 @@ class PandasDataSource:
         return self._rows(df, colcnt, yscale=yscale, lod=lod, resamp=resamp), origlen
 
     def _rows(self, df, colcnt, yscale, lod, resamp):
+        colcnt -= 1 # time is always implied
+        colidxs = [0] + list(range(self.col_data_offset, self.col_data_offset+colcnt))
         if lod and len(df) > lod_candles:
             if resamp:
                 df = self._resample(df, colcnt, resamp)
+                colidxs = None
             else:
                 df = df.iloc[::len(df)//lod_candles]
-        colcnt -= 1 # time is always implied
-        colidxs = [0] + list(range(self.col_data_offset, self.col_data_offset+colcnt))
-        dfr = df.iloc[:,colidxs]
+        dfr = df.iloc[:,colidxs] if colidxs else df
         if yscale.scaletype == 'log' or yscale.scalef != 1:
             dfr = dfr.copy()
             for i in range(1, colcnt+1):
