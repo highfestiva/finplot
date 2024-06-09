@@ -980,17 +980,17 @@ class FinViewBox(pg.ViewBox):
                 self.axHistoryPointer += 1
                 self.axHistory = self.axHistory[:self.axHistoryPointer] + [ax]
         else: # vertical band
-            p0 = self.mapToView(ev.lastPos())
-            p0 = _clamp_point(self.parent(), p0)
-            p1 = self.mapToView(ev.pos())
-            p1 = _clamp_point(self.parent(), p1)
-            x = self.datasrc.x
+            p = self.mapToView(ev.pos())
+            p = _clamp_point(self.parent(), p)
             if self.vband is None:
-                x0, x1 = x[int(p0.x())], x[int(p1.x())]
+                x = self.datasrc.x
+                x0, x1 = x[int(p.x())], x[min(len(x)-1, int(p.x())+1)]
                 self.vband = add_vertical_band(x0, x1, color=draw_band_color, ax=self.parent())
                 self.vband.setMovable(True)
+                _set_clamp_pos(self.vband.lines[0])
+                _set_clamp_pos(self.vband.lines[1])
             else:
-                rgn = (self.vband.lines[0].value(), int(p1.x()))
+                rgn = (self.vband.lines[0].value(), int(p.x()))
                 self.vband.setRegion(rgn)
             if ev.isFinish():
                 self.vbands += [self.vband]
@@ -3011,6 +3011,19 @@ def _clamp_point(ax, p):
         x,y = _clamp_xy(ax, p.x(), p.y())
         return pg.Point(x, y)
     return p
+
+
+def _comp_set_clamp_pos(set_pos_func, pos):
+    if clamp_grid:
+        if isinstance(pos, QtCore.QPointF):
+            pos = pg.Point(int(pos.x()), pos.y())
+        else:
+            pos = int(pos)
+    set_pos_func(pos)
+
+
+def _set_clamp_pos(comp):
+    comp.setPos = partial(_comp_set_clamp_pos, comp.setPos)
 
 
 def _draw_line_segment_text(polyline, segment, pos0, pos1):
