@@ -53,6 +53,7 @@ volume_bull_body_color = volume_bull_color
 volume_neutral_color = '#bbb'
 poc_color = '#006'
 band_color = '#d2dfe6'
+draw_band_color = '#a0c0e0a0'
 cross_hair_color = '#0007'
 draw_line_color = '#000'
 draw_done_color = '#555'
@@ -819,6 +820,8 @@ class FinViewBox(pg.ViewBox):
         self.v_zoom_scale = v_zoom_scale
         self.master_viewbox = None
         self.rois = []
+        self.vband = None
+        self.vbands = []
         self.win._isMouseLeftDrag = False
         self.zoom_listeners = set()
         self.reset()
@@ -960,19 +963,38 @@ class FinViewBox(pg.ViewBox):
         ev.accept()
 
     def mouseRightDrag(self, ev, axis):
-        '''RButton is box zoom. At least for now.'''
+        '''Without modifiers: RButton is box zoom. At least for now.
+           With Ctrl:         RButton is add vertical band.'''
         ev.accept()
-        if not ev.isFinish():
-            self.updateScaleBox(ev.buttonDownPos(), ev.pos())
-        else:
-            self.rbScaleBox.hide()
-            ax = QtCore.QRectF(pg.Point(ev.buttonDownPos(ev.button())), pg.Point(ev.pos()))
-            ax = self.childGroup.mapRectFromParent(ax)
-            if ax.width() < 2: # zooming this narrow is probably a mistake
-                ax.adjust(-1, 0, +1, 0)
-            self.showAxRect(ax)
-            self.axHistoryPointer += 1
-            self.axHistory = self.axHistory[:self.axHistoryPointer] + [ax]
+        box_zoom = ((ev.modifiers() != QtCore.Qt.KeyboardModifier.ControlModifier) or self.rbScaleBox.isVisible()) and self.vband is None
+        if box_zoom:
+            if not ev.isFinish():
+                self.updateScaleBox(ev.buttonDownPos(), ev.pos())
+            else:
+                self.rbScaleBox.hide()
+                ax = QtCore.QRectF(pg.Point(ev.buttonDownPos(ev.button())), pg.Point(ev.pos()))
+                ax = self.childGroup.mapRectFromParent(ax)
+                if ax.width() < 2: # zooming this narrow is probably a mistake
+                    ax.adjust(-1, 0, +1, 0)
+                self.showAxRect(ax)
+                self.axHistoryPointer += 1
+                self.axHistory = self.axHistory[:self.axHistoryPointer] + [ax]
+        else: # vertical band
+            p0 = self.mapToView(ev.lastPos())
+            p0 = _clamp_point(self.parent(), p0)
+            p1 = self.mapToView(ev.pos())
+            p1 = _clamp_point(self.parent(), p1)
+            x = self.datasrc.x
+            if self.vband is None:
+                x0, x1 = x[int(p0.x())], x[int(p1.x())]
+                self.vband = add_vertical_band(x0, x1, color=draw_band_color, ax=self.parent())
+                self.vband.setMovable(True)
+            else:
+                rgn = (self.vband.lines[0].value(), int(p1.x()))
+                self.vband.setRegion(rgn)
+            if ev.isFinish():
+                self.vbands += [self.vband]
+                self.vband = None
 
     def mouseClickEvent(self, ev):
         if self.master_viewbox:
