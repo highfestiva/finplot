@@ -902,35 +902,61 @@ class FinViewBox(pg.ViewBox):
             super().mouseDragEvent(ev, axis)
 
     def mouseLeftDrag(self, ev, axis):
-        '''Ctrl+LButton draw lines.'''
-        if ev.modifiers() != QtCore.Qt.KeyboardModifier.ControlModifier:
+        '''
+            LButton drag pans.
+            Shift+LButton drag draws vertical bars ("selections").
+            Ctrl+LButton drag draw lines.
+        '''
+        pan_drag = ev.modifiers() == QtCore.Qt.KeyboardModifier.NoModifier
+        select_band_drag = not self.drawing and (self.vband is not None or ev.modifiers() == QtCore.Qt.KeyboardModifier.ShiftModifier)
+        draw_drag = self.vband is None and (self.drawing or ev.modifiers() == QtCore.Qt.KeyboardModifier.ControlModifier)
+
+        if pan_drag:
             super().mouseDragEvent(ev, axis)
             if ev.isFinish():
                 self.win._isMouseLeftDrag = False
             else:
                 self.win._isMouseLeftDrag = True
-            if ev.isFinish() or self.drawing:
+            if ev.isFinish() or draw_drag or select_band_drag:
                 self.refresh_all_y_zoom()
+
+        if select_band_drag:
+            p = self.mapToView(ev.pos())
+            p = _clamp_point(self.parent(), p)
+            if self.vband is None:
+                x = self.datasrc.x
+                x0, x1 = x[int(p.x())], x[min(len(x)-1, int(p.x())+1)]
+                self.vband = add_vertical_band(x0, x1, color=draw_band_color, ax=self.parent())
+                self.vband.setMovable(True)
+                _set_clamp_pos(self.vband.lines[0])
+                _set_clamp_pos(self.vband.lines[1])
+            else:
+                rgn = (self.vband.lines[0].value(), int(p.x()))
+                self.vband.setRegion(rgn)
+            if ev.isFinish():
+                self.vbands += [self.vband]
+                self.vband = None
+
+        if draw_drag:
+            if self.draw_line and not self.drawing:
+                self.set_draw_line_color(draw_done_color)
+            p1 = self.mapToView(ev.pos())
+            p1 = _clamp_point(self.parent(), p1)
             if not self.drawing:
-                return
-        if self.draw_line and not self.drawing:
-            self.set_draw_line_color(draw_done_color)
-        p1 = self.mapToView(ev.pos())
-        p1 = _clamp_point(self.parent(), p1)
-        if not self.drawing:
-            # add new line
-            p0 = self.mapToView(ev.lastPos())
-            p0 = _clamp_point(self.parent(), p0)
-            self.draw_line = _create_poly_line(self, [p0, p1], closed=False, pen=pg.mkPen(draw_line_color), movable=False)
-            self.draw_line.setZValue(40)
-            self.rois.append(self.draw_line)
-            self.addItem(self.draw_line)
-            self.drawing = True
-        else:
-            # draw placed point at end of poly-line
-            self.draw_line.movePoint(-1, p1)
-        if ev.isFinish():
-            self.drawing = False
+                # add new line
+                p0 = self.mapToView(ev.lastPos())
+                p0 = _clamp_point(self.parent(), p0)
+                self.draw_line = _create_poly_line(self, [p0, p1], closed=False, pen=pg.mkPen(draw_line_color), movable=False)
+                self.draw_line.setZValue(40)
+                self.rois.append(self.draw_line)
+                self.addItem(self.draw_line)
+                self.drawing = True
+            else:
+                # draw placed point at end of poly-line
+                self.draw_line.movePoint(-1, p1)
+            if ev.isFinish():
+                self.drawing = False
+
         ev.accept()
 
     def mouseMiddleDrag(self, ev, axis):
@@ -963,38 +989,19 @@ class FinViewBox(pg.ViewBox):
         ev.accept()
 
     def mouseRightDrag(self, ev, axis):
-        '''Without modifiers: RButton is box zoom. At least for now.
-           With Ctrl:         RButton is add vertical band.'''
+        '''RButton drag is box zoom. At least for now.'''
         ev.accept()
-        box_zoom = ((ev.modifiers() != QtCore.Qt.KeyboardModifier.ControlModifier) or self.rbScaleBox.isVisible()) and self.vband is None
-        if box_zoom:
-            if not ev.isFinish():
-                self.updateScaleBox(ev.buttonDownPos(), ev.pos())
-            else:
-                self.rbScaleBox.hide()
-                ax = QtCore.QRectF(pg.Point(ev.buttonDownPos(ev.button())), pg.Point(ev.pos()))
-                ax = self.childGroup.mapRectFromParent(ax)
-                if ax.width() < 2: # zooming this narrow is probably a mistake
-                    ax.adjust(-1, 0, +1, 0)
-                self.showAxRect(ax)
-                self.axHistoryPointer += 1
-                self.axHistory = self.axHistory[:self.axHistoryPointer] + [ax]
-        else: # vertical band
-            p = self.mapToView(ev.pos())
-            p = _clamp_point(self.parent(), p)
-            if self.vband is None:
-                x = self.datasrc.x
-                x0, x1 = x[int(p.x())], x[min(len(x)-1, int(p.x())+1)]
-                self.vband = add_vertical_band(x0, x1, color=draw_band_color, ax=self.parent())
-                self.vband.setMovable(True)
-                _set_clamp_pos(self.vband.lines[0])
-                _set_clamp_pos(self.vband.lines[1])
-            else:
-                rgn = (self.vband.lines[0].value(), int(p.x()))
-                self.vband.setRegion(rgn)
-            if ev.isFinish():
-                self.vbands += [self.vband]
-                self.vband = None
+        if not ev.isFinish():
+            self.updateScaleBox(ev.buttonDownPos(), ev.pos())
+        else:
+            self.rbScaleBox.hide()
+            ax = QtCore.QRectF(pg.Point(ev.buttonDownPos(ev.button())), pg.Point(ev.pos()))
+            ax = self.childGroup.mapRectFromParent(ax)
+            if ax.width() < 2: # zooming this narrow is probably a mistake
+                ax.adjust(-1, 0, +1, 0)
+            self.showAxRect(ax)
+            self.axHistoryPointer += 1
+            self.axHistory = self.axHistory[:self.axHistoryPointer] + [ax]
 
     def mouseClickEvent(self, ev):
         if self.master_viewbox:
