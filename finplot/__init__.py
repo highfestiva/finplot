@@ -821,7 +821,6 @@ class FinViewBox(pg.ViewBox):
         self.master_viewbox = None
         self.rois = []
         self.vband = None
-        self.vbands = []
         self.win._isMouseLeftDrag = False
         self.zoom_listeners = set()
         self.reset()
@@ -934,7 +933,7 @@ class FinViewBox(pg.ViewBox):
                 rgn = (self.vband.lines[0].value(), int(p.x()))
                 self.vband.setRegion(rgn)
             if ev.isFinish():
-                self.vbands += [self.vband]
+                self.rois += [self.vband]
                 self.vband = None
 
         if draw_drag:
