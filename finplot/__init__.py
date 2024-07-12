@@ -923,8 +923,10 @@ class FinViewBox(pg.ViewBox):
             p = self.mapToView(ev.pos())
             p = _clamp_point(self.parent(), p)
             if self.vband is None:
+                p0 = self.mapToView(ev.buttonDownPos())
+                p0 = _clamp_point(self.parent(), p0)
                 x = self.datasrc.x
-                x0, x1 = x[int(p.x())], x[min(len(x)-1, int(p.x())+1)]
+                x0, x1 = x[int(p0.x())], x[min(len(x)-1, int(p.x())+1)]
                 self.vband = add_vertical_band(x0, x1, color=draw_band_color, ax=self.parent())
                 self.vband.setMovable(True)
                 _set_clamp_pos(self.vband.lines[0])
