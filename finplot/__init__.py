@@ -857,6 +857,8 @@ class FinViewBox(pg.ViewBox):
             self.y_min = df.min().min()
             if self.y_min <= 0:
                 self.y_positive = False
+            if self.y_min < 0:
+                self.v_zoom_baseline = 0.5
 
     @property
     def datasrc_or_standalone(self):
