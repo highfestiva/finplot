@@ -2752,6 +2752,21 @@ def _mouse_moved(master, vb, evs):
             ax.crosshair.update(point)
 
 
+def _get_link_group(master, vb):
+    '''return the viewboxes in the same linked group as the parameter one'''
+    vbs = [ax.vb for ax in master.axs]
+    vb_master_to_linked = defaultdict(set)
+    for vb0 in vbs:
+        vb_master = vb0.linkedView(0)
+        if vb_master:
+            vb_master_to_linked[vb_master].add(vb_master)
+            vb_master_to_linked[vb_master].add(vb0)
+            continue
+        vb_master_to_linked[vb0].add(vb0) # add master itself
+    affected_vbs = vb_master_to_linked[vb.linkedView(0) or vb]
+    return affected_vbs
+
+
 def _wheel_event_wrapper(self, orig_func, ev):
     # scrolling on the border is simply annoying, pop in a couple of pixels to make sure
     d = QtCore.QPointF(-2,0)
