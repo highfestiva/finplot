@@ -2840,11 +2840,11 @@ def _pdtime2epoch(t):
     if isinstance(t, pd.Series):
         if isinstance(t.iloc[0], pd.Timestamp):
             dtype = str(t.dtype)
-            if dtype.endswith('[s]'):
+            if '[s' in dtype:
                 return t.astype('int64') * int(1e9)
-            elif dtype.endswith('[ms]'):
+            elif '[ms' in dtype:
                 return t.astype('int64') * int(1e6)
-            elif dtype.endswith('us'):
+            elif '[us' in dtype:
                 return t.astype('int64') * int(1e3)
             return t.astype('int64')
         h = np.nanmax(t.values)
