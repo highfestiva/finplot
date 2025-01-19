@@ -42,6 +42,8 @@ foreground = '#000'
 background = '#fff'
 odd_plot_background = '#eaeaea'
 grid_alpha = 0.2
+crosshair_right_margin = 200
+crosshair_bottom_margin = 50
 candle_bull_color = '#26a69a'
 candle_bear_color = '#ef5350'
 candle_bull_body_color = background
@@ -651,10 +653,11 @@ class FinCrossHair:
             if xtext:
                 xtext = 'x ' + xtext
             ytext = 'y ' + ytext
-        far_right = self.ax.viewRect().x() + self.ax.viewRect().width()*0.9
-        far_bottom = self.ax.viewRect().y() + self.ax.viewRect().height()*0.1
-        close2right = x > far_right
-        close2bottom = linear_y < far_bottom
+        screen_pos = self.ax.mapFromView(pg.Point(x, linear_y))
+        far_right = self.ax.boundingRect().right() - crosshair_right_margin
+        far_bottom = self.ax.boundingRect().bottom() - crosshair_bottom_margin
+        close2right = screen_pos.x() > far_right
+        close2bottom = screen_pos.y() > far_bottom
         try:
             for info in self.infos:
                 xtext,ytext = info(x,y,xtext,ytext)
@@ -672,10 +675,11 @@ class FinCrossHair:
             xanchor = [0,1]
             yanchor = [0,0]
         if close2bottom:
-            ytext = ytext + space
             yanchor = [1,1]
             if close2right:
                 xanchor = [1,2]
+            else:
+                ytext = ytext + space
         self.xtext.setAnchor(xanchor)
         self.ytext.setAnchor(yanchor)
         self.xtext.setText(xtext)
