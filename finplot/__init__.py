@@ -209,7 +209,11 @@ class YAxisItem(pg.AxisItem):
         if self.hide_strings:
             return []
         xform = self.vb.yscale.xform
-        return [self.next_fmt%xform(value) for value in values]
+        orig_values = [xform(value) for value in values]
+        return self.tick_strings(orig_values, scale, spacing)
+
+    def tick_strings(self, values, scale, spacing):
+        return [self.next_fmt % value for value in values]
 
     def fmt_values(self, vs):
         xform = self.vb.yscale.xform
