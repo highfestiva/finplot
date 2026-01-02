@@ -5,7 +5,7 @@ import os
 import sys
 
 
-pyexe = 'python3.exe' if 'win' in sys.platform else 'python3'
+pyexe = 'python3.exe' if sys.platform.startswith('win') else 'python3'
 pycode = open('README.md').read().split('```')[1::2]
 for pc in pycode:
     if not pc.startswith('python'):
