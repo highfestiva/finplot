@@ -43,6 +43,11 @@ away if that's what you want.
 $ pip install finplot
 ```
 
+> **Note:** A recent fix ensures compatibility with Python 3.14 by avoiding in-place
+> numpy operations on potentially read-only arrays. If you encountered a
+> "read-only" error during normalization, please upgrade to the latest version.
+
+
 
 ## Example
 

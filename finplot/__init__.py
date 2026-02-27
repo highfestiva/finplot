@@ -1333,7 +1333,10 @@ class HeatmapItem(FinPlotItem):
         df = self.datasrc.df.iloc[:, self.datasrc.col_data_offset:self.col_data_end]
         values = df.values
         # normalize
-        values -= np.nanmin(values)
+        # avoid in-place subtraction which can trigger a "read-only" error on some
+        # numpy arrays under Python 3.14 (the array may be a read-only view); copy
+        # before performing the operation.
+        values = values - np.nanmin(values)
         values = values / (np.nanmax(values) / (1+self.whiteout)) # overshoot for coloring
         lim = self.filter_limit * (1+self.whiteout)
         p = self.painter
