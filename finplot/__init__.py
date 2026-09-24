@@ -1781,6 +1781,7 @@ def plot(x, y=None, color=None, width=1, ax=None, style=None, legend=None, zooms
         item.scatter.mouseClickEvent = _dummy_mouse_click
         item.setZValue(10)
     item.opts['handed_color'] = color
+    item.opts['used_color'] = used_color
     item.ax = ax
     item.datasrc = datasrc
     _update_significants(ax, datasrc, force=False)
@@ -2833,17 +2834,20 @@ def _get_color(ax, style, wanted_color):
         return wanted_color
     index = wanted_color if type(wanted_color) == int else None
     is_line = lambda style: style is None or any(ch in style for ch in '-_.')
-    get_handed_color = lambda item: item.opts.get('handed_color')
     this_line = is_line(style)
     if this_line:
         colors = soft_colors
     else:
         colors = hard_colors
     if index is None:
-        avoid = set(i.opts['handed_color'] for i in ax.items if isinstance(i,pg.PlotDataItem) and get_handed_color(i) is not None and this_line==is_line(i.opts['symbol']))
-        index = len([i for i in ax.items if isinstance(i,pg.PlotDataItem) and get_handed_color(i) is None and this_line==is_line(i.opts['symbol'])])
-        while index in avoid:
-            index += 1
+        avoid = set((i.opts.get('handed_color') or i.opts.get('used_color'))  \
+                    for i in ax.items \
+                    if isinstance(i,pg.PlotDataItem) \
+                    and (i.opts.get('handed_color') is not None or i.opts.get('used_color') is not None) \
+                    and this_line==is_line(i.opts['symbol']))
+        for index in range(len(colors)):
+            if index not in avoid and colors[index] not in avoid:
+                break
     return colors[index%len(colors)]
 
 
