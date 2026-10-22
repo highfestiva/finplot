@@ -2893,7 +2893,10 @@ def _pdtime2index(ax, ts, any_end=False, require_time=False):
     xs = datasrc.x
 
     # try exact match before approximate match
-    if all(xs.isin(ts)):
+    # datasrc.index is a positional RangeIndex after a time column is reset.
+    # Timestamp values are not labels of that index; looking them up raises
+    # IndexError on a short candle series (issue #556).
+    if all(xs.isin(ts)) and all(ts.isin(datasrc.index)):
         exact = datasrc.index[ts].to_list()
         if len(exact) == len(ts):
             return exact
