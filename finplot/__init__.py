@@ -71,7 +71,7 @@ lod_candles = 3000
 lod_labels = 700
 cache_candle_factor = 3 # factor extra candles rendered to buffer
 y_pad = 0.03 # 3% padding at top and bottom of autozoom plots
-y_label_width = 65
+y_label_width = None # None lets PyQtGraph size the axis to its tick labels
 timestamp_format = '%Y-%m-%d %H:%M:%S.%f'
 display_timezone = tzlocal() # default to local
 truncate_timestamp = True
@@ -181,7 +181,7 @@ class YAxisItem(pg.AxisItem):
         super().__init__(*args, **kwargs)
         self.vb = vb
         self.hide_strings = False
-        self.style['autoExpandTextSpace'] = False
+        self.style['autoExpandTextSpace'] = True
         self.style['autoReduceTextSpace'] = False
         self.next_fmt = '%g'
 
